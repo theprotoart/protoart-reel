@@ -56,6 +56,7 @@ contextBridge.exposeInMainWorld('reel', {
   recChunk: (id, data) => ipcRenderer.send('rec:chunk', id, data),
   recEnd: (ids, meta) => invoke('rec:end', ids, meta),
   recCancel: ids => invoke('rec:cancel', ids),
+  recPause: paused => invoke('rec:pause', paused),
   hideWindow: () => invoke('rec:hideWindow'),
   exportBegin: (token, name, kind) => invoke('export:begin', token, name, kind),
   exportPickFolder: () => invoke('export:pickFolder'),

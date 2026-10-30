@@ -98,6 +98,8 @@ async function meter(on) { if (!available()) return false; if (!on && !proc) ret
 
 async function recStart(rec, apps) { return request({ cmd: 'recStart', rec, apps }, 20000); }
 async function recStop(rec) { return request({ cmd: 'recStop', rec }, 20000); }
+/** Pause or resume writing the chosen apps' sound (the taps keep running, so resuming is instant). */
+async function recPause(rec, paused) { return request({ cmd: 'recPause', rec, paused: !!paused }, 8000); }
 /** Clicks (and keys, only when asked) while recording, through a listen-only event tap. */
 /** Background removal: a person mask video for a clip's media (Vision, on this Mac). */
 async function matte(src, dst, quality) { return request({ cmd: 'matte', src, dst, quality }, 6 * 60 * 60 * 1000); }
@@ -112,4 +114,4 @@ async function inputStop() { if (proc) await request({ cmd: 'inputStop' }, 4000)
 function onEvent(fn) { listeners.add(fn); return () => listeners.delete(fn); }
 function stop() { if (proc) { send({ cmd: 'quit' }); const p = proc; setTimeout(() => { try { p.kill('SIGKILL'); } catch { /* gone */ } }, 3000); } }
 
-module.exports = { available, list, set, resetAll, meter, conform, recStart, recStop, inputStart, inputStop, matte, onEvent, stop, loadRules };
+module.exports = { available, list, set, resetAll, meter, conform, recStart, recStop, recPause, inputStart, inputStop, matte, onEvent, stop, loadRules };

@@ -11,6 +11,9 @@ class RecCapture extends AudioWorkletProcessor {
     this.level = 0;
     this.port.onmessage = e => {
       if (e.data === 'start') { this.on = true; this.n = 0; this.port.postMessage({ started: currentTime }); }
+      // pause: keep the part-filled block, write nothing until resume (so the file just leaves the pause out)
+      if (e.data === 'pause') this.on = false;
+      if (e.data === 'resume') this.on = true;
       if (e.data === 'stop') { this.flush(); this.on = false; this.port.postMessage({ stopped: true }); }
     };
   }

@@ -7,7 +7,7 @@ import {
   History, timeFormat, withGroups, normalize, uid, duration, split, remove, newMediaClip, newTextClip, newCalloutClip, newShapeClip,
   freeTrack, addTrack, clipEnd, propsAt, ANIMATABLE, mediaById, fmtTime, isFree,
   setSpeed, SPEED_STEPS, SPEED_MIN, SPEED_MAX, putKey,
-  mergeOverlapTracks,
+  mergeOverlapTracks, removeRange,
 } from './model.js';
 import { Player } from './player.js';
 import { Timeline } from './timeline.js';
@@ -43,6 +43,7 @@ import { openNewDocument, applyStarter, STARTERS, starterThumb } from './presets
 import { ProxyQueue, proxyPrefs, setProxyPrefs } from './proxies.js';
 import { fitHeader } from './headerfit.js';
 import { openAutoEdit } from './autoedit.js';
+import { openClapFinder, clapsOnTimeline, addClapMarkers } from './clapscan.js';
 import { syncTrackPlugins, watchLive } from './trackplugins.js';
 import { openTransitions } from './transpicker.js';
 import { initSimple, applyMode } from './simple.js';
@@ -136,6 +137,7 @@ class App {
     $('#doc-name').contentEditable = 'false';
     for (const b of ['#btn-import', '#btn-thumb', '#btn-aiimage', '#btn-export', '#btn-autoedit']) $(b).disabled = true;
     $('#btn-close-project').classList.add('hidden');
+    $('#btn-save-project').classList.add('hidden');
     const grid = $('#recent');
     grid.replaceChildren();
     const recent = await api.recent().catch(() => []);
@@ -226,6 +228,7 @@ class App {
       $('#home').classList.add('hidden'); $('#editor').classList.remove('hidden');
       for (const b of ['#btn-import', '#btn-thumb', '#btn-aiimage', '#btn-export', '#btn-autoedit']) $(b).disabled = false;
       $('#btn-close-project').classList.remove('hidden');
+      $('#btn-save-project').classList.remove('hidden');
       const name = $('#doc-name');
       name.textContent = this.doc.name;
       name.title = `${this.doc.name} — click to rename`;
@@ -591,7 +594,7 @@ class App {
   }
 
   /** Lays out a finished recording: camera on top as picture-in-picture, screen below, sound under. */
-  addRecording(res, { cursorOffset, appLead = 0, pointerSeparate = false, keys = false }) {
+  addRecording(res, { cursorOffset, appLead = 0, pointerSeparate = false, keys = false, marks = [] }) {
     if (res.inputError) toast(res.inputError, 8000);
     const failed = res.media.filter(r => r.error);
     if (failed.length) toast(failed.map(f => `${f.role}: ${f.error}`).join('\n'), 8000);
@@ -638,11 +641,42 @@ class App {
         placed.push(c.id);
       }
       squareUpRecording(doc.clips.filter(c => placed.includes(c.id)), at);
-      this.selection = { clips: placed.slice(0, 1), action: null };
+      // markers you dropped while recording (⌥⇧⌘M), at the moment you pressed it
+      const recStart = Math.min(...doc.clips.filter(c => placed.includes(c.id)).map(c => c.start));
+      for (const ms of marks) doc.markers.push({ id: uid('k'), t: recStart + ms / 1000, label: '◆ Mark' });
+      if (marks.length) doc.markers.sort((a, b) => a.t - b.t);
+      // one recording's screen, camera and sound move together, like ScreenFlow (UNGROUP to split them)
+      if (placed.length > 1) { const g = uid('g'); for (const c of doc.clips) if (placed.includes(c.id)) c.group = g; }
+      this.selection = { clips: placed.slice(), action: null };
     });
     this.save();
     requestAnimationFrame(() => this.timeline.fit());
-    toast('Recording added to the timeline.');
+    toast(marks.length ? `Recording added to the timeline, with ${marks.length} marker${marks.length === 1 ? '' : 's'}.` : 'Recording added to the timeline.');
+    this.markClaps(recId);
+  }
+  /** After a recording: listen to its microphone for "clap clap clap" and mark (or cut) each one. */
+  async markClaps(recId) {
+    const mode = pref('recClaps');
+    if (mode === 'off') return;
+    const token = this.token;
+    const mics = this.doc.clips.filter(c => { const m = c.type === 'media' && this.doc.media.find(x => x.id === c.media); return m && m.recording === recId && m.role === 'mic'; });
+    if (!mics.length) return;
+    let sigs;
+    try { sigs = await clapsOnTimeline(this, mics); } catch { return; }
+    if (!sigs.length || this.token !== token || !this.doc) return;
+    const n = sigs.length, s = n === 1 ? '' : 's';
+    if (mode === 'cut') {
+      this.commit(d => {
+        for (const x of [...sigs].reverse()) removeRange(d, x.t0, x.t1);
+        let shift = 0;
+        for (const x of sigs) { d.markers.push({ id: uid('k'), t: x.t0 - shift, label: '✂ Clap', claps: true }); shift += x.t1 - x.t0; }
+        d.markers.sort((a, b) => a.t - b.t);
+      });
+      toast(`Heard ${n} clap signal${s}: cut out, with a marker at each cut (⌘Z puts them back).`, 6000);
+    } else {
+      this.commit(d => { addClapMarkers(d, sigs); });
+      toast(`Heard ${n} clap signal${s}: marked on the timeline.`, 6000);
+    }
   }
 
   // ---------------------------------------------------------------- tracks
@@ -687,8 +721,13 @@ class App {
     setTimeout(() => input.select(), 50);
   }
 
+  setRecordingPaused(p) {
+    document.body.classList.toggle('rec-paused', !!p);
+    $('#btn-record').innerHTML = p ? '<span class="dot"></span>STOP (PAUSED)' : '<span class="dot"></span>STOP';
+  }
   setRecording(on) {
     document.body.classList.toggle('recording', on);
+    if (!on) document.body.classList.remove('rec-paused');
     this.setLamp('rec', on);
     $('#btn-record').innerHTML = on ? '<span class="dot"></span>STOP' : '<span class="dot"></span>REC';
   }
@@ -697,7 +736,7 @@ class App {
   // ---------------------------------------------------------------- commands
   cmd(name) {
     const doc = this.doc, t = this.player.time, sel = this.selection.clips;
-    const needDoc = !['new', 'open', 'templates', 'home', 'about', 'settings', 'stop-recording', 'record', 'sound', 'toggle-smpte', 'explain', 'track-small', 'track-regular', 'track-large', 'toggle-scrub'].includes(name);
+    const needDoc = !['new', 'open', 'templates', 'home', 'about', 'settings', 'stop-recording', 'pause-recording', 'record', 'sound', 'toggle-smpte', 'explain', 'track-small', 'track-regular', 'track-large', 'toggle-scrub'].includes(name);
     if (needDoc && !doc) return;
     if (name.startsWith('label-')) return ops.setLabel(this, name.slice(6) === 'none' ? '' : name.slice(6));
     if (name.startsWith('remove-section:')) return ops.removeSection(this, name.slice(15));
@@ -708,12 +747,13 @@ class App {
       case 'save-template': return this.saveTemplate();
       case 'archive': return this.archive();
       case 'home': return this.showHome();
-      case 'save': return this.save();
+      case 'save': return this.save().then(() => { if (!this.dirty) toast('Saved.'); });
       case 'save-and-close': return this.save().then(() => api.closeNow());
       case 'reveal': return api.reveal(this.token);
       case 'import': return this.importMedia();
       case 'record': if (this.onStopRecording) return this.onStopRecording(); return doc ? openRecorder(this) : this.newProject(true);
       case 'stop-recording': if (this.onStopRecording) this.onStopRecording(); return;
+      case 'pause-recording': if (this.onPauseRecording) this.onPauseRecording(); return;
       case 'thumbnail': return openThumbnailStudio(this);
       case 'aiimage': return openImageGenerator(this);
       case 'export': return openExport(this);
@@ -834,11 +874,12 @@ class App {
         return;
       case 'duplicate': {
         if (!sel.length) return;
-        const ids = [];
+        const ids = [], regroup = new Map(); // copies of a group are grouped together, apart from the originals
         this.commit(d => {
           for (const id of sel) {
             const c = d.clips.find(x => x.id === id);
             const copy = structuredClone(c); copy.id = uid('c');
+            if (c.group) { if (!regroup.has(c.group)) regroup.set(c.group, uid('g')); copy.group = regroup.get(c.group); }
             copy.start = clipEnd(c);
             copy.track = freeTrack(d, copy.start, copy.duration, c.track);
             for (const a of copy.actions) a.id = uid('a');
@@ -848,6 +889,7 @@ class App {
         this.select(ids, null);
         return;
       }
+      case 'find-claps': return openClapFinder(this);
       case 'marker': this.commit(d => { d.markers.push({ id: uid('k'), t, label: `Chapter ${d.markers.length + 1}` }); d.markers.sort((a, b) => a.t - b.t); }); return;
       case 'insert-text': return this._insert(newTextClip(null, t, doc.name));
       case 'insert-callout': return this._insert(newCalloutClip(null, t));
@@ -1453,6 +1495,7 @@ class App {
     $('#btn-export').addEventListener('click', () => this.cmd('export'));
     $('#btn-help').addEventListener('click', () => this.cmd('about'));
     $('#btn-close-project').addEventListener('click', () => this.cmd('home'));
+    $('#btn-save-project').addEventListener('click', () => this.cmd('save'));
     this.explain = new Explain(this);
     const scrub = $('#scrub');
     try { scrub.checked = localStorage.getItem('reel.scrubAudio') === '1'; } catch { /* default off */ }

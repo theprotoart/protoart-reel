@@ -8,7 +8,7 @@ import { drawElement } from './lib/elements.js';
 
 /**
  * ctx: CanvasRenderingContext2D or OffscreenCanvasRenderingContext2D sized to the output.
- * sources.frame(clip, sourceTime) -> { img, w, h, rot } | null
+ * sources.frame(clip, sourceTime) -> { img, w, h, rot, scaled? } | null  (scaled: img is that fraction of the original's size)
  * sources.cursor(clip, sourceTime) -> { x, y } (0..1 of the media frame) | null
  */
 let framePointer = null; // where the recorded pointer is on the canvas this frame (0..1), if any
@@ -161,7 +161,7 @@ function drawMedia(ctx, doc, c, p, local, sources, W, H, sx) {
       const lut = u.lut && sources.lut ? sources.lut(u.lut) : null;
       try {
         const out = gl.process(src.img, src.w * show, src.h * show, u, mask && mask.img, lut, c.matte?.feather ?? 0.08);
-        src = { img: out, w: out.width, h: out.height, rot: src.rot, scaled: show };
+        src = { img: out, w: out.width, h: out.height, rot: src.rot, scaled: show * (src.scaled || 1) };
       } catch { /* draw unfiltered rather than not at all */ }
     }
   }

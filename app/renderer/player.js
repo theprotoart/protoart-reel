@@ -393,8 +393,9 @@ export class Player {
         const r = this.els.get(c.id);
         // mid-seek the element still holds its last frame: keep drawing it rather than blanking
         if (!r || !r.el.videoWidth || (r.el.readyState < 2 && !r.el._shown)) return null;
-        // a proxy is laid out at the original's size, so nothing moves when it swaps in or out
-        if (r.proxied && m.width && m.height) return { img: r.el, w: m.width, h: m.height, rot: 0 };
+        // a proxy is smaller than the original: say how much (scaled), so the compositor lays it out at the
+        // original's size and reads its pixels at the proxy's size. Nothing moves when it swaps in or out.
+        if (r.proxied && m.width && m.height) return { img: r.el, w: r.el.videoWidth, h: r.el.videoHeight, rot: 0, scaled: r.el.videoWidth / m.width };
         return { img: r.el, w: r.el.videoWidth, h: r.el.videoHeight, rot: 0 };
       },
       cursor: (c, st) => {

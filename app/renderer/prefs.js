@@ -32,6 +32,7 @@ export const PREFS = {
   recFps: { page: 'playback', label: 'Screen recording frame rate', type: 'select', ...inObj('rec-settings', 'fps', 30), options: [[30, '30 fps'], [60, '60 fps']] },
   recMax: { page: 'playback', label: 'Screen recording size', type: 'select', ...inObj('rec-settings', 'max', '4k'), options: [['native', 'Full resolution', 16], ['4k', 'Up to 4K'], ['1440', 'Up to 1440p'], ['1080', 'Up to 1080p']] },
   recHide: { page: 'playback', label: 'Hide Reel while recording', type: 'check', ...inObj('rec-settings', 'hide', true) },
+  recClaps: { page: 'playback', label: 'Clap three times to mark a cut', type: 'select', ...own('recClaps', 'markers'), options: [['off', 'Off'], ['markers', 'Add a marker at each clap signal'], ['cut', 'Cut the claps out, leaving a marker']], help: 'After each recording Reel listens to the microphone for three quick, even claps (and marks ⌥⇧⌘M presses made while recording). Edit › Find Clap Markers does the same for any clip.' },
   recClicks: { page: 'playback', label: 'Record clicks (for click sounds and effects)', type: 'check', ...inObj('rec-settings', 'clicks', true) },
   voPreroll: { page: 'playback', label: 'Voice-over pre-roll (punch in)', type: 'select', ...inObj('reel.voiceover', 'preroll', 2), options: [[1, '1 second'], [2, '2 seconds'], [3, '3 seconds'], [5, '5 seconds']] },
   voCountdown: { page: 'playback', label: 'Voice-over countdown', type: 'select', ...inObj('reel.voiceover', 'countdown', 3), options: [[0, 'None'], [3, '3-2-1'], [5, '5 seconds']] },

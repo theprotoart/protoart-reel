@@ -28,7 +28,7 @@ html, body { margin: 0; height: 100%; background: transparent; overflow: hidden;
   background: linear-gradient(rgba(255,255,255,.06), transparent 40%), linear-gradient(#1c0a02, #070302);
   box-shadow: inset 0 1px 3px rgba(0,0,0,.95), 0 0 0 1px #000, 0 1px 0 rgba(255,255,255,.08); }
 /* STOP: bevelled steel cap, weathered with rust, red square in the face */
-#stop { -webkit-app-region: no-drag; margin-left: auto; flex: none; position: relative; display: inline-flex; align-items: center; gap: 7px;
+#stop, #pause, #mark { -webkit-app-region: no-drag; margin-left: auto; flex: none; position: relative; display: inline-flex; align-items: center; gap: 7px;
   cursor: pointer; border: 0; border-radius: 4px; padding: 0 13px; height: 30px;
   font: 700 12px "Avenir Next Condensed", "Helvetica Neue", Arial, sans-serif; letter-spacing: .2em; color: #efe6d4;
   text-shadow: 0 -1px 0 rgba(0,0,0,.7);
@@ -42,8 +42,8 @@ html, body { margin: 0; height: 100%; background: transparent; overflow: hidden;
   transform: translateY(-1px); transition: transform .07s, box-shadow .07s; }
 #stop .sq { width: 10px; height: 10px; border-radius: 1.5px;
   background: radial-gradient(circle at 38% 32%, #ffb3a8, #e2271a 55%, #7a0b05); box-shadow: 0 0 0 1px #000, 0 0 5px rgba(255,59,47,.7); }
-#stop:hover { filter: brightness(1.1); }
-#stop:active, #stop:disabled { transform: translateY(2px);
+#stop:hover, #pause:hover, #mark:hover { filter: brightness(1.1); }
+#stop:active, #stop:disabled, #pause:active, #pause:disabled, #mark:active { transform: translateY(2px);
   box-shadow: 0 0 0 1px #070707, 0 1px 2px rgba(0,0,0,.7), inset 2px 2px 0 rgba(0,0,0,.45), inset -1px -1px 0 rgba(255,236,210,.12); }
 
 /* two little reels turning while it records, tape running between them */
@@ -59,3 +59,16 @@ html, body { margin: 0; height: 100%; background: transparent; overflow: hidden;
 .reels .reel { position: relative; z-index: 1; }
 @keyframes hud-spin { to { transform: rotate(360deg); } }
 @media (prefers-reduced-motion: reduce) { .reels .rot { animation: none; } }
+
+/* PAUSE: the same steel cap as STOP, with two amber bars; paused, the lamp holds steady amber and the reels stop */
+#stop { margin-left: 0; }
+#pause .bars { width: 10px; height: 10px; background: linear-gradient(90deg, #ffb02a 0 35%, transparent 35% 65%, #ffb02a 65%); box-shadow: 0 0 5px rgba(255,176,42,.6); }
+body.paused #pause .bars { width: 0; height: 0; background: none; box-shadow: none; border-style: solid; border-width: 5px 0 5px 9px; border-color: transparent transparent transparent #ffb02a; }
+body.paused .lamp::after { animation: none; background: radial-gradient(circle at 38% 32%, #ffe9c2, #ffb02a 45%, #8a5206); box-shadow: 0 0 6px 1px rgba(255,176,42,.8); }
+body.paused .reels .rot { animation-play-state: paused; }
+body.paused .time { animation: hud-blink 1s steps(2, start) infinite; }
+@keyframes hud-blink { 50% { opacity: .35; } }
+#pause, #stop { margin-left: 0; }
+#mark .dia { width: 8px; height: 8px; transform: rotate(45deg); background: #ffd60a; box-shadow: 0 0 5px rgba(255,214,10,.7); }
+#mark.flash { animation: hud-mark .5s ease-out; }
+@keyframes hud-mark { 0% { filter: brightness(1.8); } 100% { filter: none; } }

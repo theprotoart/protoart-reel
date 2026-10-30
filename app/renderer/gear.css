@@ -729,6 +729,8 @@ input.switch:focus-visible, .row > input[type=checkbox]:focus-visible { outline:
 .deck-reel-well .deck-reel { touch-action: none; }
 
 /* close (eject) a project; picking several projects on the home screen */
+#btn-save-project { margin-left: 10px; flex: none; }
+#btn-save-project.hidden { display: none; }
 #btn-close-project { margin-left: 10px; display: inline-flex; align-items: center; gap: 6px; }
 #btn-close-project.hidden { display: none; }
 #btn-close-project .ej { font-size: 12px; line-height: 1; }

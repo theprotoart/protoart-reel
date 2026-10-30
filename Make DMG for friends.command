@@ -49,9 +49,20 @@ FIRST RECORDING
 - Press REC. macOS asks to allow Screen & System Audio Recording and the Microphone:
   press Allow, then quit Reel (⌘Q) and open it again so the permission takes effect.
 - Turning on "Record clicks" or "Record keystrokes" also asks for Input Monitoring.
-- While recording, stop with the STOP panel at the bottom of the screen, or ⇧⌘2.
+- While recording, the panel at the bottom of the screen has MARK, PAUSE and STOP
+  (or ⌥⇧⌘M, ⌥⇧⌘2 and ⇧⌘2).
 
 NEW IN THIS BUILD — PLEASE TRY
+- PAUSE A RECORDING: PAUSE on the floating panel (or ⌥⇧⌘2), then RESUME. Everything
+  pauses together and the pause is simply left out.
+- CLAP TO MARK A CUT: while recording, clap three times, evenly, about half a second
+  apart. A ✂ Clap marker appears there on the timeline (Settings › Playback & Recording
+  can cut the claps out instead). Edit › Find Clap Markers… works on any clip.
+- A recording's screen and sound come in grouped: drag one and they move together.
+  UNGROUP splits them.
+- SAVE is in the top bar now, next to CLOSE.
+- Screen recordings no longer show tiny in the corner of the preview.
+EARLIER BUILDS
 - HEAR PLUG-INS LIVE: in the MIXER, click + effect on a track › ★ Your plug-ins, then press
   SPACE. You hear that track through the plug-in while you turn its knobs. The banner at
   the top says LIVE (red lamp) when it's working. CLOSE PLUG-IN goes back to normal.

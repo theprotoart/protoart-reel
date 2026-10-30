@@ -240,7 +240,11 @@ async function closeHandle(id) {
 const recording = {
   active: false, sourceId: null, systemAudio: false, cursor: null, cursorTimer: null,
   started: 0, blocker: null, project: null,
+  marks: [], // ⌥⇧⌘M while recording: ms of recorded time
+  paused: false, pausedMs: 0, pauseAt: 0, // pause: nothing is recorded, and the pointer track skips the gap
 };
+/** Time recorded so far, in ms, leaving out pauses (the pointer, clicks and keys use this clock). */
+function recordedMs(t0) { return Date.now() - t0 - recording.pausedMs - (recording.paused ? Date.now() - recording.pauseAt : 0); }
 
 async function listSources() {
   const sources = await desktopCapturer.getSources({ types: ['screen', 'window'], thumbnailSize: { width: 320, height: 200 }, fetchWindowIcons: true });
@@ -266,9 +270,10 @@ function startCursorTrack(sourceId) {
   const t0 = Date.now();
   recording.cursorT0 = t0;
   recording.cursorTimer = setInterval(() => {
+    if (recording.paused) return;
     const p = screen.getCursorScreenPoint();
     const pts = recording.cursor.points;
-    if (pts.length < 30 * 60 * 60 * 4) pts.push([Date.now() - t0, p.x, p.y]);
+    if (pts.length < 30 * 60 * 60 * 4) pts.push([recordedMs(t0), p.x, p.y]);
   }, 33);
 }
 // clicks and keys from the audio helper's listen-only event tap land in the cursor track
@@ -278,8 +283,8 @@ function startInputTrack(opts) {
   if (!opts || (!opts.clicks && !opts.keys)) return;
   inputUnsub = audio.onEvent(ev => {
     const c = recording.cursor;
-    if (!c || ev.type !== 'input' || !Array.isArray(ev.events)) return;
-    const ms = Date.now() - recording.cursorT0;
+    if (!c || ev.type !== 'input' || !Array.isArray(ev.events) || recording.paused) return;
+    const ms = recordedMs(recording.cursorT0);
     for (const e of ev.events.slice(0, 200)) {
       if ((e[0] === 'c' || e[0] === 'u') && opts.clicks && c.clicks.length < 200000) c.clicks.push([ms, e[0] === 'u' ? 'u' : e[1], +e[2], +e[3]]);
       if (e[0] === 'k' && opts.keys && c.keys.length < 200000) c.keys.push([ms, String(e[1]).slice(0, 8), String(e[2]).slice(0, 12)]);
@@ -305,7 +310,7 @@ const HUD_URL = `${APP_ORIGIN}/renderer/hud.html`;
 function showHud() {
   if (hud && !hud.isDestroyed()) return;
   const wa = screen.getPrimaryDisplay().workArea;
-  const w = 340, h = 48;
+  const w = 520, h = 48;
   hud = new BrowserWindow({
     width: w, height: h, x: Math.round(wa.x + (wa.width - w) / 2), y: Math.round(wa.y + wa.height - h - 18),
     frame: false, transparent: true, resizable: false, minimizable: false, maximizable: false, fullscreenable: false,
@@ -322,10 +327,25 @@ function showHud() {
   hud.on('closed', () => { hud = null; });
 }
 function hideHud() { if (hud && !hud.isDestroyed()) hud.destroy(); hud = null; }
-ipcMain.on('hud:stop', event => {
-  if (!hud || hud.isDestroyed() || event.sender !== hud.webContents || event.senderFrame?.url !== HUD_URL) return;
-  sendMenu('stop-recording');
-});
+const fromHud = event => hud && !hud.isDestroyed() && event.sender === hud.webContents && event.senderFrame?.url === HUD_URL;
+ipcMain.on('hud:stop', event => { if (fromHud(event)) sendMenu('stop-recording'); });
+ipcMain.on('hud:pause', event => { if (fromHud(event)) sendMenu('pause-recording'); });
+ipcMain.on('hud:mark', event => { if (fromHud(event)) dropMark(); });
+/** A marker at this moment of the recording (recorded time, so pauses don't push it later). */
+function dropMark() {
+  if (!recording.active || recording.marks.length > 5000) return;
+  recording.marks.push(Math.max(0, recordedMs(recording.started)));
+  if (hud && !hud.isDestroyed()) hud.webContents.send('hud:marked', recording.marks.length);
+}
+function recTrayMenu() {
+  if (!tray) return;
+  tray.setContextMenu(Menu.buildFromTemplate([
+    { label: recording.paused ? 'Resume Recording' : 'Pause Recording', accelerator: 'Command+Alt+Shift+2', click: () => sendMenu('pause-recording') },
+    { label: 'Add Marker Here', accelerator: 'Command+Alt+Shift+M', click: () => dropMark() },
+    { label: 'Stop Recording', accelerator: 'Command+Shift+2', click: () => sendMenu('stop-recording') },
+  ]));
+  tray.setToolTip(recording.paused ? 'ProtoArt Reel: recording paused' : 'ProtoArt Reel is recording');
+}
 
 function setRecordingUi(on) {
   if (on) {
@@ -334,14 +354,16 @@ function setRecordingUi(on) {
       tray.setToolTip('ProtoArt Reel is recording');
       tray.on('click', () => sendMenu('stop-recording'));
     }
-    tray.setContextMenu(Menu.buildFromTemplate([
-      { label: 'Stop Recording', accelerator: 'Command+Shift+2', click: () => sendMenu('stop-recording') },
-    ]));
+    recTrayMenu();
     globalShortcut.register('Command+Shift+2', () => sendMenu('stop-recording'));
+    globalShortcut.register('Command+Alt+Shift+2', () => sendMenu('pause-recording'));
+    globalShortcut.register('Command+Alt+Shift+M', () => dropMark());
     recording.blocker = powerSaveBlocker.start('prevent-display-sleep');
     showHud();
   } else {
     globalShortcut.unregister('Command+Shift+2');
+    globalShortcut.unregister('Command+Alt+Shift+2');
+    globalShortcut.unregister('Command+Alt+Shift+M');
     if (tray) { tray.destroy(); tray = null; }
     hideHud();
     if (recording.blocker !== null && powerSaveBlocker.isStarted(recording.blocker)) powerSaveBlocker.stop(recording.blocker);
@@ -1008,12 +1030,27 @@ handle('rec:begin', async (token, tracks, apps, input) => {
     } catch (e) { recording.apps = []; recording.appError = e.message; }
   }
   recording.active = true;
+  recording.paused = false; recording.pausedMs = 0; recording.pauseAt = 0; recording.marks = [];
   recording.project = p;
   recording.stamp = stamp;
   recording.started = Date.now();
   if (recording.sourceId) { startCursorTrack(recording.sourceId); startInputTrack(input && typeof input === 'object' ? { clicks: input.clicks === true, keys: input.keys === true } : null); }
   setRecordingUi(true);
   return out;
+});
+
+/** Pause or resume: the editor pauses its recorders; here the pointer track, the apps' sound and the panel follow. */
+handle('rec:pause', async paused => {
+  if (!recording.active) return false;
+  paused = !!paused;
+  if (paused === recording.paused) return paused;
+  if (paused) recording.pauseAt = Date.now();
+  else recording.pausedMs += Date.now() - recording.pauseAt;
+  recording.paused = paused;
+  if (recording.apps && recording.apps.length) await audio.recPause(recording.stamp, paused).catch(() => {});
+  if (hud && !hud.isDestroyed()) hud.webContents.send('hud:paused', paused, recordedMs(recording.started));
+  recTrayMenu();
+  return paused;
 });
 
 on('rec:chunk', (id, data) => {
@@ -1067,7 +1104,7 @@ handle('rec:end', async (ids, meta) => {
     await writeAtomic(path.join(mediaDir(p), cursorFile), JSON.stringify(cursor));
   }
   if (win && !win.isDestroyed()) { win.show(); win.focus(); }
-  return { media: results, cursor: cursorFile, cursorClicks: cursor?.clicks?.length || 0, cursorKeys: cursor?.keys?.length || 0, inputError: recording.inputError || '', offsets: validate.offsets(meta) };
+  return { media: results, cursor: cursorFile, cursorClicks: cursor?.clicks?.length || 0, cursorKeys: cursor?.keys?.length || 0, inputError: recording.inputError || '', offsets: validate.offsets(meta), marks: recording.marks.slice() };
 });
 
 handle('rec:cancel', async ids => {
@@ -1499,6 +1536,7 @@ function buildMenu() {
       { label: 'Add Media…', accelerator: 'Command+Shift+I', click: m('import') },
       { label: 'Global Library…', accelerator: 'Command+Alt+L', click: m('global-library') },
       { label: 'New Recording…', accelerator: 'Command+R', click: m('record') },
+      { label: 'Pause / Resume Recording', click: m('pause-recording') },
       { label: 'Record Voice-Over…', accelerator: 'Shift+Command+R', click: m('voice-over') },
       { label: 'Punch In Voice-Over (between In and Out)…', accelerator: 'Shift+Command+P', click: m('punch-in') },
       { label: 'Spectral Editor…', accelerator: 'Command+Alt+S', click: m('spectral') },
@@ -1534,6 +1572,7 @@ function buildMenu() {
       { type: 'separator' },
       { label: 'Splice at Playhead  (S)', click: m('split') },
       { label: 'Add Marker  (M)', click: m('marker') },
+      { label: 'Find Clap Markers…', click: m('find-claps') },
       { type: 'separator' },
       { label: 'Mark In  (I)', click: m('mark-in') },
       { label: 'Mark Out  (O)', click: m('mark-out') },

@@ -1,5 +1,24 @@
 # Changelog
 
+## 1.5.1 — Pause, clap markers, and a SAVE key
+
+- **Pause a recording, like ScreenFlow.** The floating panel has **PAUSE / RESUME** (also ⌥⇧⌘2, the menu-bar icon,
+  and File › Pause / Resume Recording). Screen, camera, microphone, computer sound and each app's sound all pause
+  in the same instant, so the files simply leave the pause out and stay in sync. The panel's lamp turns amber and
+  its counter shows only the time recorded. The pointer, clicks and keystrokes skip the pause too, and a
+  "Stop after" timer counts recorded time.
+- **Clap three times to mark a cut.** After each recording Reel listens to the microphone for three quick, even
+  claps and puts a **✂ Clap** marker there, or cuts the claps out and leaves a marker at the cut (Settings ›
+  Playback & Recording › *Clap three times to mark a cut*). Edit › **Find Clap Markers…** does the same for any
+  clip, including imported ones. Single claps, applause, typing and speech are ignored.
+- **Mark while recording:** press **⌥⇧⌘M** or **MARK** on the floating panel, and a marker lands at that moment.
+- **A recording's clips are grouped.** Screen, camera, microphone and computer sound from one recording now come
+  in grouped, so clicking or dragging one moves them all. UNGROUP splits them. Splitting a group gives each side
+  its own group, and duplicating a group makes a new one.
+- **A SAVE key** in the top bar, next to CLOSE (also File › Save, ⌘S). The SAVED lamp lights when it's done.
+- **Fix: screen recordings showed tiny in the corner of the preview** while their proxy was in use. The proxy is
+  now drawn at the full size of the original.
+
 ## 1.5.0 — Hear your plug-ins live, like a DAW
 
 - **Plug-ins play live while you adjust them.** Put one of your own plug-ins (Waves, iZotope, FabFilter…) on a track in the mixer, click it to open its window, and press **Space**: that track plays through the plug-in in real time, so every knob you turn is heard right away. It follows the playhead from clip to clip and plays through your chosen output (your audio interface too).

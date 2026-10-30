@@ -41,6 +41,8 @@ export function fitHeader() {
   mo.observe(bar, { subtree: true, childList: true, characterData: true });
   const close = document.getElementById('btn-close-project');
   if (close) mo.observe(close, { attributes: true, attributeFilter: ['class'] });
+  const saveBtn = document.getElementById('btn-save-project');
+  if (saveBtn) mo.observe(saveBtn, { attributes: true, attributeFilter: ['class'] });
   window.addEventListener('resize', fit);
   fit();
 }

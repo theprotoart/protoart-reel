@@ -330,6 +330,8 @@ export function addTrack(doc, at = doc.tracks.length) {
 /** Splits clips (selected ones, or all under the playhead) at time t. Returns new clip ids. */
 export function split(doc, t, ids) {
   const out = [];
+  const regroup = new Map(); // the right halves of a group form a group of their own, so each piece moves on its own
+  const newGroup = g => { if (!regroup.has(g)) regroup.set(g, uid('g')); return regroup.get(g); };
   for (const c of [...doc.clips]) {
     if (ids && ids.length && !ids.includes(c.id)) continue;
     if (c.locked) continue;
@@ -337,6 +339,7 @@ export function split(doc, t, ids) {
     const local = t - c.start;
     const right = structuredClone(c);
     right.id = uid('c');
+    if (c.group) right.group = newGroup(c.group);
     right.start = t;
     right.duration = c.duration - local;
     if (c.type === 'media') right.in = (c.in || 0) + local * (c.speed || 1);

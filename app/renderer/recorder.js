@@ -144,7 +144,7 @@ export async function openRecorder(app) {
         el('div', { class: 'row' }, el('label', { text: 'Frame rate' }), fpsSel),
         el('div', { class: 'row' }, el('label', { text: 'Size' }), maxSel),
         sw('hide', 'Hide Reel while recording'),
-        el('p', { class: 'note', text: 'Stop with the STOP button that floats at the bottom of the screen, ⇧⌘2, or the Reel icon in the menu bar.' })),
+        el('p', { class: 'note', text: 'Mark a cut while recording: clap three times, or press ⌥⇧⌘M (or MARK on the floating panel). Pause and resume with PAUSE on the panel that floats at the bottom of the screen, ⌥⇧⌘2, or the Reel icon in the menu bar. Stop with STOP there, or ⇧⌘2.' })),
       el('div', { class: 'opt' },
         sw('clicks', 'Record clicks', null),
         el('p', { class: 'note', text: 'For click sounds and click effects. macOS asks once for Input Monitoring.' }),
@@ -320,14 +320,37 @@ async function record(app, st) {
     app.setRecording(true);
 
     // the screen picture can end on its own (window closed, display unplugged)
-    let timer = null;
+    let timer = null, timerLeft = st.stopAfter > 0 ? st.stopAfter * 60000 : 0, timerFrom = 0;
+    let paused = false, busy = false;
     await new Promise(resolve => {
       app.onStopRecording = resolve;
       vtrack.addEventListener('ended', resolve, { once: true });
-      if (st.stopAfter > 0) timer = setTimeout(resolve, st.stopAfter * 60000); // recording timer
+      // recording timer: counts recorded time, so a pause doesn't eat into it
+      const arm = () => { if (timerLeft > 0) { timerFrom = performance.now(); timer = setTimeout(resolve, timerLeft); } };
+      arm();
+      // PAUSE / RESUME (the floating panel, ⌥⇧⌘2 or the menu-bar icon): every recorder pauses in the same
+      // instant, so the files simply leave the pause out and stay in sync. Nothing is captured while paused.
+      app.onPauseRecording = async () => {
+        if (busy) return;
+        busy = true;
+        paused = !paused;
+        if (paused) {
+          for (const r of recorders) if (r.state === 'recording') r.pause();
+          for (const n of workers) n.port.postMessage('pause');
+          if (timer) { clearTimeout(timer); timer = null; timerLeft = Math.max(1000, timerLeft - (performance.now() - timerFrom)); }
+        } else {
+          for (const r of recorders) if (r.state === 'paused') r.resume();
+          for (const n of workers) n.port.postMessage('resume');
+          arm();
+        }
+        try { await api.recPause(paused); } catch { /* the recording carries on regardless */ }
+        app.setRecordingPaused(paused);
+        busy = false;
+      };
     });
     clearTimeout(timer);
     app.onStopRecording = null;
+    app.onPauseRecording = null;
     for (const r of recorders) if (r.state !== 'inactive') r.stop();
     for (const n of workers) n.port.postMessage('stop');
     await Promise.race([Promise.all(done), new Promise(r => setTimeout(r, 5000))]);
@@ -341,7 +364,7 @@ async function record(app, st) {
     const res = await api.recEnd(Object.values(ids), offsets);
     // pointer track starts when the files are opened; the screen picture a moment later
     const cursorOffset = ((starts.screen ?? first) - tBegin) / 1000;
-    app.addRecording(res, { cursorOffset, appLead: (first - tBegin) / 1000, source: st.source, pointerSeparate, keys: !!st.keys });
+    app.addRecording(res, { cursorOffset, appLead: (first - tBegin) / 1000, source: st.source, pointerSeparate, keys: !!st.keys, marks: res.marks || [] });
   } catch (e) {
     stopAll();
     app.setRecording(false);

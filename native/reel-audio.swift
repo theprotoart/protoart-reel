@@ -214,6 +214,7 @@ final class TapRoute {
     var file: ExtAudioFileRef?
     var format = AudioStreamBasicDescription()
     var framesWritten: Int64 = 0
+    var paused = false      // recording paused: the tap keeps running, nothing is written
     var outputUID = ""
     // preallocated so the audio thread doesn't allocate
     var scratch = [[Float]](repeating: [Float](repeating: 0, count: 16384), count: 8)
@@ -259,7 +260,7 @@ final class TapRoute {
             let inList = UnsafeMutableAudioBufferListPointer(UnsafeMutablePointer(mutating: inData))
             let outList = UnsafeMutableAudioBufferListPointer(outData)
             // record the untouched tap audio
-            if let f = self.file, inList.count > 0 {
+            if let f = self.file, !self.paused, inList.count > 0 {
                 let frames = nonInterleaved ? Int(inList[0].mDataByteSize) / 4 : Int(inList[0].mDataByteSize) / (4 * Int(max(1, self.format.mChannelsPerFrame)))
                 if frames > 0 { ExtAudioFileWriteAsync(f, UInt32(frames), inData); self.framesWritten += Int64(frames) }
             }
@@ -664,6 +665,11 @@ func handle(_ m: [String: Any]) {
         }
         recordings[rid] = routes
         send(["type": "recStarted", "id": id ?? NSNull(), "tracks": started])
+    case "recPause":
+        guard let rid = m["rec"] as? String else { return fail("recPause: bad request", id) }
+        let p = (m["paused"] as? Bool) ?? false
+        for r in recordings[rid] ?? [] { r.paused = p }
+        send(["type": "ok", "id": id ?? NSNull()])
     case "recStop":
         guard let rid = m["rec"] as? String else { return fail("recStop: bad request", id) }
         let routes = recordings.removeValue(forKey: rid) ?? []
