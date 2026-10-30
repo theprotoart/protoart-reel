@@ -1,0 +1,7 @@
+ProtoArt Reel
+Copyright 2026 ProtoArt Reel contributors
+
+This product is licensed under the Apache License, Version 2.0 (see LICENSE).
+Distributed builds include Electron, Chromium and Node.js; their license
+notices are listed in THIRD_PARTY_NOTICES.md and shipped inside the app at
+ProtoArt Reel.app/Contents/Resources/Licenses/.

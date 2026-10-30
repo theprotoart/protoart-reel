@@ -1,0 +1,36 @@
+# dependencies
+node_modules/
+
+# build output (publish DMGs as GitHub Release assets, not in the repo)
+dist/
+*.app/
+*.dmg
+*.dmg.sha256
+
+# build and deploy leftovers
+build-log.txt
+codesign-log.txt
+*-log.txt
+*.log
+*.tgz
+*.zip
+*.tmp
+__pycache__/
+*.pyc
+.DS_Store
+
+# private scratch and personal test material (never publish recordings)
+.spike/
+*.screenflow/
+*.mov
+*.mp4
+*.m4a
+*.wav
+
+# keys and secrets, just in case one lands here
+.env
+.env.*
+*.pem
+*.p12
+*.key
+*token*

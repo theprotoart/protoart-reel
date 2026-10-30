@@ -1,0 +1,61 @@
+/* Floating recording panel, built like a small rack unit: brushed black faceplate, slotted screws,
+   a red pilot lamp in a chrome bezel, an amber tape-counter display, and a rusty bevelled STOP cap. */
+html, body { margin: 0; height: 100%; background: transparent; overflow: hidden; user-select: none;
+  font-family: "Avenir Next Condensed", "Helvetica Neue", Arial, sans-serif; }
+.plate { -webkit-app-region: drag; box-sizing: border-box; height: 100%; display: flex; align-items: center; gap: 9px; padding: 0 9px;
+  border-radius: 7px; color: #e9e2d2;
+  background:
+    repeating-linear-gradient(90deg, rgba(255,255,255,.035) 0 1px, transparent 1px 3px, rgba(0,0,0,.05) 3px 4px),
+    linear-gradient(#34312d, #1d1b19 55%, #151412);
+  box-shadow: 0 0 0 1px #050505, inset 0 1px 0 rgba(255,240,220,.18), inset 0 -2px 0 rgba(0,0,0,.6), inset 0 0 0 2px rgba(0,0,0,.25); }
+/* slotted rack screws */
+.screw { flex: none; position: relative; width: 9px; height: 9px; border-radius: 50%;
+  background: radial-gradient(circle at 38% 32%, #c9c2b6, #6d675e 55%, #2a2724);
+  box-shadow: 0 0 0 1px #0a0a0a, inset 0 -1px 1px rgba(0,0,0,.5); }
+.screw::after { content: ""; position: absolute; left: 1px; right: 1px; top: 4px; height: 1.5px; background: #22201d; transform: rotate(38deg); }
+/* pilot lamp in a chrome bezel */
+.lamp { flex: none; position: relative; width: 15px; height: 15px; border-radius: 50%;
+  background: radial-gradient(circle, #8a857c 0 55%, #3a3632 56% 70%, #b8b1a5 71% 100%);
+  box-shadow: 0 0 0 1px #000; }
+.lamp::after { content: ""; position: absolute; inset: 3px; border-radius: 50%;
+  background: radial-gradient(circle at 38% 32%, #ffe1d8, #ff3b2f 45%, #8a0d06);
+  box-shadow: 0 0 6px 1px rgba(255,59,47,.9); animation: blink 1.2s steps(2, start) infinite; }
+@keyframes blink { 50% { background: radial-gradient(circle at 38% 32%, #6a2a22, #3a0d08 60%, #1a0503); box-shadow: none; } }
+.rec { font-weight: 700; letter-spacing: .22em; font-size: 11px; color: #e9e2d2; text-shadow: 0 -1px 0 #000, 0 1px 0 rgba(255,255,255,.08); }
+/* amber counter behind smoked glass */
+.time { flex: none; font: 600 15px/1 Menlo, monospace; color: #ffb02a; letter-spacing: .04em;
+  text-shadow: 0 0 6px rgba(255,160,30,.6); min-width: 56px; text-align: center; padding: 5px 7px 4px; border-radius: 3px;
+  background: linear-gradient(rgba(255,255,255,.06), transparent 40%), linear-gradient(#1c0a02, #070302);
+  box-shadow: inset 0 1px 3px rgba(0,0,0,.95), 0 0 0 1px #000, 0 1px 0 rgba(255,255,255,.08); }
+/* STOP: bevelled steel cap, weathered with rust, red square in the face */
+#stop { -webkit-app-region: no-drag; margin-left: auto; flex: none; position: relative; display: inline-flex; align-items: center; gap: 7px;
+  cursor: pointer; border: 0; border-radius: 4px; padding: 0 13px; height: 30px;
+  font: 700 12px "Avenir Next Condensed", "Helvetica Neue", Arial, sans-serif; letter-spacing: .2em; color: #efe6d4;
+  text-shadow: 0 -1px 0 rgba(0,0,0,.7);
+  background:
+    radial-gradient(circle at 14% 26%, rgba(168,78,24,.8) 0 2.5px, rgba(156,74,26,.3) 5px, transparent 8px),
+    radial-gradient(circle at 88% 78%, rgba(140,58,18,.75) 0 2px, rgba(124,54,18,.3) 4px, transparent 7px),
+    radial-gradient(ellipse at 58% 8%, rgba(176,96,40,.45) 0 1.5px, transparent 5px),
+    linear-gradient(158deg, #7a7166 0%, #575047 38%, #39342e 72%, #24211d 100%);
+  box-shadow: 0 0 0 1px #070707, 0 3px 0 #0b0a09, 0 4px 6px rgba(0,0,0,.65),
+    inset 2px 2px 0 rgba(255,236,210,.24), inset -2px -2px 0 rgba(0,0,0,.55);
+  transform: translateY(-1px); transition: transform .07s, box-shadow .07s; }
+#stop .sq { width: 10px; height: 10px; border-radius: 1.5px;
+  background: radial-gradient(circle at 38% 32%, #ffb3a8, #e2271a 55%, #7a0b05); box-shadow: 0 0 0 1px #000, 0 0 5px rgba(255,59,47,.7); }
+#stop:hover { filter: brightness(1.1); }
+#stop:active, #stop:disabled { transform: translateY(2px);
+  box-shadow: 0 0 0 1px #070707, 0 1px 2px rgba(0,0,0,.7), inset 2px 2px 0 rgba(0,0,0,.45), inset -1px -1px 0 rgba(255,236,210,.12); }
+
+/* two little reels turning while it records, tape running between them */
+.reels { flex: none; position: relative; display: flex; gap: 8px; align-items: center; }
+.reels .reel { width: 22px; height: 22px; display: block; filter: drop-shadow(0 1px 1px rgba(0,0,0,.8)); }
+.reels .pack { fill: #2a1a10; }
+.reels .take .pack { fill: #3a2618; }
+.reels .flange { fill: #b9b3a8; stroke: #000; stroke-width: .6; }
+.reels .hub { fill: #e9e6df; stroke: #000; stroke-width: .5; }
+.reels .rot { transform-origin: 12px 12px; animation: hud-spin 2.4s linear infinite; }
+.reels .take .rot { animation-duration: 1.6s; }
+.reels .tape { position: absolute; left: 11px; right: 11px; bottom: 1px; height: 2px; background: #4a3020; }
+.reels .reel { position: relative; z-index: 1; }
+@keyframes hud-spin { to { transform: rotate(360deg); } }
+@media (prefers-reduced-motion: reduce) { .reels .rot { animation: none; } }

@@ -1,0 +1,9 @@
+{
+  "name": "protoart-reel",
+  "productName": "ProtoArt Reel",
+  "version": "1.5.0",
+  "description": "Screen recorder and video editor with ERNIE thumbnails",
+  "main": "main.js",
+  "private": true,
+  "license": "Apache-2.0"
+}

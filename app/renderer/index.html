@@ -1,0 +1,142 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta http-equiv="Content-Security-Policy" content="default-src 'self'; script-src 'self'; worker-src 'self'; style-src 'self' 'unsafe-inline'; img-src 'self' data: blob:; media-src 'self' blob:; connect-src 'self'; font-src 'self'; object-src 'none'; base-uri 'none'; form-action 'none'; frame-src 'none'">
+<title>ProtoArt Reel</title>
+<link rel="stylesheet" href="reel.css">
+<link rel="stylesheet" href="gear.css">
+<link rel="stylesheet" href="theme-light.css">
+</head>
+<body>
+<div id="titlebar" class="drag">
+  <div class="brand-plate"><span class="bn">ProtoArt</span><span class="bs">REEL</span><span class="bm">MODEL PR-1<br>SCREEN STUDIO</span></div>
+  <div id="header-lamps"></div>
+  <div id="mode-switch" class="no-drag" title="SIMPLE shows just the essentials; FULL shows every tool. Switch any time."><button data-mode="simple">SIMPLE</button><button data-mode="full">FULL</button></div>
+  <div id="doc-name" class="no-drag"></div>
+  <button id="btn-close-project" class="hw eject no-drag hidden" title="Close this project and go back to Projects (⌘W). It saves first."><span class="ej">⏏</span>CLOSE</button>
+  <div class="spacer"></div>
+  <div id="title-actions" class="no-drag">
+    <button id="btn-record" class="rec-btn" title="New recording (⌘R)"><span class="dot"></span>REC</button>
+    <button id="btn-sound" class="hw adv" title="Mixer: every timeline track’s level, pan, mute, solo and effects, your microphone, and each Mac app’s sound (⇧⌘M)">MIXER</button>
+    <button id="btn-spectral" class="hw adv" title="Spectral editor for the selected clip’s sound: de-noise, de-click, de-ess, de-bark, repair (⌥⌘S)">SPECTRAL</button>
+    <button id="btn-import" class="hw role-add" title="Add media (⇧⌘I)">ADD MEDIA</button>
+    <button id="btn-aiimage" class="hw adv" title="Make a picture with ERNIE for the edit (⌥⌘I)">AI IMAGE</button>
+    <button id="btn-thumb" class="hw amber adv" title="Thumbnail Studio (⌘T)">THUMBNAIL</button>
+    <button id="btn-autoedit" class="hw role-auto" title="AUTO EDIT (⌥⌘E): Reel edits your video for TikTok, Shorts, a podcast clip or YouTube">⚡ AUTO EDIT</button>
+    <button id="btn-export" class="hw role-export" title="Export (⌘E): save the finished video">EXPORT</button>
+    <button id="btn-explain" class="hw explain" aria-pressed="false" title="Explain mode: rest the pointer on anything to see what it does (⌘/)"><span class="ex-lamp"></span>EXPLAIN</button>
+    <button id="btn-help" class="hw help" title="How ProtoArt Reel works">HELP</button>
+  </div>
+</div>
+
+<!-- Home -->
+<section id="home" class="view">
+  <div class="home-hero">
+    <div class="hero-plate">
+      <div class="hero-title">ProtoArt<b>REEL</b></div>
+      <div class="hero-model">MODEL PR-1 · SCREEN STUDIO · RECORD · EDIT · MIX · MASTER · THUMBNAIL</div>
+      <div class="hero-sub">Record your screen, camera and sound. Edit and mix. Master for export. Make thumbnails and pictures with ERNIE.</div>
+      <div class="hero-buttons">
+        <div class="home-main">
+          <button id="home-edit" class="home-big role-add" title="Pick a video on your Mac and start editing it"><span class="hb-icon">🎬</span><b>EDIT A VIDEO</b><small>Pick a video from your Mac</small></button>
+          <button id="home-record" class="home-big role-rec" title="Record your screen, camera and microphone"><span class="hb-icon">●</span><b>RECORD MY SCREEN</b><small>Screen, camera and microphone</small></button>
+        </div>
+        <div class="home-more">
+          <button id="home-open" class="hw">OPEN A PROJECT…</button>
+          <button id="home-new" class="hw">EMPTY PROJECT</button>
+          <button id="home-template" class="hw" title="Start from a TikTok, YouTube or Instagram template, or one you saved (File › Save as Template)">FROM TEMPLATE…</button>
+        </div>
+      </div>
+      <p class="home-drop note">Or just <b>drag a video file onto this window</b>. ScreenFlow projects, pictures and sound work too.</p>
+    </div>
+  </div>
+  <div class="projects-head"><h3 class="engr">Projects</h3>
+    <button class="hw" id="proj-pickmode" title="Pick several projects to delete at once">SELECT…</button><span class="engr small sel-hint">or ⌘-click / ⇧-click</span>
+    <div id="proj-selbar" class="hidden"><span id="proj-selcount"></span>
+      <button class="hw" id="proj-sel-all">SELECT ALL</button><button class="hw" id="proj-sel-none">CLEAR</button><button class="hw red" id="proj-sel-trash">MOVE TO TRASH…</button></div></div>
+  <div id="recent" class="recent-grid"></div>
+</section>
+
+<!-- Editor -->
+<section id="editor" class="view hidden">
+  <div id="guide"></div>
+  <div id="upper">
+    <aside id="library" class="panel">
+      <div class="panel-head"><span class="engr">MEDIA</span><button id="lib-add" class="mini" title="Add media">+</button></div>
+      <div id="lib-list" class="lib-list"></div>
+      <div class="lib-hint">Drag files here or onto the timeline.</div>
+    </aside>
+    <div id="stage-wrap">
+      <div id="stage"><canvas id="preview"></canvas><div id="overlay"></div></div>
+      <div id="transport">
+        <button id="t-start" class="tbtn" title="Rewind to start (Home)"><span class="kl">⏮</span><span class="kn">REW</span></button>
+        <button id="t-back" class="tbtn" title="Back one frame (←)"><span class="kl">◀︎</span><span class="kn">FRAME</span></button>
+        <button id="t-play" class="tbtn play" title="Play / pause (Space)"><span class="kl">▶</span><span class="kn">PLAY</span></button>
+        <button id="t-fwd" class="tbtn" title="Forward one frame (→)"><span class="kl">▶︎</span><span class="kn">FRAME</span></button>
+        <button id="t-end" class="tbtn" title="Wind to end (End)"><span class="kl">⏭</span><span class="kn">F.FWD</span></button>
+        <div id="timecode" class="led">00:00:00</div>
+        <div id="duration" class="led dim">00:00:00</div>
+        <div class="spacer"></div>
+        <select id="preview-zoom" title="Preview size. Or scroll the mouse wheel (or pinch) over the picture to zoom; drag the empty area around it to pan; double-click there to fit."><option value="fit">Fit</option><option value="0.25">25%</option><option value="0.5">50%</option><option value="1">100%</option><option value="2">200%</option><option value="4">400%</option></select>
+      </div>
+    </div>
+    <aside id="inspector" class="panel"></aside>
+  </div>
+  <div id="toolstrip">
+    <span class="tool-pair"><button class="tool lit" data-tool="select" title="Select tool (A): click to select, ⌘-click to add, drag to move and trim. Press and hold (or right-click) to select all, or all video, audio, text…">▲ SELECT <i class="hold-mark">▾</i></button><button class="tool" data-tool="blade" title="Blade tool (T): click a clip to cut it where you click (⌥-click cuts only that clip, not its group)">✂ BLADE</button></span>
+    <button class="tool splice" data-cmd="split" title="Splice: cut the clips at the playhead (S)"><span class="blade"></span>SPLICE</button>
+    <button class="tool" data-cmd="delete" title="Delete (⌫)">DELETE</button>
+    <button class="tool adv" data-cmd="ripple-delete" title="Delete and close the gap (⇧⌫)">RIPPLE</button>
+    <span class="sep"></span>
+    <button class="tool insert-btn" id="btn-insert" title="Add text, titles, callouts, arrows, drawings, captions, speech, actions or markers">+ INSERT ▾</button>
+    <button class="tool ae-btn full-only" data-cmd="auto-edit" title="AUTO EDIT (⌥⌘E): pick TikTok, Shorts, a podcast clip or a YouTube video, and Reel edits your video for it: best moments, cuts, vertical, zooms, transitions, captions">⚡ AUTO EDIT</button>
+    <button class="tool tp-btn" data-cmd="transitions" title="Transitions & fades: pick a transition for a cut (or every cut), with live previews, and fade clips or the whole video in and out. Or click the ⧓ on any cut in the timeline.">⧓ TRANSITIONS</button>
+    <button class="tool pl-btn" data-cmd="presets" title="Presets: transitions, cut transitions, title animations, motion presets, animated elements and sound effects, with live previews">★ PRESETS</button>
+    <button class="tool vo-btn" data-cmd="voice-over" title="Voice over (⇧⌘R): record your mic while the edit plays, from the playhead. Punch in re-records just between In and Out">🎙 VOICE OVER</button>
+    <button class="tool" data-cmd="auto-captions" title="Auto captions: Reel listens to the speech and writes timed captions">CAPTIONS</button>
+    <button class="tool adv" data-cmd="text-edit" title="Edit by text: a transcript of your edit. Delete words to cut them; remove ums and long pauses">TEXT EDIT</button>
+    <button class="tool adv" data-cmd="adr-align" title="ADR — Align to Guide (⌥⌘A): select the re-recorded line and the original dialogue, and Reel matches the new take to the original’s timing, syllable by syllable">ADR</button>
+    <button class="tool adv" data-cmd="auto-zoom" title="Smart Zoom: adds zoom-ins and pans to any video, where things move and on the cuts (and follows the pointer on Reel recordings)">SMART ZOOM</button>
+    <button class="tool adv" data-cmd="timelapse" title="Time-lapse: speeds a clip up to a length (YouTube 60 s, Shorts 30 s…), faster where nothing happens, slower on the action">TIME-LAPSE</button>
+    <button class="tool" data-cmd="make-vertical" title="Make Vertical: re-frame the edit for 9:16 Shorts / Reels / TikTok (or 4:5, 1:1), following the action">VERTICAL</button>
+    <span class="sep adv"></span>
+    <label class="tool toggle adv" title="Snap to edges and the playhead"><input type="checkbox" id="snap" checked><span>SNAP</span></label>
+    <button class="tool proxy-btn adv" id="btn-proxy"><i class="lamp-dot"></i><span>PROXY AUTO</span> ▾</button>
+    <label class="tool toggle adv" title="Hear the sound while you drag the playhead (it always keeps playing after a drag during playback)"><input type="checkbox" id="scrub"><span>SCRUB</span></label>
+    <span class="sep adv"></span>
+    <button class="tool adv" data-cmd="select-all" title="Select every clip (⌘A) — then drag one to move them all">ALL</button>
+    <button class="tool adv" data-cmd="select-after" title="Select everything from the playhead on (⇧⌘A) — drag or ⌥← ⌥→ to shift the rest of the edit">FROM ▸</button>
+    <button class="tool keep-part-btn role-keep" data-cmd="keep-part" title="KEEP A PART: then drag across the timeline over each part of the video you want. Auto Edit uses only those parts and blends them; the rest is greyed out. Click again (or Esc) when done.">✚ KEEP A PART</button>
+    <span class="mark-group adv" title="Pick parts of a long video for Auto Edit: IN at the start of a part, OUT at its end, then + SECTION. Repeat for each part.">
+      <button class="tool" data-cmd="mark-in" title="In: the start of a part (I)">[ IN</button>
+      <button class="tool" data-cmd="mark-out" title="Out: the end of a part (O)">OUT ]</button>
+      <button class="tool sec-btn" data-cmd="add-section" title="Keep the part between In and Out as a section for Auto Edit (X). Do it for each part you want, then ⚡ AUTO EDIT blends them.">+ SECTION</button>
+    </span>
+    <button class="tool more-tools" id="btn-more-tools" title="Every other tool: ripple delete, text edit, ADR, Smart Zoom, time-lapse, snapping, proxies…">MORE TOOLS ▾</button>
+    <div class="zoom-group" title="Timeline zoom: pinch or scroll over the timeline too">
+    <button class="tool adv" data-cmd="zoom-max" title="Zoom all the way in around the playhead, down to single frames (⇧⌘=). Click again to go back.">◀▶ MAX IN</button>
+    <span class="engr small">ZOOM</span>
+    <button class="tool" data-cmd="zoom-out" title="Zoom out around the playhead (⌘−)">−</button>
+    <input type="range" id="tl-zoom" min="0" max="1" step="0.001" value="0.3">
+    <button class="tool" data-cmd="zoom-in" title="Zoom in around the playhead (⌘=)">+</button>
+    <button class="tool" data-cmd="zoom-fit" title="Zoom all the way out: the whole project (⌘0)">FIT ALL</button>
+    </div>
+  </div>
+  <div id="timeline">
+    <div id="tl-heads"></div>
+    <div id="tl-scroll">
+      <div id="tl-ruler"><canvas id="ruler"></canvas></div>
+      <div id="tl-tracks"></div>
+      <div id="playhead"><div class="ph-head"></div></div>
+    </div>
+  </div>
+</section>
+
+<div id="modal-root"></div>
+<div id="toast"></div>
+<div id="countdown" class="hidden"></div>
+
+<script type="module" src="app.js"></script>
+</body>
+</html>

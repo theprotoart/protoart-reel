@@ -1,0 +1,21 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta http-equiv="Content-Security-Policy" content="default-src 'none'; script-src 'self'; style-src 'self' 'unsafe-inline'; base-uri 'none'; form-action 'none'">
+<title>Recording</title>
+<link rel="stylesheet" href="hud.css">
+</head>
+<body>
+<div class="plate">
+  <span class="screw"></span>
+  <span class="lamp" title="Recording"></span>
+  <span class="rec">REC</span>
+  <span class="reels"><svg class="reel" viewBox="0 0 24 24" aria-hidden="true"><circle cx="12" cy="12" r="11" class="pack"/><g class="rot"><path class="flange" fill-rule="evenodd" d="M1 12a11 11 0 1 0 22 0a11 11 0 1 0 -22 0Z M12 9.2l0-6.2a9 9 0 0 1 7.8 4.5l-5.4 3.1a2.8 2.8 0 0 0 -2.4-1.4Z M14.4 13.4l5.4 3.1a9 9 0 0 1 -7.8 4.5l0-6.2a2.8 2.8 0 0 0 2.4-1.4Z M9.6 13.4a2.8 2.8 0 0 1 0-2.8l-5.4-3.1a9 9 0 0 0 0 9Z"/><circle cx="12" cy="12" r="2.4" class="hub"/></g></svg><svg class="reel take" viewBox="0 0 24 24" aria-hidden="true"><circle cx="12" cy="12" r="11" class="pack"/><g class="rot"><path class="flange" fill-rule="evenodd" d="M1 12a11 11 0 1 0 22 0a11 11 0 1 0 -22 0Z M12 9.2l0-6.2a9 9 0 0 1 7.8 4.5l-5.4 3.1a2.8 2.8 0 0 0 -2.4-1.4Z M14.4 13.4l5.4 3.1a9 9 0 0 1 -7.8 4.5l0-6.2a2.8 2.8 0 0 0 2.4-1.4Z M9.6 13.4a2.8 2.8 0 0 1 0-2.8l-5.4-3.1a9 9 0 0 0 0 9Z"/><circle cx="12" cy="12" r="2.4" class="hub"/></g></svg><span class="tape"></span></span>
+  <span class="time" id="time">00:00</span>
+  <button id="stop" title="Stop recording (⇧⌘2)"><span class="sq"></span>STOP</button>
+  <span class="screw"></span>
+</div>
+<script src="hud.js"></script>
+</body>
+</html>
