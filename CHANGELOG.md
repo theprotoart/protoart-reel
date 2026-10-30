@@ -23,6 +23,13 @@
   it doesn't leak into the mic), and remembers your answer.
 - **Reel remembers more:** the window's size and place, the screen or window you recorded last, and the size and
   frame rate you chose for a new project.
+- **Your own keyboard shortcuts:** Settings › **Keyboard Shortcuts** lists every command (the editing keys like
+  S, M, I / O and everything in the menus). Click one, press the keys you want; Reel warns if they're taken and
+  offers to move them. ⌘ / ⌃ / ⌥ shortcuts show in the menus too. Search, clear, or reset any of them.
+- **Fix: waveforms didn't match what you heard.** The playhead followed the sound as it left Reel, not as it
+  reached your ears, so with a large playback buffer or an audio interface you heard words over what looked like
+  silence. Sound clips now play early by your sound card's delay, so the sound, the playhead and the waveform
+  line up. Settings › Playback & Recording › **Sound sync** can set it by hand.
 - **Fix: Settings didn't open** (ProtoArt Reel › Settings…) while the Mac was slow to list its audio devices. It
   opens at once now and fills the device lists in when they arrive.
 

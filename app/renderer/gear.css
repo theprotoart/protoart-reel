@@ -1514,3 +1514,16 @@ body.part-dragging, body.part-dragging * { cursor: grabbing !important; }
 span.take-state { cursor: default; }
 .takes-foot { display: flex; gap: 8px; justify-content: space-between; margin-top: 10px; }
 .takes-empty { opacity: .8; font-size: 12px; }
+
+/* Settings › Keyboard Shortcuts */
+.keys-page .row { display: flex; gap: 8px; align-items: center; margin: 6px 0 10px; }
+.keys-search { flex: 1; }
+.keys-list { max-height: 52vh; overflow-y: auto; padding-right: 6px; }
+.keys-group { margin: 12px 0 4px; }
+.key-row { display: flex; align-items: center; gap: 8px; padding: 3px 0; border-bottom: 1px solid rgba(127,127,127,0.15); }
+.key-label { flex: 1; }
+.key-cap { min-width: 110px; font: 13px Menlo, monospace; padding: 3px 10px; border-radius: 5px; border: 1px solid rgba(0,0,0,0.35); background: linear-gradient(#fbfbf8, #dcdcd6); color: #222; cursor: pointer; text-align: center; }
+.key-cap.changed { background: linear-gradient(#ffe7b0, #f2c25a); }
+.key-cap.listening { background: #ffb02a; color: #2a1a02; animation: hud-blink 1s steps(2, start) infinite; }
+.mini-gap { display: inline-block; width: 22px; }
+@keyframes hud-blink { 50% { opacity: .45; } }

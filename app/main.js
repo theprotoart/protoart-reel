@@ -1510,9 +1510,50 @@ on('dirty', d => { if (win) win.setDocumentEdited(!!d); });
 
 function sendMenu(cmd) { if (win && !win.isDestroyed()) win.webContents.send('menu', cmd); }
 
+// ------------------------------------------------------------------ keyboard shortcuts you choose
+// Every menu command can get your own shortcut (Settings › Keyboard Shortcuts). Your choices are kept in
+// shortcuts.json and laid over the menus' own shortcuts each time the menus are built.
+const ACCEL = /^((Command|Control|Alt|Shift)\+){0,4}([A-Z0-9]|F([1-9]|1[0-9]|20)|[\[\];',./`=\\-]|Space|Tab|Backspace|Delete|Up|Down|Left|Right|Home|End|PageUp|PageDown|Escape|Return)$/;
+let menuCatalog = [];
+function applyShortcuts(tpl) {
+  const own = store.shortcuts();
+  const catalog = [];
+  const walk = (items, where) => {
+    for (const it of items) {
+      if (!it || it.type === 'separator') continue;
+      if (Array.isArray(it.submenu)) walk(it.submenu, it.label || (it.role === 'appMenu' ? 'ProtoArt Reel' : where));
+      if (typeof it.click === 'function' && it.click.cmd) {
+        const cmd = it.click.cmd;
+        if (!catalog.some(c => c.cmd === cmd)) catalog.push({ cmd, label: (it.label || cmd).replace(/\s+\(.*\)$/, '').replace(/\s{2,}.*/, ''), menu: where, def: it.accelerator || '' });
+        // a plain key (no ⌘ ⌃ ⌥) isn't put on the menu, or typing that letter anywhere would set it off: the editor runs it
+        if (Object.prototype.hasOwnProperty.call(own, cmd)) { if (own[cmd] && /(^|\+)(Command|Control|Alt)\+/.test(own[cmd])) it.accelerator = own[cmd]; else delete it.accelerator; }
+      }
+    }
+  };
+  walk(tpl, '');
+  // a key you gave to one command is taken off any other menu item that had it by default
+  const mine = new Set(Object.values(own).filter(Boolean));
+  const strip = items => { for (const it of items) { if (!it) continue; if (Array.isArray(it.submenu)) strip(it.submenu); if (it.click?.cmd && it.accelerator && mine.has(it.accelerator) && own[it.click.cmd] !== it.accelerator) delete it.accelerator; } };
+  strip(tpl);
+  menuCatalog = catalog;
+}
+handle('shortcuts:get', async () => ({ menu: menuCatalog, own: store.shortcuts() }));
+// while you press a new shortcut in Settings, the menus' own shortcuts don't fire (⌘N mustn't open a project)
+handle('shortcuts:capture', async on => { if (win && !win.isDestroyed()) win.webContents.setIgnoreMenuShortcuts(!!on); return true; });
+handle('shortcuts:set', async own => {
+  const clean = {};
+  if (own && typeof own === 'object') for (const [k, v] of Object.entries(own).slice(0, 400)) {
+    if (typeof k !== 'string' || !/^[\w-]{1,40}$/.test(k) || typeof v !== 'string') continue;
+    if (v === '' || ACCEL.test(v)) clean[k] = v;
+  }
+  store.setShortcuts(clean);
+  buildMenu();
+  return clean;
+});
+
 function buildMenu() {
-  const m = cmd => () => sendMenu(cmd);
-  Menu.setApplicationMenu(Menu.buildFromTemplate([
+  const m = cmd => { const f = () => sendMenu(cmd); f.cmd = cmd; return f; };
+  const tpl = ([
     { role: 'appMenu', submenu: [{ role: 'about' }, { type: 'separator' }, { label: 'Settings…', accelerator: 'Command+,', click: m('settings') }, { type: 'separator' }, { role: 'hide' }, { role: 'hideOthers' }, { role: 'unhide' }, { type: 'separator' }, { role: 'quit' }] },
     { label: 'File', submenu: [
       { label: 'New Project', accelerator: 'Command+N', click: m('new') },
@@ -1640,7 +1681,9 @@ function buildMenu() {
     ] },
     { role: 'windowMenu' },
     { label: 'Help', submenu: [{ label: 'How ProtoArt Reel Works', click: m('about') }] },
-  ]));
+  ]);
+  applyShortcuts(tpl);
+  Menu.setApplicationMenu(Menu.buildFromTemplate(tpl));
 }
 
 // ------------------------------------------------------------------ session & window

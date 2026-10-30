@@ -5,6 +5,7 @@
 // voice-over use; the output is the mixer's MONITOR OUT.
 import { el, modal, toast, ask } from './ui.js';
 import { audioDevices, fillSelect, permissionNote } from './devices.js';
+import { shortcutsPage } from './shortcuts.js';
 import { FEATURES, can, thisMac, isUnlocked, setUnlocked } from './capability.js';
 import { themeChoice, setTheme } from './theme.js';
 import { PREFS, PAGES, pref } from './prefs.js';
@@ -162,8 +163,9 @@ export async function openSettings(app, page = 'general') {
     toast('Settings reset. Reopen Settings to see them.'); app.applyPrefs();
   } });
   extra.general[1].append(el('div', { class: 'row', style: { marginTop: '18px' } }, el('label'), resetBtn2));
+  const keysPage = shortcutsPage(app);
   const pages = { general: extra.general, look: ['Appearance', lookPage], audio: ['Audio Hardware', audioPage], playback: extra.playback, timeline: extra.timeline,
-    processing: extra.processing, spectral: extra.spectral, storage: ['Media & Storage', storagePage], export: extra.export, mac: ['This Mac', macPage] };
+    processing: extra.processing, spectral: extra.spectral, storage: ['Media & Storage', storagePage], export: extra.export, keys: ['Keyboard Shortcuts', keysPage], mac: ['This Mac', macPage] };
   const list = el('div', { class: 'pref-list' }), body = el('div', { class: 'pref-body' });
   const go = k => {
     for (const b of list.children) b.classList.toggle('on', b.dataset.k === k);
@@ -178,6 +180,6 @@ export async function openSettings(app, page = 'general') {
   // open at once; the device lists fill in when the Mac answers (the audio helper can take a while, or be busy)
   fill().catch(() => {});
   modal('Settings', el('div', { class: 'prefs' }, list, body), [{ label: 'Done', cls: 'hw amber', onClick: c => c() }],
-    { wide: true, onClose: () => { stopMic(); navigator.mediaDevices.removeEventListener?.('devicechange', onDev); window.removeEventListener('focus', onDev); } });
+    { wide: true, onClose: () => { keysPage._cleanup?.(); stopMic(); navigator.mediaDevices.removeEventListener?.('devicechange', onDev); window.removeEventListener('focus', onDev); } });
   go(pages[page] ? page : 'general');
 }

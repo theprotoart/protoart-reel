@@ -63,4 +63,12 @@ function windowBounds() {
 function setWindowBounds(b) {
   try { fs.mkdirSync(path.dirname(WFILE()), { recursive: true }); fs.writeFileSync(WFILE(), JSON.stringify(b), { mode: 0o600 }); } catch { /* best effort */ }
 }
-module.exports = { recents, addRecent, removeRecent, storage, setStorageRoot, windowBounds, setWindowBounds };
+// Keyboard shortcuts you chose: { command: 'Command+Shift+K' | '' (none) }.
+const KFILE = () => path.join(app.getPath('userData'), 'shortcuts.json');
+function shortcuts() {
+  try { const v = JSON.parse(fs.readFileSync(KFILE(), 'utf8')); return v && typeof v === 'object' && !Array.isArray(v) ? v : {}; } catch { return {}; }
+}
+function setShortcuts(v) {
+  try { fs.mkdirSync(path.dirname(KFILE()), { recursive: true }); fs.writeFileSync(KFILE(), JSON.stringify(v), { mode: 0o600 }); } catch { /* best effort */ }
+}
+module.exports = { recents, addRecent, removeRecent, storage, setStorageRoot, windowBounds, setWindowBounds, shortcuts, setShortcuts };

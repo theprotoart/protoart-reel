@@ -515,7 +515,7 @@ export class Player {
       // dragged back to the timeline (every such correction was an audible skip)
       const lead = this._lead;
       if (lead && !lead.el.paused && lead.el.readyState >= 3 && !lead.el.seeking) {
-        const tl = lead.c.start + (lead.el.currentTime - (lead.c.in || 0)) / (lead.c.speed || 1);
+        const tl = lead.c.start + (lead.el.currentTime - (lead.c.in || 0)) / (lead.c.speed || 1) - (lead.shift || 0);
         if (Math.abs(tl - this.time) < 0.5 && Math.abs(tl - this.time) > 0.008) { this.time = tl; this._t0 = tl; this._p0 = performance.now(); }
       }
       if (this.time >= duration(this.doc)) { this.time = duration(this.doc); this.pause(); this._emit(); this.queueDraw(); return; }
@@ -550,25 +550,45 @@ export class Player {
     }
   }
 
+  /**
+   * How long sound takes from a playing clip to your ears: Reel's sound card buffers (bigger with "Large —
+   * smoothest") and the interface's own. Sound-only clips (the mic, voice-overs, music) are played this far
+   * ahead, so what you hear lines up with the playhead and the waveform under it. Video clips carry their own
+   * sound and picture together, so they stay as they are. Settings › Playback can set it by hand.
+   */
+  soundLead() {
+    if (!this.playing) return 0;
+    const manual = Number(pref('soundSync'));
+    if (pref('soundSync') !== 'auto' && Number.isFinite(manual)) return Math.max(0, Math.min(0.8, manual / 1000));
+    const a = this.actx;
+    if (!a || a.state !== 'running') return 0;
+    return Math.max(0, Math.min(0.5, (a.outputLatency || 0) + (a.baseLatency || 0)));
+  }
+  _soundOnly(c, m) { return c.audioOnly || m.kind === 'audio'; }
+
   _syncPlaying(force) {
     if (!this.doc) return;
     const active = new Set();
     let lead = null;
-    for (const c of activeClips(this.doc, this.time).concat(this._audioOnly(this.time))) {
+    const ahead = this.soundLead() * this.rate;
+    for (const c of activeClips(this.doc, this.time).concat(this._audioOnly(this.time + ahead))) {
       if (c.type !== 'media') continue;
       const m = mediaById(this.doc, c.media);
       if (!m || m.kind === 'image') continue;
+      // sound-only clips run `ahead` of the playhead (see soundLead); one that has already finished there stops
+      const shift = this._soundOnly(c, m) ? ahead : 0;
+      if (shift && (this.time + shift >= clipEnd(c) || this.time + shift < c.start)) continue;
       const el = this._el(c, m);
       el._trackId = c.track;
       if (active.has(c.id)) continue;
       active.add(c.id);
-      const st = sourceTime(c, this.time);
+      const st = sourceTime(c, this.time + shift);
       const speed = (c.speed || 1) * this.rate;
       if (el.playbackRate !== speed) el.playbackRate = speed;
       el.preservesPitch = c.audio?.keepPitch !== false; // off: faster sound goes up in pitch, like tape
-      const g = m.hasAudio || m.kind === 'audio' ? gainAt(this.doc, c, this.time - c.start) : 0;
+      const g = m.hasAudio || m.kind === 'audio' ? gainAt(this.doc, c, this.time + shift - c.start) : 0;
       const fxOn = !!(c.fx && c.fx.file && !c.fx.bypass);
-      const pan = m.hasAudio || m.kind === 'audio' ? panAt(this.doc, c, this.time - c.start) : 0;
+      const pan = m.hasAudio || m.kind === 'audio' ? panAt(this.doc, c, this.time + shift - c.start) : 0;
       const keep = c.audio?.keepPitch !== false;
       const drive = (e, gain, audible) => {
         // only touch the sound graph when something changed (60 updates a second per clip piled up)
@@ -585,7 +605,7 @@ export class Player {
       drive(el, fxOn ? 0 : g, hasSound && !fxOn);
       if (fxOn) { const fe = this._fxEl(c); active.add(c.id + '#fx'); drive(fe, g, hasSound); }
       // the longest-running audible clip leads the clock
-      if (hasSound && (!lead || clipEnd(c) > clipEnd(lead.c))) lead = { c, el: fxOn ? this._fxEl(c) : el };
+      if (hasSound && (!lead || clipEnd(c) > clipEnd(lead.c))) lead = { c, el: fxOn ? this._fxEl(c) : el, shift };
       if (c.matte && c.matte.file && !c.matte.off) {
         const me = this._matteEl(c); active.add(c.id + '#matte');
         if (me.playbackRate !== speed) me.playbackRate = speed;

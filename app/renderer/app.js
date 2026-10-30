@@ -46,6 +46,7 @@ import { openAutoEdit, openClipAutoEdit } from './autoedit.js';
 import { openClapFinder, clapsOnTimeline, addClapMarkers } from './clapscan.js';
 import { initToolbarGroups } from './toolbar.js';
 import { openTakes, initTakesButton } from './takes.js';
+import { loadShortcuts, handleShortcutKey } from './shortcuts.js';
 import { syncTrackPlugins, watchLive } from './trackplugins.js';
 import { openTransitions } from './transpicker.js';
 import { initSimple, applyMode } from './simple.js';
@@ -1518,6 +1519,7 @@ class App {
     for (const b of document.querySelectorAll('#toolstrip [data-cmd]')) b.addEventListener('click', () => this.cmd(b.dataset.cmd));
     initToolbarGroups(this);
     initTakesButton(this);
+    loadShortcuts(this);
     for (const b of document.querySelectorAll('#toolstrip [data-tool]')) b.addEventListener('click', () => { if (b._held) { b._held = false; return; } this.timeline.setTool(b.dataset.tool); });
     { // press and hold SELECT (or right-click it): select all, or everything of one kind
       const b = $('#toolstrip [data-tool=select]');
@@ -1611,6 +1613,7 @@ class App {
     const NOT_TEXT = ['range', 'checkbox', 'radio', 'button', 'color', 'submit'];
     if ((tag === 'input' && !NOT_TEXT.includes(e.target.type)) || tag === 'textarea' || tag === 'select' || e.target.isContentEditable) return;
     if (!this.doc || document.querySelector('#modal-root .backdrop')) return;
+    if (handleShortcutKey(this, e)) return; // your own shortcuts (Settings › Keyboard Shortcuts) come first
     const fps = this.doc.canvas.fps || 30;
     switch (e.key) {
       case ' ': e.preventDefault(); if (e.repeat) break; if (this.shuttle) { this.stopShuttle(); this.player.pause(); } else this.player.toggle(); break;
