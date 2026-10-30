@@ -5,7 +5,7 @@
 // ordinary clips, actions, transitions and captions, so any of it can be changed afterwards, and UNDO AUTO EDIT
 // puts the project back exactly as it was.
 import { el, modal, toast } from './ui.js';
-import { mediaById, removeRange, uid, duration as docDuration, split, clipEnd } from './model.js';
+import { mediaById, removeRange, insertTime, uid, duration as docDuration, split, clipEnd, withGroups } from './model.js';
 import { buildCaptions, fillerRanges, pauseRanges, cutRanges } from './lib/words.js';
 import { pickHighlights, chapters, sentences } from './lib/highlight.js';
 import { FORMATS } from './lib/reframe.js';
@@ -211,10 +211,16 @@ export async function runAutoEdit(app, recipeId, o) {
   const progress = v => { bar.firstChild.style.width = Math.round(v * 100) + '%'; };
   const alive = () => !stopped && app.token === token && app.doc;
   const report = [];
+  const only = o.only || null; // one clip on its own: the rest of the project is set aside, untouched
   try {
+    if (only) {
+      step('Setting the rest of the project aside');
+      restore(app, isolate(app.doc, only.t0, only.t1));
+      if (!app.doc.clips.some(c => isVideo(app.doc, c))) { o.zoom = 'off'; o.trans = 'off'; } // sound only
+    }
     // 0 · the video: what's on the timeline, or the longest video in the media list
     let doc = app.doc;
-    if (!doc.clips.some(c => isVideo(doc, c))) {
+    if (!only && !doc.clips.some(c => isVideo(doc, c))) {
       const m = [...doc.media].filter(x => x.kind === 'video').sort((a, b) => (b.duration || 0) - (a.duration || 0))[0];
       app.addMediaClip(m.id, null, 0); doc = app.doc;
     }
@@ -377,7 +383,7 @@ export async function runAutoEdit(app, recipeId, o) {
     }
 
     // 7 · chapters
-    if (r.chapters && words.length) {
+    if (r.chapters && words.length && !only) {
       const ch = chapters(words, docDuration(app.doc));
       if (ch.length >= 3) {
         step('Marking chapters');
@@ -387,7 +393,7 @@ export async function runAutoEdit(app, recipeId, o) {
     }
 
     // 7½ · even volume: an Auto Level first in each track that has speech or music (not sound effects)
-    if ((o.volume || 'even') === 'even') {
+    if ((o.volume || 'even') === 'even' && !only) { // tracks are shared with the rest of the project
       const isSfx = t => /sound ?fx|sfx|^background$/i.test(t.name || '');
       const withSound = new Set(app.doc.clips.filter(c => c.type === 'media' && !c.disabled && !c.audio?.mute && (mediaById(app.doc, c.media)?.hasAudio || mediaById(app.doc, c.media)?.kind === 'audio')).map(c => c.track));
       let n = 0;
@@ -395,14 +401,20 @@ export async function runAutoEdit(app, recipeId, o) {
       if (n) { step('Evening out the volume'); report.push('even volume'); }
     }
     // 8 · loudness (and the temporary join markers go)
-    app.commit(d => { masterOf(d).loudness = r.loud; d.markers = (d.markers || []).filter(m => !m.autoJoin); });
+    app.commit(d => { if (!only) masterOf(d).loudness = r.loud; d.markers = (d.markers || []).filter(m => !m.autoJoin); });
+    // one clip: put the result back in its place; everything after it moves to fit
+    if (only) {
+      const was = only.t1 - only.t0, now = docDuration(app.doc);
+      restore(app, splice(before, app.doc, only.t0, only.t1));
+      report.unshift(`one clip, ${fmt(was)} → ${fmt(now)}`);
+    }
     for (const li of list.querySelectorAll('li.now')) { li.classList.remove('now'); li.classList.add('done'); }
     progress(1);
     dlg.close();
-    app.renderAll?.(); app.timeline?.fit?.(); app.seek?.(0);
+    app.renderAll?.(); app.timeline?.fit?.(); app.seek?.(only ? only.t0 : 0);
     const after = app.doc;
-    const summary = `${RECIPES[recipeId].name}: ${report.join(' · ') || 'done'} · ${after.canvas.width} × ${after.canvas.height}, ${fmt(docDuration(after))}`;
-    reviewBar(app, { before, summary, recipeId, multi: recipeId === 'multi' });
+    const summary = only ? `Auto Edit, this clip only: ${report.join(' · ')}` : `${RECIPES[recipeId].name}: ${report.join(' · ') || 'done'} · ${after.canvas.width} × ${after.canvas.height}, ${fmt(docDuration(after))}`;
+    reviewBar(app, { before, summary, recipeId, multi: recipeId === 'multi', at: only ? only.t0 : 0 });
   } catch (e) {
     dlg.close();
     if (app.token === token) modal('Auto Edit stopped', el('p', { text: `Something went wrong: ${e.message}. What it did so far is still on the timeline.` }),
@@ -418,7 +430,7 @@ export async function runAutoEdit(app, recipeId, o) {
  * original (A/B), change anything by hand (the bar stays out of the way and the whole editor works), then KEEP IT,
  * DISCARD, TRY ANOTHER (back to the original with Auto Edit open again) or EXPORT.
  */
-function reviewBar(app, { before, summary, multi }) {
+function reviewBar(app, { before, summary, multi, at = 0 }) {
   document.querySelector('.ae-review')?.remove();
   const token = app.token;
   let showing = 'edit', edited = null;
@@ -436,10 +448,10 @@ function reviewBar(app, { before, summary, multi }) {
     for (const b of ab.children) b.classList.toggle('on', b.dataset.v === v);
     status.textContent = v === 'orig' ? 'Your original video (nothing changed)' : summary;
     drawSfx();
-    app.seek?.(0);
+    app.seek?.(at);
   };
   for (const b of ab.children) b.addEventListener('click', () => show(b.dataset.v));
-  play.addEventListener('click', () => { app.seek?.(0); if (!app.player.playing) app.player.toggle(); });
+  play.addEventListener('click', () => { app.seek?.(at); if (!app.player.playing) app.player.toggle(); });
   const keep = el('button', { class: 'hw amber', text: 'KEEP IT', title: 'Keep the auto edit (you can still change anything, and ⌘Z steps back)', onclick: () => { show('edit'); close(); toast('Kept. Everything Auto Edit added can still be changed: clips, zooms, transitions, captions.', 5000); } });
   const discard = el('button', { class: 'hw', text: 'DISCARD', title: 'Throw the auto edit away: back to your original', onclick: () => { app.player.playing && app.player.toggle(); if (showing !== 'orig') restore(app, before); close(); toast('Auto edit discarded: your original is back.'); } });
   const again = el('button', { class: 'hw', text: 'TRY ANOTHER…', title: 'Back to your original, and Auto Edit opens again to try a different recipe or length', onclick: () => { app.player.playing && app.player.toggle(); if (showing !== 'orig') restore(app, before); close(); openAutoEdit(app); } });
@@ -458,7 +470,7 @@ function reviewBar(app, { before, summary, multi }) {
   drawSfx();
   // the bar goes if the project closes
   const watch = setInterval(() => { if (app.token !== token || !app.doc) close(); }, 800);
-  app.seek?.(0);
+  app.seek?.(at);
   setTimeout(() => { if (!app.player.playing) app.player.toggle(); }, 400);
 }
 
@@ -467,3 +479,59 @@ function restore(app, before) {
   app.renderAll?.(); app.player?.resize?.();
 }
 const fmt = s => `${Math.floor(s / 60)}:${String(Math.round(s % 60)).padStart(2, '0')}`;
+
+// ------------------------------------------------------------------ one clip on its own
+/** The project with only t0..t1 left in it, starting at 0 (what Auto Edit works on for one clip). */
+export function isolate(doc, t0, t1) {
+  const sub = structuredClone(doc);
+  const end = Math.max(docDuration(sub), t1) + 1;
+  removeRange(sub, t1, end);
+  removeRange(sub, 0, t0);
+  delete sub.sections; delete sub.range;
+  return sub;
+}
+/** `full` with t0..t1 replaced by the edited part `sub`; what came after it moves to fit. */
+export function splice(full, sub, t0, t1) {
+  const out = structuredClone(full);
+  removeRange(out, t0, t1);
+  const len = docDuration(sub);
+  if (len > 0) insertTime(out, t0, len);
+  for (const t of sub.tracks) if (!out.tracks.some(x => x.id === t.id)) out.tracks.push(structuredClone(t)); // Sound FX…
+  for (const m of sub.media) if (!out.media.some(x => x.id === m.id)) out.media.push(structuredClone(m));
+  for (const c of sub.clips) out.clips.push({ ...structuredClone(c), start: c.start + t0 });
+  out.markers = [...(out.markers || []), ...(sub.markers || []).map(m => ({ ...m, t: m.t + t0 }))].sort((a, b) => a.t - b.t);
+  out.captions = [...(out.captions || []), ...(sub.captions || []).map(cp => ({ ...cp, t: cp.t + t0, end: cp.end + t0 }))].sort((a, b) => a.t - b.t);
+  return out;
+}
+
+/** Right-click › Auto Edit This Clip: tidy one clip (and its group) without touching the rest of the project. */
+export function openClipAutoEdit(app, clipId) {
+  const doc = app.doc, ids = withGroups(doc, [clipId]), clips = doc.clips.filter(c => ids.includes(c.id));
+  if (!clips.length) return;
+  const t0 = Math.min(...clips.map(c => c.start)), t1 = Math.max(...clips.map(c => clipEnd(c)));
+  const p = loadPrefs(), saved = p.clip || {};
+  const o = { ...recipeDefaults(RECIPES.youtube), volume: 'off', captions: 'off', ...saved };
+  const segs = {};
+  const seg = (key, levels) => {
+    const box = el('div', { class: 'seg ae-seg' });
+    const paint = () => { for (const b of box.children) b.classList.toggle('on', b.dataset.v === o[key]); };
+    for (const [v, [t]] of Object.entries(levels)) box.append(el('button', { type: 'button', text: t, 'data-v': v, onclick: () => { o[key] = v; paint(); } }));
+    segs[key] = box; paint(); return box;
+  };
+  const lang = el('select', {}, ...LANGS.map(([v, t]) => el('option', { value: v, text: t, selected: v === (p.locale || 'en-US') })));
+  const row = (label, ...kids) => el('div', { class: 'row ae-row' }, el('label', { text: label }), ...kids);
+  const name = clips.find(c => c.id === clipId)?.name || 'this clip';
+  modal('Auto Edit this clip', el('div', { class: 'ae' },
+    el('p', { class: 'note', text: `Works on “${name}”${clips.length > 1 ? ` and the ${clips.length - 1} clip${clips.length > 2 ? 's' : ''} grouped with it` : ''} (${fmt(t0)} – ${fmt(t1)}) on its own. The rest of the project isn’t touched; what comes after moves to fit. You can compare and DISCARD it afterwards.` }),
+    row('Clean up', seg('clean', CLEAN_LEVELS)),
+    row('Zooms', seg('zoom', ZOOM_LEVELS)),
+    row('Transitions', seg('trans', TRANS_LEVELS)),
+    row('Captions', seg('captions', CAPTION_LEVELS)),
+    row('Language', lang)), [
+    { label: 'Cancel', onClick: c => c() },
+    { label: '⚡ Auto edit this clip', cls: 'hw amber', onClick: c => {
+      savePrefs({ ...loadPrefs(), locale: lang.value, clip: { clean: o.clean, zoom: o.zoom, trans: o.trans, captions: o.captions } });
+      c(); runAutoEdit(app, 'youtube', { ...o, locale: lang.value, length: null, regions: null, only: { t0, t1 } });
+    } },
+  ]);
+}

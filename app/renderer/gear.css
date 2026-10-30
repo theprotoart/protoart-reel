@@ -1489,3 +1489,28 @@ body.part-dragging, body.part-dragging * { cursor: grabbing !important; }
 .tl-caphead .cap-trash { flex: 0 0 auto; height: 22px; padding: 0 8px; border: 1px solid #5a140e; border-radius: 3px; cursor: pointer;
   background: linear-gradient(#c23b2e, #8e241b); color: #fff; font: 700 10px/1 var(--font-ui, system-ui); letter-spacing: .05em; box-shadow: 0 1px 0 rgba(255,255,255,.12) inset, 0 1px 2px rgba(0,0,0,.4); }
 .tl-caphead .cap-trash:hover { filter: brightness(1.12); }
+
+/* tool bar groups (EFFECTS ▾, AUDIO ▾…): one row, the rest in menus */
+#toolstrip .tgroup { display: inline-flex; flex: none; }
+#toolstrip .tgroup-items[hidden] { display: none !important; }
+#toolstrip .tgroup-btn.lit { box-shadow: 0 0 10px rgba(110,220,90,0.7), 0 0 0 1px rgba(15,60,15,0.7); }
+
+/* ✂ TAKES: the top-bar key (with a count) and its panel */
+.takes-btn { position: relative; }
+.takes-btn .n:not(:empty) { margin-left: 6px; padding: 1px 6px; border-radius: 8px; background: #ffb02a; color: #2a1a02; font-size: 10px; letter-spacing: 0; }
+.takes-btn.has { box-shadow: 0 0 10px rgba(255,176,42,0.55), 0 0 0 1px rgba(60,35,0,0.7); }
+.takes-panel { width: 360px; bottom: auto; top: 110px; max-height: calc(100vh - 160px); display: flex; flex-direction: column; }
+.takes-panel.flash { box-shadow: 0 0 0 2px #ffb02a, 0 14px 40px rgba(0,0,0,.65); }
+.takes-how { margin: 4px 0 8px; line-height: 1.35; }
+.takes-list { overflow-y: auto; flex: 1; min-height: 40px; }
+.takes-rec { margin: 8px 0 4px; }
+.take-row { display: flex; align-items: center; gap: 8px; padding: 4px 2px; border-bottom: 1px solid rgba(255,255,255,0.06); }
+.take-row.dropped .take-name, .take-row.dropped .take-time { opacity: .5; text-decoration: line-through; }
+.take-name { font-weight: 700; min-width: 54px; }
+.take-time { flex: 1; font: 12px Menlo, monospace; cursor: pointer; }
+.take-state { min-width: 52px; text-align: center; border: 0; border-radius: 4px; padding: 3px 8px; font-weight: 700; letter-spacing: .08em; font-size: 11px; cursor: pointer; }
+.take-state.keep { background: #6cc463; color: #0f300c; }
+.take-state.drop { background: #e2412f; color: #fff; }
+span.take-state { cursor: default; }
+.takes-foot { display: flex; gap: 8px; justify-content: space-between; margin-top: 10px; }
+.takes-empty { opacity: .8; font-size: 12px; }

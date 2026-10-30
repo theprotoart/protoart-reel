@@ -1,5 +1,31 @@
 # Changelog
 
+## 1.5.2 — Takes, a tidier tool bar, and edits that stay together
+
+- **✂ TAKES, in the top bar next to REC.** Messed up a line while recording? Clap three times (or press ⌥⇧⌘M, or
+  MARK on the recording panel) and say it again. When the recording ends, Reel splits it into takes at each clap,
+  like the takes of a voice-over, and opens TAKES: the take before each clap is marked DROP, the last is kept.
+  Play any take, switch KEEP / DROP, then **REMOVE DROPPED TAKES** cuts them, claps and all, and closes the gaps
+  (⌘Z brings them back). The key shows how many takes the project has; also Edit › Takes… (⌥⌘T).
+- **Auto Edit one clip.** Right-click a clip › **⚡ Auto Edit this clip…** (or Clip › Auto Edit This Clip…) tidies
+  just that clip and the clips grouped with it: cut ums and pauses, zooms, transitions, captions. The rest of the
+  project isn't touched; what comes after moves to fit. Compare or DISCARD it like any Auto Edit.
+- **Grouped clips trim together.** Drag the edge of a recording's screen clip and its sound (and camera) trim
+  with it, like ScreenFlow and Resolve. Trim to playhead does the same. ⌥ still trims one clip.
+- **Snapping that connects.** Drag a clip into its neighbour and it lands flush against it in one move, instead
+  of stopping short. Snapping also reaches a little further (14 pixels).
+- **A tidier tool bar, on one row.** Editing tools stay in view; the rest are in EFFECTS ▾ (transitions, presets,
+  Smart Zoom, time-lapse, vertical), AUDIO ▾ (voice over, ADR, takes), TEXT ▾ (captions, edit by text),
+  PARTS ▾ (keep a part, In / Out) and ⚙ ▾ (proxies, scrub audio). A group lights up while one of its tools is on.
+- **ADR guide track,** like VocALign: with ADR on in VOICE OVER, choose which track holds the original dialogue
+  (or leave it on automatic).
+- **Recording dialogue over sound:** the first time, VOICE OVER asks whether to mute the edit while you record (so
+  it doesn't leak into the mic), and remembers your answer.
+- **Reel remembers more:** the window's size and place, the screen or window you recorded last, and the size and
+  frame rate you chose for a new project.
+- **Fix: Settings didn't open** (ProtoArt Reel › Settings…) while the Mac was slow to list its audio devices. It
+  opens at once now and fills the device lists in when they arrive.
+
 ## 1.5.1 — Pause, clap markers, and a SAVE key
 
 - **Pause a recording, like ScreenFlow.** The floating panel has **PAUSE / RESUME** (also ⌥⇧⌘2, the menu-bar icon,

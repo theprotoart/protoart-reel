@@ -19,6 +19,7 @@
   <div class="spacer"></div>
   <div id="title-actions" class="no-drag">
     <button id="btn-record" class="rec-btn" title="New recording (⌘R)"><span class="dot"></span>REC</button>
+    <button id="btn-takes" class="hw takes-btn" title="TAKES: messed up a line while recording? Clap three times (or press ⌥⇧⌘M) and say it again. Reel splits the recording into takes here, to keep or drop.">✂ TAKES<span class="n"></span></button>
     <button id="btn-sound" class="hw adv" title="Mixer: every timeline track’s level, pan, mute, solo and effects, your microphone, and each Mac app’s sound (⇧⌘M)">MIXER</button>
     <button id="btn-spectral" class="hw adv" title="Spectral editor for the selected clip’s sound: de-noise, de-click, de-ess, de-bark, repair (⌥⌘S)">SPECTRAL</button>
     <button id="btn-import" class="hw role-add" title="Add media (⇧⌘I)">ADD MEDIA</button>
@@ -91,30 +92,54 @@
     <button class="tool adv" data-cmd="ripple-delete" title="Delete and close the gap (⇧⌫)">RIPPLE</button>
     <span class="sep"></span>
     <button class="tool insert-btn" id="btn-insert" title="Add text, titles, callouts, arrows, drawings, captions, speech, actions or markers">+ INSERT ▾</button>
-    <button class="tool ae-btn full-only" data-cmd="auto-edit" title="AUTO EDIT (⌥⌘E): pick TikTok, Shorts, a podcast clip or a YouTube video, and Reel edits your video for it: best moments, cuts, vertical, zooms, transitions, captions">⚡ AUTO EDIT</button>
-    <button class="tool tp-btn" data-cmd="transitions" title="Transitions & fades: pick a transition for a cut (or every cut), with live previews, and fade clips or the whole video in and out. Or click the ⧓ on any cut in the timeline.">⧓ TRANSITIONS</button>
-    <button class="tool pl-btn" data-cmd="presets" title="Presets: transitions, cut transitions, title animations, motion presets, animated elements and sound effects, with live previews">★ PRESETS</button>
-    <button class="tool vo-btn" data-cmd="voice-over" title="Voice over (⇧⌘R): record your mic while the edit plays, from the playhead. Punch in re-records just between In and Out">🎙 VOICE OVER</button>
-    <button class="tool" data-cmd="auto-captions" title="Auto captions: Reel listens to the speech and writes timed captions">CAPTIONS</button>
-    <button class="tool adv" data-cmd="text-edit" title="Edit by text: a transcript of your edit. Delete words to cut them; remove ums and long pauses">TEXT EDIT</button>
-    <button class="tool adv" data-cmd="adr-align" title="ADR — Align to Guide (⌥⌘A): select the re-recorded line and the original dialogue, and Reel matches the new take to the original’s timing, syllable by syllable">ADR</button>
-    <button class="tool adv" data-cmd="auto-zoom" title="Smart Zoom: adds zoom-ins and pans to any video, where things move and on the cuts (and follows the pointer on Reel recordings)">SMART ZOOM</button>
-    <button class="tool adv" data-cmd="timelapse" title="Time-lapse: speeds a clip up to a length (YouTube 60 s, Shorts 30 s…), faster where nothing happens, slower on the action">TIME-LAPSE</button>
-    <button class="tool" data-cmd="make-vertical" title="Make Vertical: re-frame the edit for 9:16 Shorts / Reels / TikTok (or 4:5, 1:1), following the action">VERTICAL</button>
-    <span class="sep adv"></span>
-    <label class="tool toggle adv" title="Snap to edges and the playhead"><input type="checkbox" id="snap" checked><span>SNAP</span></label>
-    <button class="tool proxy-btn adv" id="btn-proxy"><i class="lamp-dot"></i><span>PROXY AUTO</span> ▾</button>
-    <label class="tool toggle adv" title="Hear the sound while you drag the playhead (it always keeps playing after a drag during playback)"><input type="checkbox" id="scrub"><span>SCRUB</span></label>
-    <span class="sep adv"></span>
-    <button class="tool adv" data-cmd="select-all" title="Select every clip (⌘A) — then drag one to move them all">ALL</button>
-    <button class="tool adv" data-cmd="select-after" title="Select everything from the playhead on (⇧⌘A) — drag or ⌥← ⌥→ to shift the rest of the edit">FROM ▸</button>
-    <button class="tool keep-part-btn role-keep" data-cmd="keep-part" title="KEEP A PART: then drag across the timeline over each part of the video you want. Auto Edit uses only those parts and blends them; the rest is greyed out. Click again (or Esc) when done.">✚ KEEP A PART</button>
-    <span class="mark-group adv" title="Pick parts of a long video for Auto Edit: IN at the start of a part, OUT at its end, then + SECTION. Repeat for each part.">
-      <button class="tool" data-cmd="mark-in" title="In: the start of a part (I)">[ IN</button>
-      <button class="tool" data-cmd="mark-out" title="Out: the end of a part (O)">OUT ]</button>
-      <button class="tool sec-btn" data-cmd="add-section" title="Keep the part between In and Out as a section for Auto Edit (X). Do it for each part you want, then ⚡ AUTO EDIT blends them.">+ SECTION</button>
+    <button class="tool ae-btn full-only" data-cmd="auto-edit" title="AUTO EDIT (⌥⌘E): pick TikTok, Shorts, a podcast clip or a YouTube video, and Reel edits your video for it: best moments, cuts, vertical, zooms, transitions, captions. Right-click a clip to auto edit just that clip.">⚡ AUTO EDIT</button>
+    <span class="sep"></span>
+    <span class="tgroup" title="Transitions, presets, Smart Zoom, time-lapse and vertical">
+      <button class="tool tgroup-btn" type="button">EFFECTS ▾</button>
+      <span class="tgroup-items" hidden>
+        <button class="tool" data-cmd="transitions" title="Transitions &amp; fades">⧓ Transitions &amp; fades</button>
+        <button class="tool" data-cmd="presets" title="Presets with live previews">★ Presets</button>
+        <button class="tool" data-cmd="auto-zoom" title="Smart Zoom">Smart Zoom</button>
+        <button class="tool" data-cmd="timelapse" title="Time-lapse">Time-lapse</button>
+        <button class="tool" data-cmd="make-vertical" title="Make Vertical">Make vertical (9:16)</button>
+      </span>
     </span>
-    <button class="tool more-tools" id="btn-more-tools" title="Every other tool: ripple delete, text edit, ADR, Smart Zoom, time-lapse, snapping, proxies…">MORE TOOLS ▾</button>
+    <span class="tgroup" title="Voice over, ADR and takes">
+      <button class="tool tgroup-btn" type="button">AUDIO ▾</button>
+      <span class="tgroup-items" hidden>
+        <button class="tool" data-cmd="voice-over" title="Voice over (⇧⌘R)">🎙 Voice over…</button>
+        <button class="tool" data-cmd="adr-align" title="ADR — Align to Guide (⌥⌘A)">ADR: align to guide…</button>
+        <button class="tool" data-cmd="takes" title="Takes">✂ Takes…</button>
+        <button class="tool" data-cmd="find-claps" title="Find clap markers">Find clap markers…</button>
+      </span>
+    </span>
+    <span class="tgroup" title="Captions and editing by text">
+      <button class="tool tgroup-btn" type="button">TEXT ▾</button>
+      <span class="tgroup-items" hidden>
+        <button class="tool" data-cmd="auto-captions" title="Auto captions">Auto captions</button>
+        <button class="tool" data-cmd="text-edit" title="Edit by text">Edit by text (transcript)</button>
+      </span>
+    </span>
+    <span class="tgroup parts-group" title="Pick parts of a long video for Auto Edit, and select ranges">
+      <button class="tool tgroup-btn" type="button">PARTS ▾</button>
+      <span class="tgroup-items" hidden>
+        <button class="tool keep-part-btn role-keep" data-cmd="keep-part" title="KEEP A PART: drag across the timeline over each part you want">✚ Keep a part (drag on the timeline)</button>
+        <button class="tool" data-cmd="mark-in" title="In (I)">[ Set In</button>
+        <button class="tool" data-cmd="mark-out" title="Out (O)">Set Out ]</button>
+        <button class="tool sec-btn" data-cmd="add-section" title="Keep In–Out as a part (X)">+ Keep In–Out as a part</button>
+        <button class="tool" data-cmd="select-all" title="Select every clip (⌘A)">Select all</button>
+        <button class="tool" data-cmd="select-after" title="Select everything from the playhead on (⇧⌘A)">Select from playhead ▸</button>
+      </span>
+    </span>
+    <span class="sep"></span>
+    <label class="tool toggle" title="Snap clips to edges, markers and the playhead"><input type="checkbox" id="snap" checked><span>SNAP</span></label>
+    <span class="tgroup" title="Proxies and scrub audio">
+      <button class="tool tgroup-btn" type="button">⚙ ▾</button>
+      <span class="tgroup-items" hidden>
+        <button class="tool proxy-btn" id="btn-proxy"><i class="lamp-dot"></i><span>PROXY AUTO</span></button>
+        <label class="tool toggle" title="Hear the sound while you drag the playhead"><input type="checkbox" id="scrub"><span>Scrub audio</span></label>
+      </span>
+    </span>
     <div class="zoom-group" title="Timeline zoom: pinch or scroll over the timeline too">
     <button class="tool adv" data-cmd="zoom-max" title="Zoom all the way in around the playhead, down to single frames (⇧⌘=). Click again to go back.">◀▶ MAX IN</button>
     <span class="engr small">ZOOM</span>

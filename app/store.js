@@ -50,4 +50,17 @@ function setStorageRoot(dir) {
   if (dir) s.roots = [dir, ...s.roots.filter(d => d !== dir)].slice(0, 20);
   try { fs.mkdirSync(path.dirname(SFILE()), { recursive: true }); fs.writeFileSync(SFILE(), JSON.stringify(s), { mode: 0o600 }); } catch { /* best effort */ }
 }
-module.exports = { recents, addRecent, removeRecent, storage, setStorageRoot };
+// The editor window's last size and position (so Reel opens where you left it).
+const WFILE = () => path.join(app.getPath('userData'), 'window.json');
+function windowBounds() {
+  try {
+    const v = JSON.parse(fs.readFileSync(WFILE(), 'utf8'));
+    const ok = n => Number.isFinite(n) && Math.abs(n) < 100000;
+    if (![v.x, v.y, v.width, v.height].every(ok) || v.width < 400 || v.height < 300) return null;
+    return { x: v.x, y: v.y, width: v.width, height: v.height, maximized: !!v.maximized };
+  } catch { return null; }
+}
+function setWindowBounds(b) {
+  try { fs.mkdirSync(path.dirname(WFILE()), { recursive: true }); fs.writeFileSync(WFILE(), JSON.stringify(b), { mode: 0o600 }); } catch { /* best effort */ }
+}
+module.exports = { recents, addRecent, removeRecent, storage, setStorageRoot, windowBounds, setWindowBounds };

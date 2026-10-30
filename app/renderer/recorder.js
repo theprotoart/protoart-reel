@@ -144,7 +144,7 @@ export async function openRecorder(app) {
         el('div', { class: 'row' }, el('label', { text: 'Frame rate' }), fpsSel),
         el('div', { class: 'row' }, el('label', { text: 'Size' }), maxSel),
         sw('hide', 'Hide Reel while recording'),
-        el('p', { class: 'note', text: 'Mark a cut while recording: clap three times, or press ⌥⇧⌘M (or MARK on the floating panel). Pause and resume with PAUSE on the panel that floats at the bottom of the screen, ⌥⇧⌘2, or the Reel icon in the menu bar. Stop with STOP there, or ⇧⌘2.' })),
+        el('p', { class: 'note', text: 'Messed up a line? Clap three times (or press ⌥⇧⌘M / MARK on the floating panel) and say it again: the recording is split into takes, to keep or drop in ✂ TAKES. Pause and resume with PAUSE on the panel that floats at the bottom of the screen, ⌥⇧⌘2, or the Reel icon in the menu bar. Stop with STOP there, or ⇧⌘2.' })),
       el('div', { class: 'opt' },
         sw('clicks', 'Record clicks', null),
         el('p', { class: 'note', text: 'For click sounds and click effects. macOS asks once for Input Monitoring.' }),
@@ -165,7 +165,7 @@ export async function openRecorder(app) {
       if (!st.source) { toast(sources.length ? 'Pick a screen or window first.' : 'Reel can’t see any screens yet: see the yellow note at the top of this window.', 6000); grid.scrollIntoView({ behavior: 'smooth', block: 'start' }); return; }
       btn.disabled = true;
       if (st.sysMode === 'apps' && !st.apps.length) { toast('Tick at least one app, or choose All sound.'); btn.disabled = false; return; }
-      localStorage.setItem('rec-settings', JSON.stringify({ ...st, source: null }));
+      localStorage.setItem('rec-settings', JSON.stringify({ ...st, source: null, lastSource: { kind: st.source.kind, name: st.source.name, displayId: st.source.displayId || '' } }));
       stopPreviews();
       c();
       try { await record(app, st); } catch (e) { toast(`Recording failed: ${e.message}`, 6000); app.showWindowAfterFailure && app.showWindowAfterFailure(); }
@@ -203,13 +203,17 @@ export async function openRecorder(app) {
     el('button', { class: 'mini', text: 'Open settings', onclick: () => api.openPrivacy('screen') }));
   if (!sources.length) grid.append(stale());
   else if (!sources.some(x => x.thumbnail)) grid.append(stale()); // listed but blank pictures: same cause
+  // what you recorded last time (the same screen, or the same app's window), else the first screen
+  const last = st.lastSource;
+  const wanted = last && (sources.find(x => x.kind === last.kind && x.name === last.name && (x.kind !== 'screen' || !last.displayId || x.displayId === last.displayId))
+    || (last.kind === 'screen' && sources.find(x => x.kind === 'screen' && last.displayId && x.displayId === last.displayId)));
   for (const s of sources) {
     const card = el('div', { class: 'src', title: s.name },
       s.thumbnail ? el('img', { src: s.thumbnail }) : el('img'),
       el('div', {}, s.icon ? el('img', { src: s.icon }) : null, s.kind === 'screen' ? `🖥 ${s.name}` : s.name));
     card.addEventListener('click', () => { st.source = s; for (const x of grid.children) x.classList.remove('on'); card.classList.add('on'); });
     grid.append(card);
-    if (!st.source && s.kind === 'screen') { st.source = s; card.classList.add('on'); }
+    if (wanted ? s === wanted : (!st.source && s.kind === 'screen')) { st.source = s; card.classList.add('on'); }
   }
   // no screen in the list (only windows): pick the first thing so START works
   if (!st.source && grid.querySelector('.src')) { st.source = sources[0]; grid.querySelector('.src').classList.add('on'); }

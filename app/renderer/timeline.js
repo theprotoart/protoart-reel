@@ -190,6 +190,7 @@ export class Timeline {
       audioish && (c.adrOriginal || app.selection.clips.length === 2) ? [c.adrOriginal ? 'Restore original take' : 'Align to guide (ADR)…', () => app.cmd('adr-align'), '⌥⌘A'] : null,
       audioish ? [c.spectral ? `Spectral edit… (${c.spectral.edits?.length || 0} edits)` : 'Spectral edit…', () => { app.select([c.id], null); app.cmd('spectral'); }, '⌥⌘S'] : null,
       m?.kind === 'video' && m.hasAudio && !c.audioOnly ? ['Detach audio', () => app.cmd('detach-audio')] : null,
+      c.type === 'media' && (m?.kind === 'video' || audioish) ? [c.group ? '⚡ Auto Edit this clip (with its group)…' : '⚡ Auto Edit this clip…', () => { app.select([c.id], null); app.cmd('autoedit-clip'); }] : null,
       [c.disabled ? 'Enable clip' : 'Disable clip', () => app.cmd('disable'), 'V'],
       [c.locked ? 'Unlock' : 'Lock', () => app.cmd('lock')],
       [c.group ? 'Ungroup' : 'Group', () => app.cmd(c.group ? 'ungroup' : 'group')],
@@ -853,7 +854,7 @@ export class Timeline {
     for (let i = 0; i < l.length; i++) if (y < l[i].end) return i;
     return l.length - 1;
   }
-  _tol() { return 8 / this.pps; }
+  _tol() { return 14 / this.pps; } // snap distance: 14 pixels at any zoom
 
   /** Drag the playhead (ruler or its red head). While playing, playback continues from where you let go. */
   _scrub(e) {
@@ -966,7 +967,13 @@ export class Timeline {
     const edge = target.classList.contains('edge') ? (target.classList.contains('l') ? 'start' : 'end') : null;
     const startX = e.clientX, startRow = this._rowAt(e.clientY);
     const doc = this.doc;
-    const ids = edge ? [c.id] : this.app.selection.clips.slice();
+    // trimming one clip of a group trims the others that share that edge (screen and its sound together),
+    // like ScreenFlow and Resolve; ⌥ (a rolling edit) and ungrouped clips still trim alone
+    const edgeAt = k => (edge === 'start' ? k.start : k.start + k.duration);
+    const partners = edge && !e.altKey && c.group
+      ? withGroups(doc, [c.id]).filter(id => id !== c.id).map(id => doc.clips.find(k => k.id === id)).filter(k => k && !k.locked && Math.abs(edgeAt(k) - edgeAt(c)) < 0.05).map(k => k.id)
+      : [];
+    const ids = edge ? [c.id, ...partners] : this.app.selection.clips.slice();
     // ⌥ on an edge where two clips touch: rolling edit (move the cut, both clips change)
     const rollWith = edge && e.altKey ? neighbour(doc, c, edge) : null;
     if (rollWith && rollWith.locked) return;
@@ -988,11 +995,29 @@ export class Timeline {
         roll(doc, left, right, t);
       } else if (edge) {
         const o = orig.get(c.id);
-        Object.assign(c, { start: o.start, duration: o.duration, in: o.in, actions: structuredClone(o.actions) });
-        if (o.keys) c.keys = structuredClone(o.keys); else delete c.keys;
+        for (const id of ids) {
+          const k = doc.clips.find(x => x.id === id), ok = orig.get(id);
+          Object.assign(k, { start: ok.start, duration: ok.duration, in: ok.in, actions: structuredClone(ok.actions) });
+          if (ok.keys) k.keys = structuredClone(ok.keys); else delete k.keys;
+        }
         let t = (edge === 'start' ? o.start : o.start + o.duration) + this.t(dx);
-        if (this.snapOn) t = snap(doc, t, this._tol(), [c.id], [this.app.player.time]);
-        trim(doc, c, edge, t, c.type === 'media' ? mediaById(doc, c.media) : null);
+        if (this.snapOn) t = snap(doc, t, this._tol(), ids, [this.app.player.time]);
+        // the group's clips can only go as far as the shortest of them allows, so they stay lined up
+        const d = t - (edge === 'start' ? o.start : o.start + o.duration);
+        for (const id of ids) {
+          const k = doc.clips.find(x => x.id === id), ok = orig.get(id);
+          trim(doc, k, edge, (edge === 'start' ? ok.start : ok.start + ok.duration) + d, k.type === 'media' ? mediaById(doc, k.media) : null);
+        }
+        if (ids.length > 1) {
+          const edges = ids.map(id => edgeAt(doc.clips.find(x => x.id === id)));
+          const lim = edge === 'start' ? Math.max(...edges) : Math.min(...edges); // the one that hit its limit first
+          if (Math.max(...edges) - Math.min(...edges) > 1e-6) for (const id of ids) {
+            const k = doc.clips.find(x => x.id === id), ok = orig.get(id);
+            Object.assign(k, { start: ok.start, duration: ok.duration, in: ok.in, actions: structuredClone(ok.actions) });
+            if (ok.keys) k.keys = structuredClone(ok.keys); else delete k.keys;
+            trim(doc, k, edge, lim, k.type === 'media' ? mediaById(doc, k.media) : null);
+          }
+        }
       } else {
         // the earliest selected clip leads (so a whole selection can be pushed to 0 and snapped)
         const lead = [...orig.values()].reduce((a, b) => (b.start < a.start ? b : a));
@@ -1014,6 +1039,9 @@ export class Timeline {
         let to = null;
         if (plan.every(fits)) to = plan;
         else { const same = plan.map(p => ({ ...p, track: orig.get(p.id).track })); if (same.every(fits)) to = same; }
+        // it would run into another clip: slide it right up against that clip instead of stopping short,
+        // so one drag closes the gap (like ScreenFlow and Resolve)
+        if (!to) to = buttUp(doc, plan, ids, orig, dt) || buttUp(doc, plan.map(p => ({ ...p, track: orig.get(p.id).track })), ids, orig, dt);
         if (to) for (const p of to) { const k = doc.clips.find(x => x.id === p.id); k.start = p.start; k.track = p.track; }
         xf = ids.length === 1 ? xfadeOverlap(doc, doc.clips.find(x => x.id === ids[0])) : 0;
         if (xf > 0) {
@@ -1207,4 +1235,25 @@ function xfadeOverlap(doc, c) {
   let best = 0;
   for (const o of overlapping(doc, c.track, c.start, clipEnd(c), [c.id])) best = Math.max(best, Math.min(clipEnd(o), clipEnd(c)) - Math.max(o.start, c.start));
   return best > 0.01 ? best : 0;
+}
+
+/** A move that would overlap another clip, turned into the nearest move that just touches it: every edge
+ *  a moved clip could butt against is tried, and the one closest to where you dragged wins. */
+export function buttUp(doc, plan, ids, orig, dt) {
+  const cands = new Set();
+  for (const p of plan) {
+    const o = orig.get(p.id);
+    for (const k of doc.clips) {
+      if (ids.includes(k.id) || k.track !== p.track) continue;
+      cands.add(k.start - (o.start + o.duration)); // its end against k's start
+      cands.add(k.start + k.duration - o.start);   // its start against k's end
+    }
+  }
+  const minStart = Math.min(...plan.map(p => orig.get(p.id).start));
+  const sorted = [...cands].filter(c => minStart + c >= -1e-9).sort((a, b) => Math.abs(a - dt) - Math.abs(b - dt));
+  for (const c of sorted) {
+    const tryPlan = plan.map(p => ({ ...p, start: Math.max(0, orig.get(p.id).start + c) }));
+    if (tryPlan.every(p => isFree(doc, p.track, p.start, p.dur, ids))) return tryPlan;
+  }
+  return null;
 }

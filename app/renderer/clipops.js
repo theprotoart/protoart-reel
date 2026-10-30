@@ -175,6 +175,9 @@ export function trimToPlayhead(app, edge) {
   let list = selected(app).filter(c => t > c.start && t < clipEnd(c) && !c.locked);
   if (!list.length) { const c = clipAtPlayhead(app, x => !x.locked); list = c ? [c] : []; }
   if (!list.length) { toast('Put the playhead inside a clip.'); return; }
+  // the rest of each clip's group (its sound, camera…) is trimmed at the same point
+  const ids = withGroups(doc, list.map(c => c.id));
+  list = doc.clips.filter(c => ids.includes(c.id) && t > c.start && t < clipEnd(c) && !c.locked);
   app.commit(d => { for (const c of list) trim(d, c, edge, t, c.type === 'media' ? mediaById(d, c.media) : null); });
 }
 export function markIn(app) { app.commit(d => { const out = d.range?.out; d.range = { in: app.player.time, out: out > app.player.time ? out : undefined }; }); toast('In point set (I). Export can use In to Out.'); }
@@ -424,10 +427,11 @@ export async function alignToGuide(app, preset = null) {
 }
 
 /** The original line under a new take (ADR): the clip with sound on another track that overlaps it most. */
-export function guideUnder(doc, take) {
+export function guideUnder(doc, take, trackId = null) {
   let best = null, most = 0.2;
   for (const c of doc.clips) {
     if (c === take || c.track === take.track || c.disabled || !hasSound(doc, c)) continue;
+    if (trackId && c.track !== trackId) continue; // a guide track you picked (like VocALign's guide input)
     const ov = Math.min(clipEnd(c), clipEnd(take)) - Math.max(c.start, take.start);
     if (ov > most) { most = ov; best = c; }
   }

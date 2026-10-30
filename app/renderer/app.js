@@ -42,8 +42,10 @@ import { pluginEdited } from './fx.js';
 import { openNewDocument, applyStarter, STARTERS, starterThumb } from './presets.js';
 import { ProxyQueue, proxyPrefs, setProxyPrefs } from './proxies.js';
 import { fitHeader } from './headerfit.js';
-import { openAutoEdit } from './autoedit.js';
+import { openAutoEdit, openClipAutoEdit } from './autoedit.js';
 import { openClapFinder, clapsOnTimeline, addClapMarkers } from './clapscan.js';
+import { initToolbarGroups } from './toolbar.js';
+import { openTakes, initTakesButton } from './takes.js';
 import { syncTrackPlugins, watchLive } from './trackplugins.js';
 import { openTransitions } from './transpicker.js';
 import { initSimple, applyMode } from './simple.js';
@@ -643,7 +645,7 @@ class App {
       squareUpRecording(doc.clips.filter(c => placed.includes(c.id)), at);
       // markers you dropped while recording (⌥⇧⌘M), at the moment you pressed it
       const recStart = Math.min(...doc.clips.filter(c => placed.includes(c.id)).map(c => c.start));
-      for (const ms of marks) doc.markers.push({ id: uid('k'), t: recStart + ms / 1000, label: '◆ Mark' });
+      for (const ms of marks) doc.markers.push({ id: uid('k'), t: recStart + ms / 1000, label: '◆ Mark', mark: true });
       if (marks.length) doc.markers.sort((a, b) => a.t - b.t);
       // one recording's screen, camera and sound move together, like ScreenFlow (UNGROUP to split them)
       if (placed.length > 1) { const g = uid('g'); for (const c of doc.clips) if (placed.includes(c.id)) c.group = g; }
@@ -652,18 +654,18 @@ class App {
     this.save();
     requestAnimationFrame(() => this.timeline.fit());
     toast(marks.length ? `Recording added to the timeline, with ${marks.length} marker${marks.length === 1 ? '' : 's'}.` : 'Recording added to the timeline.');
-    this.markClaps(recId);
+    this.markClaps(recId).then(n => { if (this.doc && (n || marks.length)) openTakes(this); }); // takes from this recording: show them
   }
   /** After a recording: listen to its microphone for "clap clap clap" and mark (or cut) each one. */
   async markClaps(recId) {
     const mode = pref('recClaps');
-    if (mode === 'off') return;
+    if (mode === 'off') return 0;
     const token = this.token;
     const mics = this.doc.clips.filter(c => { const m = c.type === 'media' && this.doc.media.find(x => x.id === c.media); return m && m.recording === recId && m.role === 'mic'; });
-    if (!mics.length) return;
+    if (!mics.length) return 0;
     let sigs;
-    try { sigs = await clapsOnTimeline(this, mics); } catch { return; }
-    if (!sigs.length || this.token !== token || !this.doc) return;
+    try { sigs = await clapsOnTimeline(this, mics); } catch { return 0; }
+    if (!sigs.length || this.token !== token || !this.doc) return 0;
     const n = sigs.length, s = n === 1 ? '' : 's';
     if (mode === 'cut') {
       this.commit(d => {
@@ -672,11 +674,12 @@ class App {
         for (const x of sigs) { d.markers.push({ id: uid('k'), t: x.t0 - shift, label: '✂ Clap', claps: true }); shift += x.t1 - x.t0; }
         d.markers.sort((a, b) => a.t - b.t);
       });
-      toast(`Heard ${n} clap signal${s}: cut out, with a marker at each cut (⌘Z puts them back).`, 6000);
+      toast(`Heard ${n} clap signal${s}: ${n + 1} takes. The claps are cut out; keep or drop the takes in ✂ TAKES.`, 6000);
     } else {
       this.commit(d => { addClapMarkers(d, sigs); });
-      toast(`Heard ${n} clap signal${s}: marked on the timeline.`, 6000);
+      toast(`Heard ${n} clap signal${s}: ${n + 1} takes. Keep or drop them in ✂ TAKES.`, 6000);
     }
+    return n;
   }
 
   // ---------------------------------------------------------------- tracks
@@ -890,6 +893,8 @@ class App {
         return;
       }
       case 'find-claps': return openClapFinder(this);
+      case 'takes': return openTakes(this);
+      case 'autoedit-clip': if (sel.length) return openClipAutoEdit(this, sel[0]); toast('Select a clip first (or right-click it).'); return;
       case 'marker': this.commit(d => { d.markers.push({ id: uid('k'), t, label: `Chapter ${d.markers.length + 1}` }); d.markers.sort((a, b) => a.t - b.t); }); return;
       case 'insert-text': return this._insert(newTextClip(null, t, doc.name));
       case 'insert-callout': return this._insert(newCalloutClip(null, t));
@@ -1511,6 +1516,8 @@ class App {
     $('#preview-zoom').addEventListener('change', e => { this.setPreviewZoom(e.target.value); });
     this._wirePreviewZoom();
     for (const b of document.querySelectorAll('#toolstrip [data-cmd]')) b.addEventListener('click', () => this.cmd(b.dataset.cmd));
+    initToolbarGroups(this);
+    initTakesButton(this);
     for (const b of document.querySelectorAll('#toolstrip [data-tool]')) b.addEventListener('click', () => { if (b._held) { b._held = false; return; } this.timeline.setTool(b.dataset.tool); });
     { // press and hold SELECT (or right-click it): select all, or everything of one kind
       const b = $('#toolstrip [data-tool=select]');

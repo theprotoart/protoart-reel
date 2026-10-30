@@ -132,7 +132,7 @@ export function addClapMarkers(doc, sigs) {
   let n = 0;
   for (const s of sigs) {
     if ((doc.markers || []).some(k => Math.abs(k.t - s.t0) < 0.3)) continue;
-    doc.markers.push({ id: uid('k'), t: s.t0, label: LABEL, claps: true }); n++;
+    doc.markers.push({ id: uid('k'), t: s.t0, end: s.t1, label: LABEL, claps: true }); n++;
   }
   doc.markers.sort((a, b) => a.t - b.t);
   return n;
@@ -160,7 +160,7 @@ export async function openClapFinder(app) {
     el('p', { text: `Found ${n} clap signal${s}, at ${sigs.map(x => fmt(x.t0)).join(', ')}.` }),
     el('p', { class: 'note', text: 'Markers show where they are; jump between them with the timeline’s marker keys. Cutting removes about a second of claps from every track and leaves a cut there, so you can trim back to the take you want. ⌘Z undoes either.' })), [
     { label: 'Cancel', onClick: c => c() },
-    { label: `Add ${n} marker${s}`, onClick: c => { c(); app.commit(d => { addClapMarkers(d, sigs); }); toast(`${n} clap marker${s} added.`); } },
+    { label: `Add ${n} marker${s}`, onClick: c => { c(); app.commit(d => { addClapMarkers(d, sigs); }); toast(`${n} clap marker${s} added: ${n + 1} takes. Keep or drop them in ✂ TAKES.`); app.cmd('takes'); } },
     { label: `Cut out the claps${n > 1 ? ` (${n})` : ''}`, cls: 'hw amber', onClick: c => {
       c();
       app.commit(d => {
@@ -169,7 +169,7 @@ export async function openClapFinder(app) {
         for (const x of sigs) { d.markers.push({ id: uid('k'), t: x.t0 - shift, label: LABEL, claps: true }); shift += x.t1 - x.t0; }
         d.markers.sort((a, b) => a.t - b.t);
       });
-      toast(`Cut out ${n} clap signal${s}; a marker shows each cut.`);
+      toast(`Cut out ${n} clap signal${s}; keep or drop the takes in ✂ TAKES.`); app.cmd('takes');
     } },
   ]);
 }

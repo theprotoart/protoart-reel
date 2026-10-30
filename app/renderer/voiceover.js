@@ -3,7 +3,7 @@
 // re-records only between the In and Out marks: it plays a pre-roll of the old take, records, plays a
 // little post-roll, and replaces just that part with short crossfades. Every take stays in the media list.
 import { alignToGuide, guideUnder } from './clipops.js';
-import { el, toast } from './ui.js';
+import { el, toast, modal } from './ui.js';
 import { audioDevices, fillSelect, permissionNote } from './devices.js';
 import { uid, newMediaClip, split, clipEnd, duration, mediaById, isFree, addTrack } from './model.js';
 
@@ -105,7 +105,19 @@ export function openVoiceOver(app, { punch = false } = {}) {
   const pre = el('select', {}, ...[1, 2, 3, 5].map(v => el('option', { value: v, text: `${v} s pre-roll`, selected: Number(prefs.preroll) === v })));
   const mute = el('input', { type: 'checkbox', checked: !!prefs.mute });
   const adr = el('input', { type: 'checkbox', checked: !!prefs.adr });
-  adr.addEventListener('change', () => { prefs.adr = adr.checked; savePrefs(prefs); });
+  // the guide: the dialogue to line each take up with, like VocALign's guide input. Automatic takes whatever
+  // has sound under the take; or pick the track that holds the original dialogue.
+  const guideSel = el('select', { title: 'The original dialogue each take is lined up with' });
+  const fillGuides = () => {
+    const d = app.doc, has = tr => d.clips.some(c => c.track === tr.id && c.type === 'media' && (mediaById(d, c.media)?.kind === 'audio' || mediaById(d, c.media)?.hasAudio));
+    guideSel.replaceChildren(el('option', { value: '', text: 'Guide: automatic (the dialogue under the take)' }),
+      ...d.tracks.filter(has).map(tr => el('option', { value: tr.id, text: `Guide: ${tr.name || `Track ${d.tracks.indexOf(tr) + 1}`}` })));
+    guideSel.value = d.tracks.some(t => t.id === prefs.adrGuide) ? prefs.adrGuide : '';
+  };
+  guideSel.addEventListener('change', () => { prefs.adrGuide = guideSel.value; savePrefs(prefs); });
+  const guideRow = el('div', { class: 'vo-row' }, el('label', { text: 'Guide' }), guideSel);
+  const showGuide = () => { guideRow.style.display = adr.checked ? '' : 'none'; if (adr.checked) fillGuides(); };
+  adr.addEventListener('change', () => { prefs.adr = adr.checked; savePrefs(prefs); showGuide(); });
   const keep = () => { prefs.countdown = Number(cd.value); prefs.preroll = Number(pre.value); prefs.mute = mute.checked; savePrefs(prefs); };
   for (const x of [cd, pre, mute]) x.addEventListener('change', keep);
   const recBtn = el('button', { class: 'rec-btn big vo-rec' }, el('span', { class: 'dot' }), el('span', { class: 'lbl', text: 'RECORD' }));
@@ -119,9 +131,11 @@ export function openVoiceOver(app, { punch = false } = {}) {
     el('div', { class: 'vo-row' }, cd, el('label', { class: 'chk', title: 'Turn the edit’s sound off while you record (when you’re not on headphones, so it doesn’t leak into the mic)' }, mute, el('span', { text: 'Mute the edit' }))),
     punchRow,
     el('label', { class: 'vo-row chk', title: 'For ADR (replacing dialogue): after each take, Reel lines it up syllable by syllable with the original line under it, so it matches the lips' }, adr, el('span', { text: 'ADR: align each take to the original dialogue' })),
+    guideRow,
     el('div', { class: 'vo-go' }, recBtn, clock),
     status, takeBar);
   document.body.append(panel);
+  showGuide();
 
   // drag by the header
   head.addEventListener('pointerdown', e => {
@@ -173,6 +187,21 @@ export function openVoiceOver(app, { punch = false } = {}) {
     const api = app.api, doc = app.doc, token = app.token;
     const r = range();
     if (mode === 'punch' && !r) { toast('Mark In (I) and Out (O) around the part to re-record first.'); return; }
+    // recording dialogue over an edit that has sound: ask once whether to mute it, so it doesn't leak into
+    // the mic (like ScreenFlow and Resolve). The answer is remembered; the "Mute the edit" box changes it later.
+    if (!mute.checked && !prefs.muteAsked && doc.clips.some(c => c.type === 'media' && !c.audio?.mute && (mediaById(doc, c.media)?.kind === 'audio' || mediaById(doc, c.media)?.hasAudio))) {
+      const answer = await new Promise(res => {
+        modal('Mute the other sound?', el('div', {},
+          el('p', { text: 'The edit has sound that plays while you record. Through speakers it leaks into the microphone and ends up in your take.' }),
+          el('p', { class: 'note', text: 'Mute it while you record, or keep hearing it if you’re on headphones. Reel remembers your answer; change it any time with “Mute the edit”.' })), [
+          { label: 'Keep it (headphones)', onClick: c => { res('keep'); c(); } },
+          { label: 'Mute while I record', cls: 'hw amber', onClick: c => { res('mute'); c(); } },
+        ], { onClose: () => res(null) });
+      });
+      if (!answer) return;
+      prefs.muteAsked = true;
+      mute.checked = answer === 'mute';
+    }
     keep();
     busy = true; panel.classList.add('recording'); recBtn.querySelector('.lbl').textContent = 'STOP';
     stopMeter();
@@ -272,9 +301,9 @@ export function openVoiceOver(app, { punch = false } = {}) {
       });
       app.select([placed.clipId], null);
       if (adr.checked) {
-        const takeClip = app.doc.clips.find(c => c.id === placed.clipId), guide = takeClip && guideUnder(app.doc, takeClip);
+        const takeClip = app.doc.clips.find(c => c.id === placed.clipId), guide = takeClip && guideUnder(app.doc, takeClip, guideSel.value || null);
         if (guide) setTimeout(() => alignToGuide(app, { guide, take: takeClip }), 300);
-        else toast('ADR: there’s no original dialogue under this take to align it to.', 5000);
+        else toast(guideSel.value ? 'ADR: nothing with sound on the guide track under this take, so it wasn’t aligned.' : 'ADR: no dialogue under this take to align it to.', 5000);
       }
       status.textContent = mode === 'punch' ? `Punched in ${r.in.toFixed(1)}–${r.out.toFixed(1)} s.` : `${label} recorded (${recorded.toFixed(1)} s).`;
       offerTake({ before, token, file: m.file, label: mode === 'punch' ? 'this punch-in' : label, start: mode === 'punch' ? Math.max(0, r.in - 1) : playFrom });

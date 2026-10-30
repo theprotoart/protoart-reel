@@ -50,7 +50,7 @@ export async function openSettings(app, page = 'general') {
     fillSelect(outSel, d.outputs, m.sink || '', d.defaultOutput, 'System Default');
     // what macOS itself reports (Core Audio), so a missing interface is easy to tell from a hidden name
     try {
-      const outs = (await api.audioList()).outputs || [];
+      const outs = (await Promise.race([api.audioList(), new Promise((_, no) => setTimeout(() => no(new Error('slow')), 4000))])).outputs || [];
       macSees.textContent = outs.length ? `macOS sees these outputs: ${outs.map(o => o.name + (o.default ? ' (default)' : '')).join(', ')}.` : '';
     } catch { macSees.textContent = ''; }
   };
@@ -175,7 +175,8 @@ export async function openSettings(app, page = 'general') {
   const onDev = () => fill();
   navigator.mediaDevices.addEventListener?.('devicechange', onDev);
   window.addEventListener('focus', onDev);
-  await fill();
+  // open at once; the device lists fill in when the Mac answers (the audio helper can take a while, or be busy)
+  fill().catch(() => {});
   modal('Settings', el('div', { class: 'prefs' }, list, body), [{ label: 'Done', cls: 'hw amber', onClick: c => c() }],
     { wide: true, onClose: () => { stopMic(); navigator.mediaDevices.removeEventListener?.('devicechange', onDev); window.removeEventListener('focus', onDev); } });
   go(pages[page] ? page : 'general');

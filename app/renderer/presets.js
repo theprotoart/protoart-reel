@@ -132,7 +132,13 @@ export function openNewDocument(app) {
     fps.value = '30';
     const syncFromPreset = () => { const p = DOC_PRESETS[Number(sel.value)]; if (p[1]) { w.value = p[1]; h.value = p[2]; } w.disabled = h.disabled = !!p[1]; };
     sel.addEventListener('change', syncFromPreset);
+    // start from what you picked last time
+    let lastDoc = null;
+    try { lastDoc = JSON.parse(localStorage.getItem('reel.newDoc') || 'null'); } catch { /* defaults */ }
+    if (lastDoc && DOC_PRESETS[lastDoc.preset]) sel.value = String(lastDoc.preset);
     syncFromPreset();
+    if (lastDoc && !DOC_PRESETS[Number(sel.value)][1] && lastDoc.w && lastDoc.h) { w.value = lastDoc.w; h.value = lastDoc.h; }
+    if (lastDoc && FRAME_RATES.includes(Number(lastDoc.fps))) fps.value = String(lastDoc.fps);
     const starters = el('div', { class: 'starter-grid' }, ...STARTERS.map(st => {
       const b = el('button', { class: 'starter', type: 'button', title: `${st.name}: Titles, B-roll, Main video, Voice, Music and Sound FX tracks, a title card and an end card that fades out` },
         el('span', { class: 'st-frame' }, starterThumb(st, 76)),
@@ -155,6 +161,7 @@ export function openNewDocument(app) {
       { label: 'Create', cls: 'hw amber', onClick: c => {
         const W = Math.round(Number(w.value) / 2) * 2, H = Math.round(Number(h.value) / 2) * 2;
         if (!picked && !(W >= 160 && H >= 160 && W <= 7680 && H <= 7680)) { toast('Width and height must be between 160 and 7680.'); return; }
+        try { localStorage.setItem('reel.newDoc', JSON.stringify({ preset: Number(sel.value), w: W, h: H, fps: Number(fps.value) })); } catch { /* fine */ }
         finish(picked ? { starter: picked } : { width: W, height: H, fps: Number(fps.value) });
         c();
       } },

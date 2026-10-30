@@ -1572,6 +1572,7 @@ function buildMenu() {
       { type: 'separator' },
       { label: 'Splice at Playhead  (S)', click: m('split') },
       { label: 'Add Marker  (M)', click: m('marker') },
+      { label: 'Takes…', accelerator: 'Command+Alt+T', click: m('takes') },
       { label: 'Find Clap Markers…', click: m('find-claps') },
       { type: 'separator' },
       { label: 'Mark In  (I)', click: m('mark-in') },
@@ -1598,6 +1599,7 @@ function buildMenu() {
       { label: 'Auto Captions…', click: m('auto-captions') },
       { label: 'Edit by Text…', accelerator: 'Control+Command+T', click: m('text-edit') },
       { type: 'separator' },
+      { label: 'Auto Edit This Clip…', click: m('autoedit-clip') },
       { label: 'Rename Clip…', click: m('rename-clip') },
       { label: 'Add Clip Marker  (⇧M)', click: m('clip-marker') },
       { label: 'Label', submenu: ['none', 'red', 'orange', 'yellow', 'green', 'blue', 'purple', 'gray'].map(c => ({ label: c[0].toUpperCase() + c.slice(1), click: m('label-' + c) })) },
@@ -1676,8 +1678,12 @@ function lockDownSession() {
 
 function createWindow() {
   const { width, height } = screen.getPrimaryDisplay().workAreaSize;
+  // where you left it, if that spot is still on a connected screen
+  const last = store.windowBounds();
+  const onScreen = last && screen.getAllDisplays().some(d => { const a = d.workArea; return last.x < a.x + a.width - 80 && last.x + last.width > a.x + 80 && last.y >= a.y - 10 && last.y < a.y + a.height - 80; });
+  const place = onScreen ? { x: last.x, y: last.y, width: Math.max(1100, last.width), height: Math.max(700, last.height) } : { width: Math.min(1560, width), height: Math.min(960, height) };
   win = new BrowserWindow({
-    width: Math.min(1560, width), height: Math.min(960, height), minWidth: 1100, minHeight: 700,
+    ...place, minWidth: 1100, minHeight: 700,
     titleBarStyle: 'hiddenInset', trafficLightPosition: { x: 14, y: 14 }, backgroundColor: '#141416', show: false,
     title: 'ProtoArt Reel',
     webPreferences: {
@@ -1687,6 +1693,10 @@ function createWindow() {
       backgroundThrottling: false,
     },
   });
+  if (onScreen && last.maximized) win.maximize();
+  let boundsTimer = null;
+  const keepBounds = () => { clearTimeout(boundsTimer); boundsTimer = setTimeout(() => { if (win && !win.isDestroyed() && !win.isMinimized() && !win.isFullScreen()) store.setWindowBounds({ ...(win.isMaximized() ? win.getNormalBounds() : win.getBounds()), maximized: win.isMaximized() }); }, 400); };
+  for (const ev of ['resize', 'move', 'maximize', 'unmaximize']) win.on(ev, keepBounds);
   win.webContents.on('will-navigate', e => e.preventDefault());
   win.webContents.on('will-redirect', e => e.preventDefault());
   win.webContents.on('will-attach-webview', e => e.preventDefault());
