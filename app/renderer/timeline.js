@@ -1219,7 +1219,7 @@ export class Timeline {
       const tr = rowOf(e);
       const id = e.dataTransfer.getData('application/x-reel-media');
       if (id) this.app.addMediaClip(id, tr && tr.id, this.snapOn ? snap(this.doc, t, this._tol(), [], [this.app.player.time]) : t);
-      else if (e.dataTransfer.files.length) this.app.importDropped(e.dataTransfer.files, { track: tr && tr.id, at: t });
+      else if (e.dataTransfer.files.length || e.dataTransfer.types.includes('Files')) this.app.importDropped(this.app.dropPaths(e), { track: tr && tr.id, at: t });
     });
   }
 }

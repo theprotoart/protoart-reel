@@ -825,7 +825,7 @@ handle('media:import', async token => {
 handle('media:importDropped', async (token, paths) => {
   const p = projectOf(token);
   const clean = validate.paths(paths);
-  if (!clean) return [];
+  if (!clean) return [{ error: Array.isArray(paths) && paths.length ? 'Reel couldn’t read where those files are.' : 'macOS didn’t say where the dropped files are. Try dropping them again, or use ADD MEDIA.' }];
   return importFiles(p, clean);
 });
 
@@ -852,11 +852,12 @@ async function importFiles(p, files) {
     const base = path.basename(src), ext = path.extname(src).slice(1).toLowerCase();
     const progress = v => { if (win && !win.isDestroyed()) win.webContents.send('import-progress', { name: base, index: i, count: list.length, value: v }); };
     try {
-      const st = await fs.promises.lstat(src);
+      // stat, not lstat: a symlink or a folder alias to a file brings in the file it points to
+      const st = await fs.promises.stat(src);
       // a ScreenFlow project (a package folder): its document and recordings come in; the editor rebuilds it
       if (st.isDirectory() && ext === 'screenflow') { out.push(await importScreenflowPackage(p, src, base, progress)); continue; }
       if (st.isFile() && ext === 'screenflowf') throw new Error('This is a flattened ScreenFlow file. In ScreenFlow, use File › Save As and save it as a normal project, then drop that in.');
-      if (!st.isFile()) continue;
+      if (!st.isFile()) { out.push({ error: `${base}: ${st.isDirectory() ? 'that’s a folder; drop the files inside it' : 'not a file Reel can read'}` }); continue; }
       if (FORMATS.unsupported.includes(ext)) throw new Error(`.${ext} files can't be read on a Mac without extra software. Export it as MP4, MOV or WAV first.`);
       const copyAs = async () => { const name = await freeMediaName(p, base); await copyWithProgress(src, path.join(mediaDir(p), name), st.size, progress); return name; };
       // WebM / Matroska / Ogg: the editor converts them (it can read them, macOS can't)

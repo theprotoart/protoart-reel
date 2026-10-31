@@ -336,9 +336,10 @@ class App {
     this.renderAll(); requestAnimationFrame(() => this.timeline.fit());
   }
   async newFromDrop(files) {
-    const list = Array.from(files);
-    const sf = list.find(f => /\.screenflow$/i.test(f.name));
-    const name = sf ? sf.name.replace(/\.screenflow$/i, '') : 'Untitled ' + new Date().toLocaleDateString();
+    const list = Array.isArray(files) ? files : api.pathsOf(files); // locations on disk, read during the drop
+    const base = f => String(f).split('/').pop();
+    const sf = list.find(f => /\.screenflow\/?$/i.test(f));
+    const name = sf ? base(sf.replace(/\/$/, '')).replace(/\.screenflow$/i, '') : 'Untitled ' + new Date().toLocaleDateString();
     const ok = await this.open(api.create(name));
     if (!ok) return;
     await this.importDropped(list, null);
@@ -435,8 +436,24 @@ class App {
   focusInspector() { const t = this.inspector.textArea; if (t && document.body.contains(t)) t.focus(); }
 
   // ---------------------------------------------------------------- media & clips
+  /**
+   * Where the files of a drop are on disk, read during the drop event (its file list is emptied afterwards).
+   * Each File is handed over on its own (a whole FileList doesn't always survive the trip to the preload);
+   * if that still gives nothing, the file:// links Finder puts in the drop are used.
+   */
+  dropPaths(e) {
+    const dt = e.dataTransfer, out = [];
+    for (const f of Array.from(dt?.files || [])) { const p = api.pathOf ? api.pathOf(f) : ''; if (p) out.push(p); }
+    if (!out.length && api.pathsOf) out.push(...api.pathsOf(Array.from(dt?.files || [])));
+    if (!out.length) {
+      const uris = (dt?.getData('text/uri-list') || '').split(/\r?\n/).filter(u => /^file:\/\//i.test(u.trim()));
+      for (const u of uris) { try { const p = decodeURIComponent(new URL(u.trim()).pathname); if (p) out.push(p.replace(/\/$/, '')); } catch { /* skip */ } }
+    }
+    return [...new Set(out)];
+  }
   async importDropped(files, where) {
     if (!this.doc) return;
+    if (Array.isArray(files) && !files.length) { toast('macOS didn’t say where the dropped files are. Try dropping them again, or use ADD MEDIA.', 6000); return; }
     const res = await this._withConversion(() => api.importDropped(this.token, files));
     this._addImported(res, where);
   }
@@ -1578,8 +1595,9 @@ class App {
       e.preventDefault();
       if (handled) return;
       if (!e.dataTransfer.files.length) { if (e.dataTransfer.types.includes('Files')) toast('Reel couldn’t read that drop. Use File › Import… to pick it instead.', 5000); return; }
-      if (this.doc) this.importDropped(e.dataTransfer.files, null);
-      else this.newFromDrop(e.dataTransfer.files);
+      const paths = this.dropPaths(e); // read now: the drop's file list is emptied once this returns
+      if (this.doc) this.importDropped(paths, null);
+      else this.newFromDrop(paths);
     });
     setInterval(() => { if (this.doc && this.dirty && !this.player.playing && !this._inChange) this.save(); }, 60000);
   }

@@ -16,7 +16,7 @@ export class Library {
     $('#lib-add').addEventListener('click', () => app.cmd('import'));
     const lib = $('#library');
     lib.addEventListener('dragover', e => { if (e.dataTransfer.types.includes('Files')) { e.preventDefault(); e.dataTransfer.dropEffect = 'copy'; } });
-    lib.addEventListener('drop', e => { e.preventDefault(); if (e.dataTransfer.files.length) app.importDropped(e.dataTransfer.files, null); });
+    lib.addEventListener('drop', e => { e.preventDefault(); e.stopPropagation(); if (e.dataTransfer.files.length || e.dataTransfer.types.includes('Files')) app.importDropped(app.dropPaths(e), null); });
     this.selected = null;
     this.query = '';
     this.filter = 'all';

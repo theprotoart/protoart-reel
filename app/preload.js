@@ -19,7 +19,11 @@ contextBridge.exposeInMainWorld('reel', {
   save: (token, doc, poster) => invoke('project:save', token, doc, poster),
   reveal: token => invoke('project:reveal', token),
   importMedia: token => invoke('media:import', token),
-  importDropped: (token, files) => invoke('media:importDropped', token, Array.from(files, f => webUtils.getPathForFile(f)).filter(Boolean)),
+  // files → their locations on disk; read at once, during the drop (the browser empties a drop's file list afterwards)
+  pathsOf: files => Array.from(files || [], f => { try { return webUtils.getPathForFile(f); } catch { return ''; } }).filter(Boolean),
+  // one File at a time: a single File crosses into this preload reliably (a whole FileList may not)
+  pathOf: f => { try { return webUtils.getPathForFile(f) || ''; } catch { return ''; } },
+  importDropped: (token, filesOrPaths) => invoke('media:importDropped', token, Array.isArray(filesOrPaths) ? filesOrPaths : Array.from(filesOrPaths, f => webUtils.getPathForFile(f)).filter(Boolean)),
   readJson: (token, name) => invoke('media:readJson', token, name),
   writeJson: (token, stem, data) => invoke('media:writeJson', token, stem, data),
   importPaths: (token, paths) => invoke('media:importPaths', token, paths),

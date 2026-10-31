@@ -71,7 +71,7 @@ export function conversionDialog() {
   return {
     set(name, value, i, count) {
       if (!dlg) dlg = modal('Adding media', el('div', {}, what, bar), []);
-      what.textContent = `Converting “${name}”${count > 1 ? ` (${i + 1} of ${count})` : ''} so Reel can edit it… ${Math.round(value * 100)}%`;
+      what.textContent = `Bringing in “${name}”${count > 1 ? ` (${i + 1} of ${count})` : ''}… ${Math.round(value * 100)}%`;
       bar.firstChild.style.width = Math.round(value * 100) + '%';
     },
     close() { dlg?.close(); dlg = null; },

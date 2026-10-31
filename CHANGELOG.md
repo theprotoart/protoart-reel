@@ -36,6 +36,9 @@
 - **Plug-ins on the master bus, easy to find.** The MIXER's master section has ★ MASTER PLUG-INS… (also Clip ›
   Master Bus & Plug-ins…): your own plug-ins on the whole mix, plus loudness and a limiter, applied to the export.
   Before, they were only reachable from the Export window.
+- **Fix: dropping files said “Nothing in that could be imported”.** Reel now reads where each dropped file is at
+  the very moment of the drop, one file at a time (falling back to the drop's file links), follows aliases and
+  symlinks to the real file, and says exactly why a file was skipped.
 - **Dropping WAV files and videos works, and shows progress.** WAVs from recorders and DAWs (big bext / iXML
   headers before the sound) failed with "Unreadable WAV"; they come in now, and unusual WAVs (8-bit, 64-bit,
   compressed) are converted. Files from another drive are copied with a progress bar instead of looking stuck,
