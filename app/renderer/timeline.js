@@ -641,11 +641,7 @@ export class Timeline {
       posterFor(this.app, m).then(url => { if (url) strip.style.backgroundImage = `url(${url})`; });
       e.append(strip);
     }
-    if (m && (m.hasAudio || m.kind === 'audio')) {
-      const cv = el('canvas', { class: 'wave' });
-      e.append(cv);
-      peaksFor(this.app, m).then(p => p && this._drawWave(cv, c, p));
-    }
+    if (m && (m.hasAudio || m.kind === 'audio')) this._waveTiles(e, c, m);
     if (c.transIn && !['none', 'fade'].includes(c.transIn.type)) e.append(el('div', { class: 'tr', style: { left: 0, width: this.x(c.transIn.dur) + 'px' } }));
     if (c.transOut && !['none', 'fade'].includes(c.transOut.type)) e.append(el('div', { class: 'tr out', style: { right: 0, width: this.x(c.transOut.dur) + 'px' } }));
     for (const a of c.actions || []) {
@@ -726,14 +722,41 @@ export class Timeline {
     return e;
   }
 
-  _drawWave(cv, c, peaks) {
-    const w = Math.max(1, Math.round(this.x(c.duration))), h = 40;
-    cv.width = Math.min(w, 8000); cv.height = h;
+  /**
+   * A clip's waveform, in tiles of at most 2048 pixels, each drawn only when it scrolls into view. (One canvas for
+   * a long clip had to be capped in size and then showed the sound squeezed into its first part, so speech
+   * appeared where there was silence.) Each tile maps its own pixels to the source time, so it lines up at any zoom.
+   */
+  _waveTiles(e, c, m) {
+    const TILE = 2048, w = Math.max(1, Math.round(this.x(c.duration)));
+    const host = el('div', { class: 'wave-host' });
+    e.append(host);
+    this._waveIO ||= new IntersectionObserver(entries => {
+      for (const en of entries) if (en.isIntersecting && en.target._draw) { const f = en.target._draw; en.target._draw = null; this._waveIO.unobserve(en.target); f(); }
+    }, { root: this.scroll, rootMargin: '0px 1500px' });
+    peaksFor(this.app, m).then(peaks => {
+      if (!peaks || !host.isConnected) return;
+      const n = Math.min(3000, Math.ceil(w / TILE)), tw = Math.ceil(w / n);
+      const snap = { in: c.in || 0, dur: c.duration, speed: c.speed || 1 };
+      for (let i = 0; i < n; i++) {
+        const x0 = i * tw, width = Math.min(tw, w - x0);
+        if (width <= 0) break;
+        const tile = el('div', { class: 'wave-tile', style: { left: x0 + 'px', width: width + 'px' } });
+        tile._draw = () => this._drawWaveTile(tile, snap, peaks, x0, width, w);
+        host.append(tile);
+        this._waveIO.observe(tile);
+      }
+    });
+  }
+  _drawWaveTile(tile, c, peaks, x0, width, w) {
+    const h = 40, cv = el('canvas', { class: 'wave' });
+    cv.width = width; cv.height = h;
+    tile.append(cv);
     const g = cv.getContext('2d');
     g.fillStyle = 'rgba(190,255,215,0.55)';
-    const speed = c.speed || 1, rate = peaks.rate;
-    for (let x = 0; x < cv.width; x++) {
-      const t0 = (c.in || 0) + (x / cv.width) * c.duration * speed, t1 = (c.in || 0) + ((x + 1) / cv.width) * c.duration * speed;
+    const rate = peaks.rate, span = c.dur * c.speed;
+    for (let x = 0; x < width; x++) {
+      const t0 = c.in + ((x0 + x) / w) * span, t1 = c.in + ((x0 + x + 1) / w) * span;
       let v = 0;
       for (let i = Math.floor(t0 * rate); i <= Math.floor(t1 * rate) && i < peaks.data.length; i++) v = Math.max(v, peaks.data[i] || 0);
       const vh = Math.max(1, v * (h - 4));

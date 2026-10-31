@@ -4,7 +4,7 @@
 import { el, popMenu, toast } from './ui.js';
 import { FX_TYPES, FX_PARAMS, FX_PRESETS } from './lib/trackfx.js';
 import { uid } from './model.js';
-import { addTrackPlugin, editTrackPlugin, renderPending } from './trackplugins.js';
+import { addTrackPlugin, editTrackPlugin, renderPending, bakeTrack } from './trackplugins.js';
 
 const SLOT_H = 24, MAX_SLOTS = 8;
 /** An insert's display name: a built-in effect's, or your plug-in's own (with ★). */
@@ -44,6 +44,7 @@ export function fxSlotMenu(app, tr, f, x, y, after) {
   const done = fn => () => { fn(); after?.(); };
   popMenu(x, y, [
     f.type === 'au' ? ['Open its window…', () => openFxEditor(app, tr, f)] : ['Open controls…', () => openFxEditor(app, tr, f)],
+    f.type === 'au' && tr.id ? ['Render into the track for good (apply it, take it off the strip)…', () => bakeTrack(app, tr.id)] : null,
     f.type === 'au' && tr.id ? ['Render this track now (to hear it without its window open)', async () => { const n = await renderPending(app, { trackId: tr.id }); toast(n ? `Rendered ${n} clip${n === 1 ? '' : 's'}: press Space to hear the plug-in.` : 'Already rendered: press Space to hear it.', 4000); }] : null,
     [f.off ? 'Turn on' : 'Bypass (turn off)', done(() => app.commit(() => { f.off = !f.off; }, { keepInspector: true }))],
     null,

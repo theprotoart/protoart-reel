@@ -1425,8 +1425,9 @@ class App {
   }
 
   /** Runs Smart Zoom on clips (ids). quiet: no progress window (used for videos as they're dropped). */
-  async smartZoom(ids, { style = 'follow', strength = 1, usePointer = true, quiet = false, pack = '', packSounds = true, packFilter = null } = {}) {
-    if (this._zooming) { if (!quiet) toast('Smart Zoom is already working.'); return; }
+  /** Returns how many zoom and pan moves it made. fallback: a clip with nothing to follow gets gentle push-ins. */
+  async smartZoom(ids, { style = 'follow', strength = 1, usePointer = true, quiet = false, pack = '', packSounds = true, packFilter = null, fallback = false } = {}) {
+    if (this._zooming) { if (!quiet) toast('Smart Zoom is already working.'); return 0; }
     this._zooming = true;
     const token = this.token, ctl = new AbortController();
     const bar = el('div', { class: 'progress' }, el('i')), what = el('p', { class: 'note', text: 'Watching the video…' });
@@ -1453,6 +1454,7 @@ class App {
             const res = await zoomAnalyse(this, c, m, { signal: ctl.signal, onProgress: v => { bar.firstChild.style.width = Math.round(((k + v) / ids.length) * 100) + '%'; } });
             if (this.token !== token) return;
             actions = zoomPlan(res.samples, c.duration, { style, strength, base, cuts: res.cuts });
+            if (!actions.length && fallback && style !== 'cinematic') actions = zoomPlan(res.samples, c.duration, { style: 'cinematic', strength, base, cuts: res.cuts });
             if (res.cuts?.length) shots[id] = res.cuts;
           }
         }
@@ -1469,8 +1471,9 @@ class App {
       if (pack) trans = await autoTransitions(this, pack, { sounds: packSounds, clipIds: ids, shots: packFilter ? null : shots, filter: packFilter });
       if (trans) toast(`${PACKS[pack].name} transitions on ${trans} cut${trans === 1 ? '' : 's'}${packSounds ? ', with sounds' : ''}.`, 5000);
       if (clipsDone === 1 && ids.length === 1 && !quiet) this.select([ids[0]], null);
-      toast(made ? `Smart Zoom: ${made} zoom and pan move${made === 1 ? '' : 's'} on ${clipsDone} clip${clipsDone === 1 ? '' : 's'}. Each is an action you can adjust (right-click to remove).`
+      if (!quiet) toast(made ? `Smart Zoom: ${made} zoom and pan move${made === 1 ? '' : 's'} on ${clipsDone} clip${clipsDone === 1 ? '' : 's'}. Each is an action you can adjust (right-click to remove).`
         : 'Smart Zoom found nothing to zoom on: the picture barely moves. Try the Cinematic style.', 6000);
+      return made;
     } catch (e) {
       dlg?.close();
       if (!/Cancelled/.test(e.message)) toast(`Smart Zoom: ${e.message}`, 6000);

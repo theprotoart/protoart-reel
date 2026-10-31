@@ -5,7 +5,8 @@
 // plug-in like any insert; click it to open its window.
 import { toast } from './ui.js';
 import { mediaById, uid } from './model.js';
-import { renderClip, pickPlugin, ensureSource } from './fx.js';
+import { renderClip, pickPlugin, ensureSource, pluginEdited } from './fx.js';
+import { ask } from './ui.js';
 import { sourceTime, clipEnd, trackGainAt } from './model.js';
 import { pref } from './prefs.js';
 
@@ -181,9 +182,10 @@ function drawBanner(app) {
     msg.innerHTML = `<b>LIVE</b> Waiting for ${esc(tn)}: there’s no sound on that track at the playhead.`;
     banner.append(lamp, msg);
   }
-  banner.append(btn('CLOSE PLUG-IN', 'Close the plug-in window (your settings are kept) and go back to normal playback', () => { for (const [slot, e] of app.fxEditing) if (e.track === trackId) app.api.fxEditClose(slot).catch(() => {}); }));
+  banner.append(btn('RENDER INTO TRACK', 'Apply the plug-in to this track’s sound for good: its clips are rendered through it, and it comes off the strip (⌘Z undoes it)', () => bakeTrack(app, trackId)));
+  banner.append(btn('CLOSE PLUG-IN', 'Close the plug-in window (your settings are kept) and go back to normal playback', () => closeTrackWindows(app, trackId)));
   const help = document.createElement('small');
-  help.textContent = 'Only this track is live; the others play as usual. Your export always includes the plug-in.';
+  help.textContent = 'Only this track is live; the others play as usual. Leave it on the strip and it’s rendered at export, or RENDER INTO TRACK to apply it now.';
   banner.append(help);
 }
 const esc = s => String(s).replace(/[&<>"]/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' }[c]));
@@ -202,4 +204,58 @@ export function watchLive(app) {
       else if (want !== liveOn || jumped || t >= liveEnd - 0.03 || (!liveClip && app.doc.clips.some(x => x.track === want && t >= x.start && t < x.start + 0.4))) await startLive(app, want, t);
     } catch (e) { console.warn('live plug-ins', e); } finally { liveBusy = false; try { drawBanner(app); } catch (e) { console.warn('live banner', e); } }
   }, 150);
+}
+
+/**
+ * Closes a track's plug-in windows and keeps their settings. (Closing from Reel used to throw the settings the
+ * plug-in sent back away and leave Reel thinking the window was still open, so the LISTEN LIVE bar stayed up.)
+ */
+export async function closeTrackWindows(app, trackId) {
+  for (const [slot, e] of [...app.fxEditing]) {
+    if (e.track !== trackId) continue;
+    let state = null;
+    try { state = await app.api.fxEditClose(slot); } catch { /* the window was already gone */ }
+    if (typeof state === 'string' && state) pluginEdited(app, { slot, state });
+    else app.fxEditing.delete(slot);
+  }
+  bannerKey = '';
+  try { drawBanner(app); } catch { /* fine */ }
+}
+
+/**
+ * RENDER INTO TRACK: the track's plug-ins are applied to its sound clips for good. Each clip is rendered through
+ * its effects and the track's plug-ins, then plays the rendered sound as its own media; the plug-ins come off the
+ * strip, so nothing renders again. The originals stay in the media list, and ⌘Z puts everything back.
+ * (Clips with picture keep the plug-in on the strip, rendered at export: their picture and sound are one file.)
+ */
+export async function bakeTrack(app, trackId) {
+  const doc = app.doc, tr = trOf(app, trackId);
+  if (!doc || !tr) return;
+  const plugs = (tr.fx || []).filter(isAu);
+  if (!plugs.length) { toast('There’s no plug-in on this track to render.'); return; }
+  const names = plugs.map(f => f.name).join(' + ');
+  const clips = doc.clips.filter(c => c.track === trackId && hasSound(doc, c));
+  const soundOnly = clips.filter(c => c.audioOnly || mediaById(doc, c.media)?.kind === 'audio');
+  if (!soundOnly.length) { toast('This track’s clips have picture too, so the plug-in stays on the strip and is applied at export.', 6000); return; }
+  if (!(await ask('Render into the track?', `${names} will be applied to the sound of ${soundOnly.length} clip${soundOnly.length === 1 ? '' : 's'} on “${tr.name || 'this track'}” for good, and come off the strip. The original recordings stay in the media list, and ⌘Z undoes it.`, 'Render into track'))) return;
+  await closeTrackWindows(app, trackId);
+  toast(`Rendering “${tr.name || 'the track'}” through ${names}…`, 4000);
+  await renderPending(app, { trackId });
+  const fresh = app.doc;
+  const ready = fresh.clips.filter(c => soundOnly.some(s => s.id === c.id) && c.fx?.file && !c.fx.dirty);
+  if (!ready.length) { toast('The plug-in couldn’t render, so nothing was changed.', 6000); return; }
+  app.commit(d => {
+    for (const c of d.clips) {
+      if (!ready.some(r => r.id === c.id)) continue;
+      const m = mediaById(d, c.media);
+      const nm = { id: uid('m'), file: c.fx.file, kind: 'audio', hasAudio: true, duration: m?.duration, name: `${m?.name || c.name || 'Sound'} (${names})`, role: m?.role, rendered: true };
+      d.media.push(nm);
+      c.media = nm.id; c.audioOnly = false;
+      delete c.fx;
+    }
+    const t = d.tracks.find(x => x.id === trackId);
+    if (t) t.fx = (t.fx || []).filter(f => !isAu(f));
+  });
+  lastSig = '';
+  toast(`${names} is now part of the sound of ${ready.length} clip${ready.length === 1 ? '' : 's'}. ⌘Z undoes it.`, 5000);
 }

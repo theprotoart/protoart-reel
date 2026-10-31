@@ -26,6 +26,20 @@
 - **Your own keyboard shortcuts:** Settings › **Keyboard Shortcuts** lists every command (the editing keys like
   S, M, I / O and everything in the menus). Click one, press the keys you want; Reel warns if they're taken and
   offers to move them. ⌘ / ⌃ / ⌥ shortcuts show in the menus too. Search, clear, or reset any of them.
+- **Fix: waveforms on long recordings were squeezed.** A clip wider than 8000 pixels on the timeline (an hour of
+  microphone at a normal zoom) drew its whole waveform into the first part of the clip, so speech showed where
+  there was silence and jumped when you dragged a cut. Waveforms are now drawn in tiles, only where you can
+  see them, and line up at every zoom.
+- **Help you can search.** HELP (How ProtoArt Reel works) has a search box: type a question or a word ("pause",
+  "claps", "shortcut", "plug-in") and the topics that answer it stay, with the words lit. It covers everything
+  up to this build, and the key caps are readable in light mode.
+- **Plug-ins: RENDER INTO TRACK, and closing keeps your settings.** The LISTEN LIVE bar (and right-click on a
+  plug-in in the track's rack) can render the plug-in into the track's sound for good, taking it off the strip;
+  or leave it, and it's applied at export. Fix: CLOSE PLUG-IN threw the plug-in's settings away and left the bar
+  stuck on screen.
+- **Auto Edit zooms that show.** Zooms are now planned on the whole take before the ums are cut (the pieces left
+  afterwards were mostly too short to zoom in on), clips with nothing to follow get gentle push-ins, and the
+  summary says how many zooms were added.
 - **Fix: waveforms didn't match what you heard.** The playhead followed the sound as it left Reel, not as it
   reached your ears, so with a large playback buffer or an audio interface you heard words over what looked like
   silence. Sound clips now play early by your sound card's delay, so the sound, the playhead and the waveform

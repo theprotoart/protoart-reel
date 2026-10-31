@@ -304,18 +304,6 @@ export async function runAutoEdit(app, recipeId, o) {
 
     // where parts meet: kept as temporary markers so later cuts move them along
     if (joins.length) app.commit(d => { d.markers = [...(d.markers || []), ...joins.map(t => ({ id: uid('k'), t, label: '', autoJoin: true }))]; });
-    // 3 · ums and dead air
-    if (o.clean !== 'off' && words.length) {
-      step('Cutting ums and dead air');
-      const ranges = [...fillerRanges(words), ...pauseRanges(words, o.clean === 'tight' ? { longer: 0.45, keep: 0.2 } : { longer: 0.9, keep: 0.35 })];
-      let cut = 0;
-      if (ranges.length) app.commit(d => { cut = cutRanges(d, ranges, removeRange); });
-      // words after the cuts: listen again (the transcript is cached, so it's quick)
-      try { words = await timelineWords(app, { locale: o.locale, track: '' }); } catch { /* keep the old ones */ }
-      if (cut > 0.5) report.push(`${cut.toFixed(1)} s of ums and pauses cut`);
-      progress(0.52);
-    }
-    if (!alive()) return;
 
     // 4 · vertical
     if (r.format && app.doc.canvas.width > app.doc.canvas.height) {
@@ -325,11 +313,35 @@ export async function runAutoEdit(app, recipeId, o) {
     }
     if (!alive()) return;
 
-    // 5 · zooms, transitions, sound effects
+    // 5 · zooms, planned on the whole take: once the ums are cut out the pieces are mostly too short to zoom
+    // in on, so the zooms come first and are cut along with the clips
     const zoomOn = o.zoom !== 'off', pack = o.trans !== 'off' ? o.pack : '';
-    if (zoomOn || pack) {
-      step(zoomOn ? 'Adding zooms' + (pack ? ' and transitions' : '') : 'Adding transitions');
-      const bgTrack = id => /^background$/i.test(app.doc.tracks.find(t => t.id === id)?.name || '');
+    const bgTrack = id => /^background$/i.test(app.doc.tracks.find(t => t.id === id)?.name || '');
+    if (zoomOn) {
+      step('Adding zooms');
+      const zids = app.doc.clips.filter(c => isVideo(app.doc, c) && !bgTrack(c.track)).map(c => c.id);
+      const made = await app.smartZoom(zids, { style: r.zoom[0], strength: ZOOM_LEVELS[o.zoom][1], quiet: true, fallback: true });
+      report.push(made ? `${made} zoom${made === 1 ? '' : 's'}` : 'no zooms (the picture barely moves)');
+      progress(0.5);
+    }
+    if (!alive()) return;
+
+    // 3 · ums and dead air
+    if (o.clean !== 'off' && words.length) {
+      step('Cutting ums and dead air');
+      const ranges = [...fillerRanges(words), ...pauseRanges(words, o.clean === 'tight' ? { longer: 0.45, keep: 0.2 } : { longer: 0.9, keep: 0.35 })];
+      let cut = 0;
+      if (ranges.length) app.commit(d => { cut = cutRanges(d, ranges, removeRange); });
+      // words after the cuts: listen again (the transcript is cached, so it's quick)
+      try { words = await timelineWords(app, { locale: o.locale, track: '' }); } catch { /* keep the old ones */ }
+      if (cut > 0.5) report.push(`${cut.toFixed(1)} s of ums and pauses cut`);
+      progress(0.6);
+    }
+    if (!alive()) return;
+
+    // 5½ · transitions and sound effects, on the cuts that are left
+    if (pack) {
+      step('Adding transitions');
       let ids = app.doc.clips.filter(c => isVideo(app.doc, c) && !bgTrack(c.track)).map(c => c.id);
       // a long single take has no cuts for transitions to sit on: cut it between sentences (nothing is removed),
       // at about the spacing asked for, so the transitions land where the talk changes
@@ -358,8 +370,7 @@ export async function runAutoEdit(app, recipeId, o) {
       const spaced = (a, b) => { const t = b.start; if (joins.some(j => Math.abs(j - t) < 0.15)) { last = t; return true; } if (t - last < gap) return false; last = t; return true; };
       const sounds = o.sfx !== 'off';
       const sfxBefore = new Set(app.doc.clips.map(c => c.id));
-      if (zoomOn) await app.smartZoom(ids, { style: r.zoom[0], strength: ZOOM_LEVELS[o.zoom][1], quiet: true, pack, packSounds: sounds, packFilter: pack ? spaced : null });
-      else if (pack) await autoTransitions(app, pack, { sounds, clipIds: ids, filter: spaced });
+      await autoTransitions(app, pack, { sounds, clipIds: ids, filter: spaced });
       // the sound effects' level: their track's volume (changeable later on its fader)
       if (sounds) {
         const sfxTracks = new Set(app.doc.clips.filter(c => !sfxBefore.has(c.id)).map(c => c.track).filter(tid => /sound ?fx|sfx/i.test(app.doc.tracks.find(t => t.id === tid)?.name || '')));
