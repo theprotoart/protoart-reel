@@ -7,7 +7,7 @@ import {
   History, timeFormat, withGroups, normalize, uid, duration, split, remove, newMediaClip, newTextClip, newCalloutClip, newShapeClip,
   freeTrack, addTrack, clipEnd, propsAt, ANIMATABLE, mediaById, fmtTime, isFree,
   setSpeed, SPEED_STEPS, SPEED_MIN, SPEED_MAX, putKey,
-  mergeOverlapTracks, removeRange,
+  mergeOverlapTracks, removeRange, applyTrackLocks,
 } from './model.js';
 import { Player } from './player.js';
 import { Timeline } from './timeline.js';
@@ -27,6 +27,7 @@ import { STYLES as ZOOM_STYLES, analyse as zoomAnalyse, plan as zoomPlan, frameF
 import { LAPSE_PRESETS, plan as lapsePlan, apply as lapseApply, activityOf } from './timelapse.js';
 import { showAbout } from './about.js';
 import { openMixer } from './mixer.js';
+import { openMaster } from './master-ui.js';
 import { openSettings } from './settings.js';
 import { makeResizable } from './layout.js';
 import { loadMachine } from './capability.js';
@@ -382,10 +383,11 @@ class App {
   commit(fn, { quiet = false } = {}) {
     this.history.push(this.doc);
     fn(this.doc);
+    applyTrackLocks(this.doc); // clips on a locked track stay locked, whatever the edit
     this.changed({ quiet });
   }
   beginChange() { this.history.push(this.doc); this._inChange = true; }
-  endChange(opts = {}) { this._inChange = false; this.changed(opts); }
+  endChange(opts = {}) { this._inChange = false; applyTrackLocks(this.doc); this.changed(opts); }
   changed({ light = false, keepInspector = false, quiet = false, noTimeline = false } = {}) {
     if (!light) syncTrackPlugins(this); // track plug-ins follow the edit (rendered in the background)
     this.setDirty(true);
@@ -697,6 +699,7 @@ class App {
     const move = d => this.commit(dd => { const k = dd.tracks.indexOf(tr); dd.tracks.splice(k + d, 0, dd.tracks.splice(k, 1)[0]); });
     popMenu(x, y, [
       ['Rename…', () => this.renameTrack(tr)],
+      [tr.locked ? '🔓 Unlock track' : '🔒 Lock track (nothing on it can be changed)', () => this.toggleTrackLock(tr)],
       i > 0 ? ['Move up', () => move(-1)] : null,
       i < doc.tracks.length - 1 ? ['Move down', () => move(1)] : null,
       null,
@@ -718,6 +721,14 @@ class App {
       null,
       doc.tracks.length > 1 ? [n ? `Delete track and its ${n} clip${n === 1 ? '' : 's'}…` : 'Delete track', () => this.removeTrack(tr)] : null,
     ]);
+  }
+  /** Lock / unlock a whole track: its clips can't be moved, trimmed, cut or deleted, ripple edits leave it alone,
+   *  and nothing new lands on it. */
+  toggleTrackLock(tr) {
+    const on = !tr.locked;
+    this.commit(d => { const t = d.tracks.find(x => x.id === tr.id); if (t) t.locked = on || undefined; });
+    if (on) this.select(this.selection.clips.filter(id => this.doc.clips.find(c => c.id === id)?.track !== tr.id), null);
+    toast(on ? `“${tr.name || 'Track'}” is locked: nothing on it can be moved, trimmed, cut or deleted, and edits elsewhere leave it alone.` : `“${tr.name || 'Track'}” is unlocked.`, 4000);
   }
   renameTrack(tr) {
     const input = el('input', { type: 'text', value: tr.name, style: { width: '100%' } });
@@ -895,6 +906,7 @@ class App {
       }
       case 'find-claps': return openClapFinder(this);
       case 'takes': return openTakes(this);
+      case 'master': return openMaster(this);
       case 'autoedit-clip': if (sel.length) return openClipAutoEdit(this, sel[0]); toast('Select a clip first (or right-click it).'); return;
       case 'marker': this.commit(d => { d.markers.push({ id: uid('k'), t, label: `Chapter ${d.markers.length + 1}` }); d.markers.sort((a, b) => a.t - b.t); }); return;
       case 'insert-text': return this._insert(newTextClip(null, t, doc.name));

@@ -135,11 +135,30 @@ export function wavInfo(b, size) {
   throw new Error('Unreadable WAV');
 }
 
+/** Like wavInfo, but walks the chunks on disk, for files whose sound starts far in (big bext / iXML / JUNK). */
+async function wavInfoFar(reader) {
+  let p = 12, fmt = null;
+  for (let guard = 0; guard < 4096 && p + 8 <= reader.size; guard++) {
+    const h = await reader.read(p, 8), dv = new DataView(h.buffer, h.byteOffset, h.length);
+    const id = String.fromCharCode(h[0], h[1], h[2], h[3]), len = dv.getUint32(4, true);
+    if (id === 'fmt ') {
+      const f = await reader.read(p + 8, Math.min(len, 40)), fv = new DataView(f.buffer, f.byteOffset, f.length);
+      let format = fv.getUint16(0, true);
+      if (format === 0xfffe && f.length >= 26) format = fv.getUint16(24, true);
+      fmt = { format, channels: fv.getUint16(2, true), rate: fv.getUint32(4, true), bits: fv.getUint16(14, true) };
+    }
+    if (id === 'data') return fmt ? { ...fmt, dataOffset: p + 8, dataLength: Math.min(len || reader.size, reader.size - p - 8) } : null;
+    p += 8 + len + (len & 1);
+  }
+  return null;
+}
+
 /** Sequential-ish PCM access: read(startFrame, count) -> [Float32Array per channel] at native rate. */
 export class WavAudio {
   constructor(reader) { this.reader = reader; }
   async open() {
-    this.info = wavInfo(await this.reader.read(0, Math.min(this.reader.size, 65536)), this.reader.size);
+    try { this.info = wavInfo(await this.reader.read(0, Math.min(this.reader.size, 65536)), this.reader.size); }
+    catch (e) { this.info = await wavInfoFar(this.reader); if (!this.info) throw e; } // sound starts past 64 KB
     const { format, bits } = this.info;
     if (!((format === 1 && [16, 24, 32].includes(bits)) || (format === 3 && bits === 32))) throw new Error('Unsupported WAV encoding');
     this.rate = this.info.rate; this.channels = this.info.channels;

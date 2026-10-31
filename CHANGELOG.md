@@ -26,6 +26,16 @@
 - **Your own keyboard shortcuts:** Settings › **Keyboard Shortcuts** lists every command (the editing keys like
   S, M, I / O and everything in the menus). Click one, press the keys you want; Reel warns if they're taken and
   offers to move them. ⌘ / ⌃ / ⌥ shortcuts show in the menus too. Search, clear, or reset any of them.
+- **Lock a track.** The 🔒 button on a track's header (or right-click the track › Lock track) locks it: nothing on
+  it can be moved, trimmed, cut or deleted, ripple edits and Auto Edit elsewhere leave it exactly as it is, and
+  nothing new lands on it. It's hatched while locked. Unlocking gives the clips back as they were.
+- **Plug-ins on the master bus, easy to find.** The MIXER's master section has ★ MASTER PLUG-INS… (also Clip ›
+  Master Bus & Plug-ins…): your own plug-ins on the whole mix, plus loudness and a limiter, applied to the export.
+  Before, they were only reachable from the Export window.
+- **Dropping WAV files and videos works, and shows progress.** WAVs from recorders and DAWs (big bext / iXML
+  headers before the sound) failed with "Unreadable WAV"; they come in now, and unusual WAVs (8-bit, 64-bit,
+  compressed) are converted. Files from another drive are copied with a progress bar instead of looking stuck,
+  and the media list no longer redraws under a drag in progress.
 - **Fix: waveforms on long recordings were squeezed.** A clip wider than 8000 pixels on the timeline (an hour of
   microphone at a normal zoom) drew its whole waveform into the first part of the clip, so speech showed where
   there was silence and jumped when you dragged a cut. Waveforms are now drawn in tiles, only where you can

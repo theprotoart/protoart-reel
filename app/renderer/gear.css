@@ -1527,3 +1527,8 @@ span.take-state { cursor: default; }
 .key-cap.listening { background: #ffb02a; color: #2a1a02; animation: hud-blink 1s steps(2, start) infinite; }
 .mini-gap { display: inline-block; width: 22px; }
 @keyframes hud-blink { 50% { opacity: .45; } }
+
+/* locked track: hatched, and its clips can't be grabbed */
+.tl-row.locked-track { background-image: repeating-linear-gradient(135deg, rgba(0,0,0,0.10) 0 6px, transparent 6px 12px); }
+.tl-row.locked-track .clip { cursor: not-allowed; filter: saturate(0.6); }
+.tl-head .lockbtn.on { background: linear-gradient(#ffe0a0, #e9a51c); }

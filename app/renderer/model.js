@@ -303,8 +303,24 @@ export function newDrawClip(trackId, start) {
 // ------------------------------------------------------------------ editing
 
 /** Is [start, start+dur) free on a track (ignoring the given clip ids)? */
+/** A locked track takes nothing new, and nothing on it is affected (see applyTrackLocks). */
+export const trackLocked = (doc, trackId) => !!doc.tracks?.find(t => t.id === trackId)?.locked;
+/**
+ * Track lock: every clip on a locked track is locked (marked lockedByTrack, so unlocking the track gives back
+ * exactly the clips it locked). Called after every edit.
+ */
+export function applyTrackLocks(doc) {
+  if (!doc?.tracks) return;
+  const locked = new Set(doc.tracks.filter(t => t.locked).map(t => t.id));
+  for (const c of doc.clips) {
+    if (locked.has(c.track)) { if (!c.locked) { c.locked = true; c.lockedByTrack = true; } }
+    else if (c.lockedByTrack) { delete c.locked; delete c.lockedByTrack; }
+  }
+}
+
 export function isFree(doc, trackId, start, dur, ignore = []) {
   if (start < -EPS) return false;
+  if (trackLocked(doc, trackId)) return false;
   for (const c of doc.clips) {
     if (c.track !== trackId || ignore.includes(c.id)) continue;
     if (start < clipEnd(c) - EPS && start + dur > c.start + EPS) return false;
@@ -380,13 +396,14 @@ export function remove(doc, ids, ripple = false) {
  */
 export function insertTime(doc, t, d) {
   for (const c of [...doc.clips]) {
+    if (trackLocked(doc, c.track)) continue; // a locked track isn't moved or cut by ripple edits
     if (c.start < t - EPS && clipEnd(c) > t + 0.02) {
       const locked = c.locked; c.locked = false;
       split(doc, t, [c.id]);
       c.locked = locked;
     }
   }
-  for (const c of doc.clips) if (c.start >= t - EPS) c.start += d;
+  for (const c of doc.clips) if (c.start >= t - EPS && !trackLocked(doc, c.track)) c.start += d;
   shiftAfter(doc, t, d);
 }
 
@@ -413,7 +430,7 @@ export function closeGap(doc, t, trackId = null) {
   const g = gapAt(doc, t, trackId);
   if (!g) return 0;
   const d = g.b - g.a;
-  for (const c of doc.clips) if ((!trackId || c.track === trackId) && c.start >= g.b - EPS) c.start -= d;
+  for (const c of doc.clips) if ((!trackId || c.track === trackId) && c.start >= g.b - EPS && !trackLocked(doc, c.track)) c.start -= d;
   if (!trackId) shiftAfter(doc, g.b, -d);
   return d;
 }
@@ -436,12 +453,14 @@ export function closeAllGaps(doc, trackId = null) {
 /** Removes the stretch t0..t1 from every track and closes it up (in/out, between markers). */
 export function removeRange(doc, t0, t1) {
   if (!(t1 > t0 + 1e-3)) return 0;
+  const keep = c => trackLocked(doc, c.track); // a locked track is left exactly as it is
   for (const t of [t0, t1]) for (const c of [...doc.clips]) {
+    if (keep(c)) continue;
     if (c.start < t - EPS && clipEnd(c) > t + 0.02) { const l = c.locked; c.locked = false; split(doc, t, [c.id]); c.locked = l; }
   }
-  doc.clips = doc.clips.filter(c => !(c.start >= t0 - EPS && clipEnd(c) <= t1 + EPS));
+  doc.clips = doc.clips.filter(c => keep(c) || !(c.start >= t0 - EPS && clipEnd(c) <= t1 + EPS));
   const d = t1 - t0;
-  for (const c of doc.clips) if (c.start >= t1 - EPS) c.start -= d;
+  for (const c of doc.clips) if (c.start >= t1 - EPS && !keep(c)) c.start -= d;
   doc.markers = (doc.markers || []).filter(m => m.t < t0 - EPS || m.t >= t1 - EPS);
   doc.captions = (doc.captions || []).filter(cp => !(cp.t >= t0 - EPS && cp.end <= t1 + EPS));
   for (const cp of doc.captions) { if (cp.t >= t1 - EPS) { cp.t -= d; cp.end -= d; } else if (cp.end > t0) cp.end = Math.max(cp.t + 0.1, cp.end - Math.min(d, cp.end - t0)); }

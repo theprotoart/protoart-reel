@@ -321,7 +321,7 @@ export class Timeline {
     if (this.capH()) { this.tracksEl.append(this._captionLane(W)); this.heads.append(this._captionHead()); }
     for (const [i, row] of this.layout().entries()) {
       const tr = row.tr;
-      const r = el('div', { class: 'tl-row' + (tr.hidden ? ' hidden-track' : '') + (anySolo && !tr.solo ? ' unsoloed' : ''), 'data-track': tr.id });
+      const r = el('div', { class: 'tl-row' + (tr.locked ? ' locked-track' : '') + (tr.hidden ? ' hidden-track' : '') + (anySolo && !tr.solo ? ' unsoloed' : ''), 'data-track': tr.id });
       for (const c of doc.clips.filter(c => c.track === tr.id)) r.append(this._clipEl(c, sel.has(c.id)));
       // a ⧓ on every cut where two pictures meet: click to pick a transition (CapCut-style)
       for (const [a, b] of cutsOn(doc, tr.id)) {
@@ -505,6 +505,7 @@ export class Timeline {
         btn('S', tr.solo, 'Solo: hear only soloed tracks', () => app.commit(() => { tr.solo = !tr.solo; }), 'solo'),
         btn('M', tr.muted, 'Mute this track', () => app.commit(() => { tr.muted = !tr.muted; }), 'mute'),
         btn('H', tr.hidden, 'Hide this track’s picture', () => app.commit(() => { tr.hidden = !tr.hidden; })),
+        btn(tr.locked ? '🔒' : '🔓', !!tr.locked, tr.locked ? 'Locked: nothing on this track can be changed. Click to unlock' : 'Lock this track so nothing on it can be changed (moved, trimmed, cut, deleted) and edits elsewhere leave it alone', () => app.toggleTrackLock(tr), 'lockbtn'),
         btn('fx', !!tr.fxOpen || (tr.fx || []).some(f => !f.off), `Effects on this track${(tr.fx || []).length ? ` (${tr.fx.length})` : ''}: EQ, compressor, de-esser, reverb… Click to open the rack`, () => app.commit(() => { tr.fxOpen = !tr.fxOpen; }), 'fxbtn'),
         btn('↑', false, 'Move track up (⌥-click: down). Right-click the header for more', e => app.commit(() => { const d = e?.altKey ? 1 : -1; if (i + d >= 0 && i + d < doc.tracks.length) doc.tracks.splice(i + d, 0, doc.tracks.splice(i, 1)[0]); })),
         btn('×', false, 'Delete this track (asks first when it has clips)', () => app.removeTrack(tr))),

@@ -475,7 +475,7 @@ async function probeMedia(file) {
   }
   if (ext === '.wav') {
     const r = await fileReader(file);
-    try { return { kind: 'audio', ...parseWavInfo(await r.read(0, 4096), r.size) }; } finally { await r.fh.close(); }
+    try { return { kind: 'audio', ...(await wavInfoOf(r)) }; } finally { await r.fh.close(); }
   }
   if (['.mp4', '.m4v', '.mov', '.m4a'].includes(ext)) {
     const { demux } = await loadMp4();
@@ -495,20 +495,37 @@ async function probeMedia(file) {
   throw new Error('Unsupported file type');
 }
 
-function parseWavInfo(b, size) {
-  const s = Buffer.from(b.buffer, b.byteOffset, b.length);
-  if (s.toString('latin1', 0, 4) !== 'RIFF' || s.toString('latin1', 8, 12) !== 'WAVE') throw new Error('Not a WAV file');
-  let p = 12, fmt = null, dataOff = 0, dataLen = 0;
-  while (p + 8 <= s.length) {
-    const id = s.toString('latin1', p, p + 4), len = s.readUInt32LE(p + 4);
-    if (id === 'fmt ') fmt = { format: s.readUInt16LE(p + 8), channels: s.readUInt16LE(p + 10), rate: s.readUInt32LE(p + 12), bits: s.readUInt16LE(p + 22) };
-    if (id === 'data') { dataOff = p + 8; dataLen = Math.min(len, size - dataOff); break; }
+/**
+ * A WAV's format and length, walking its chunks on disk: recorders and DAWs put large bext / iXML / JUNK chunks
+ * before the sound, so it can start well past the first few KB (reading only those made such files fail).
+ * playable: whether the editor plays and reads it as it is (16 / 24 / 32-bit PCM, 32-bit float).
+ */
+async function wavInfoOf(r) {
+  const head = Buffer.from(await r.read(0, 12));
+  if (head.length < 12 || head.toString('latin1', 0, 4) !== 'RIFF' || head.toString('latin1', 8, 12) !== 'WAVE') throw new Error('Not a WAV file');
+  let p = 12, fmt = null;
+  for (let guard = 0; guard < 4096 && p + 8 <= r.size; guard++) {
+    const h = Buffer.from(await r.read(p, 8));
+    const id = h.toString('latin1', 0, 4), len = h.readUInt32LE(4);
+    if (id === 'fmt ') {
+      const f = Buffer.from(await r.read(p + 8, Math.min(len, 40)));
+      let format = f.readUInt16LE(0);
+      if (format === 0xfffe && f.length >= 26) format = f.readUInt16LE(24); // extensible: the real format
+      fmt = { format, channels: f.readUInt16LE(2), rate: f.readUInt32LE(4), bits: f.readUInt16LE(14) };
+    }
+    if (id === 'data') {
+      if (!fmt) throw new Error('Unreadable WAV');
+      const dataOff = p + 8, dataLen = Math.min(len || r.size, r.size - dataOff);
+      const frame = Math.max(1, fmt.channels * (fmt.bits / 8));
+      const playable = (fmt.format === 1 && [16, 24, 32].includes(fmt.bits)) || (fmt.format === 3 && fmt.bits === 32);
+      return { duration: dataLen / frame / fmt.rate, sampleRate: fmt.rate, channels: fmt.channels, hasAudio: true, playable };
+    }
+    if (len === 0 && id !== 'data') { p += 8; continue; }
     p += 8 + len + (len & 1);
   }
-  if (!fmt || !dataOff) throw new Error('Unreadable WAV');
-  const frame = fmt.channels * (fmt.bits / 8);
-  return { duration: dataLen / frame / fmt.rate, sampleRate: fmt.rate, channels: fmt.channels, hasAudio: true };
+  throw new Error('Unreadable WAV');
 }
+
 
 // ------------------------------------------------------------------ export
 
@@ -799,6 +816,22 @@ handle('media:importDropped', async (token, paths) => {
   return importFiles(p, clean);
 });
 
+/**
+ * Copies a file into the project. On the same drive it's an instant clone (APFS); from another drive (an external
+ * disk, a network share) it's a real copy, so it reports progress instead of leaving the drop looking stuck.
+ */
+async function copyWithProgress(src, dst, size, progress) {
+  try { await fs.promises.copyFile(src, dst, fs.constants.COPYFILE_FICLONE_FORCE | fs.constants.COPYFILE_EXCL); return; } catch (e) { if (e.code === 'EEXIST') throw e; }
+  progress?.(0);
+  const tmp = dst + '.part';
+  const from = fs.createReadStream(src, { highWaterMark: 8 << 20 }), to = fs.createWriteStream(tmp, { flags: 'wx' });
+  let done = 0, last = 0;
+  from.on('data', b => { done += b.length; const v = size ? done / size : 0; if (v - last >= 0.01) { last = v; progress?.(Math.min(0.99, v)); } });
+  try { await require('stream/promises').pipeline(from, to); await fs.promises.rename(tmp, dst); }
+  catch (e) { await fs.promises.rm(tmp, { force: true }).catch(() => {}); throw e; }
+  progress?.(1);
+}
+
 async function importFiles(p, files) {
   const out = [];
   const list = files.slice(0, 200);
@@ -812,7 +845,7 @@ async function importFiles(p, files) {
       if (st.isFile() && ext === 'screenflowf') throw new Error('This is a flattened ScreenFlow file. In ScreenFlow, use File › Save As and save it as a normal project, then drop that in.');
       if (!st.isFile()) continue;
       if (FORMATS.unsupported.includes(ext)) throw new Error(`.${ext} files can't be read on a Mac without extra software. Export it as MP4, MOV or WAV first.`);
-      const copyAs = async () => { const name = await freeMediaName(p, base); await fs.promises.copyFile(src, path.join(mediaDir(p), name), fs.constants.COPYFILE_FICLONE | fs.constants.COPYFILE_EXCL); return name; };
+      const copyAs = async () => { const name = await freeMediaName(p, base); await copyWithProgress(src, path.join(mediaDir(p), name), st.size, progress); return name; };
       // WebM / Matroska / Ogg: the editor converts them (it can read them, macOS can't)
       if (FORMATS.browserVideo.includes(ext) || FORMATS.browserAudio.includes(ext)) {
         const name = await copyAs();
@@ -824,7 +857,13 @@ async function importFiles(p, files) {
       else if (FORMATS.audioConform.includes(ext)) kind = 'audio';
       else if (FORMATS.videoConform.includes(ext)) kind = 'video';
       let info = null;
-      if (!kind) {
+      // a WAV the editor can't play as it is (8-bit, 64-bit float, compressed, unreadable header): converted
+      if (ext === 'wav') {
+        info = await probeMedia(src).catch(() => null);
+        if (!info || info.playable === false) kind = 'audio';
+        else delete info.playable;
+      }
+      if (!kind && !info) {
         info = await probeMedia(src).catch(() => null);
         // MP4 / MOV / M4A the editor can't export as they are (ProRes, Apple Lossless, MPEG-4 Part 2…)
         if (!info) { if (!['mp4', 'm4v', 'mov', 'm4a'].includes(ext)) throw new Error('Unsupported file type'); kind = ext === 'm4a' ? 'audio' : 'video'; }
@@ -1581,6 +1620,7 @@ function buildMenu() {
       { label: 'Record Voice-Over…', accelerator: 'Shift+Command+R', click: m('voice-over') },
       { label: 'Punch In Voice-Over (between In and Out)…', accelerator: 'Shift+Command+P', click: m('punch-in') },
       { label: 'Spectral Editor…', accelerator: 'Command+Alt+S', click: m('spectral') },
+      { label: 'Master Bus & Plug-ins…', click: m('master') },
       { type: 'separator' },
       { label: 'Speed Up', accelerator: 'Command+Alt+.', click: m('speed-up') },
       { label: 'Slow Down', accelerator: 'Command+Alt+,', click: m('speed-down') },

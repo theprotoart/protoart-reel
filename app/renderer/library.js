@@ -31,6 +31,8 @@ export class Library {
   render() {
     const doc = this.app.doc;
     if (!doc) return;
+    // never redraw under a drag in progress: the item being dragged would be replaced and the drop could be lost
+    if (this._dragging) { this._renderLater = true; return; }
     this.chips.replaceChildren(...FILTERS.map(([k, t]) => el('button', { class: 'chip' + (this.filter === k ? ' on' : ''), text: t, title: `Show ${t.toLowerCase()} media`, onclick: () => { this.filter = k; this.render(); } })));
     this.list.replaceChildren();
     if (!doc.media.length) {
@@ -52,7 +54,8 @@ export class Library {
         title: `${m.name}\n${m.kind}${m.width ? ` ${m.width}×${m.height}` : ''} · ${fmtTime(m.duration || 0)}${used ? '' : '\nNot on the timeline yet'}\nDouble-click to add at the playhead. Right-click for more.`,
       }, thumb, ROLE[m.role] ? el('span', { class: 'lrole', text: ROLE[m.role], 'data-role': m.role }) : null, more,
       el('div', { class: 'lname', text: m.name }), el('div', { class: 'ldur', text: m.kind === 'image' ? 'image' : fmtTime(m.duration || 0) }));
-      item.addEventListener('dragstart', e => { e.dataTransfer.setData('application/x-reel-media', m.id); e.dataTransfer.effectAllowed = 'copy'; });
+      item.addEventListener('dragstart', e => { e.dataTransfer.setData('application/x-reel-media', m.id); e.dataTransfer.effectAllowed = 'copy'; this._dragging = true; });
+      item.addEventListener('dragend', () => { this._dragging = false; if (this._renderLater) { this._renderLater = false; this.render(); } });
       item.addEventListener('click', () => { this.selected = m.id; this.render(); });
       item.addEventListener('dblclick', () => this.app.addMediaClip(m.id, null, this.app.player.time));
       const menu = (x, y) => this.menu(m, used, x, y);

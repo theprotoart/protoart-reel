@@ -9,6 +9,7 @@ import { audioDevices, fillSelect, recSettings, setMic, permissionNote } from '.
 import { FX_TYPES } from './lib/trackfx.js';
 import { gate } from './capability.js';
 import { openFxEditor, addFxMenu, fxSlotMenu, removeFx, fxName } from './fxrack.js';
+import { openMaster, masterOf } from './master-ui.js';
 
 const STORE = 'reel.console';
 const docIds = new WeakMap(); let docSeq = 0;
@@ -318,6 +319,10 @@ export async function openMixer(app) {
         mk('pan', { label: 'BAL', color: 'red', value: mon.pan, def: 0, min: -1, max: 1, center: true, fmt: v => (Math.abs(v) < 0.01 ? 'C' : (v < 0 ? 'L' : 'R') + Math.round(Math.abs(v) * 100)), size: 20 })),
       el('div', { class: 'cs-btns' }, push('EQ IN', 'green', mon.eqIn !== false, b => { setMon({ eqIn: !(mon.eqIn !== false) }); b.classList.toggle('on', mon.eqIn !== false); show('Monitor EQ', mon.eqIn !== false ? 'IN' : 'OUT'); }))),
     el('div', { class: 'cs-sec' }, el('span', { class: 'ck-label', text: 'MONITOR OUT' }), monSel),
+    // the master bus of the edit itself (what the export hears): its own plug-ins, loudness and limiter
+    app.doc ? el('div', { class: 'cs-sec cs-masterbus' },
+      el('span', { class: 'ck-label', text: 'MASTER BUS (EXPORT)' }),
+      el('button', { class: 'hw amber', text: `★ MASTER PLUG-INS${(masterOf(app.doc).plugins || []).length ? ` (${masterOf(app.doc).plugins.length})` : ''}…`, title: 'Put your own plug-ins (Waves, iZotope, FabFilter…) on the whole mix, plus loudness and a limiter. They apply to the export.', onclick: () => openMaster(app) })) : null,
     el('div', { class: 'cs-sec cs-mutes' },
       push('MUTE', 'red', !!mon.mute, b => { setMon({ mute: !mon.mute }); b.classList.toggle('on', mon.mute); show('Monitor', mon.mute ? 'MUTED' : 'ON'); }),
       sysBtn, idleBtn,
