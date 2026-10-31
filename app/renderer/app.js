@@ -504,7 +504,8 @@ class App {
     if (errors.length) toast(errors.join('\n'), 6000);
     const ok = res.filter(r => !r.error);
     if (!ok.length) return;
-    const dropped = [];
+    const dropped = [], placedIds = [];
+    let placed = 0;
     this.commit(doc => {
       let at = where ? where.at : duration(doc);
       for (const r of ok) {
@@ -512,15 +513,19 @@ class App {
         doc.media.push(m);
         if (where || doc.clips.length === 0) {
           const c = newMediaClip(doc, m, null, at);
-          c.track = m.kind === 'audio' ? this._audioTrack(doc, c.start, c.duration) : freeTrack(doc, c.start, c.duration, where && where.track);
+          // the track it was dropped on, when there's room there; sound otherwise goes to a sound track
+          c.track = where?.track && isFree(doc, where.track, c.start, c.duration) ? where.track
+            : m.kind === 'audio' ? this._audioTrack(doc, c.start, c.duration) : freeTrack(doc, c.start, c.duration, where && where.track);
           doc.clips.push(c);
-          at = clipEnd(c);
+          at = clipEnd(c); placed++; placedIds.push(c.id);
           if (m.kind === 'video') dropped.push(c.id);
         }
       }
     });
     this._autoZoomDropped(dropped);
-    toast(`Added ${ok.length} file${ok.length > 1 ? 's' : ''}.` + (where || this.doc.clips.length ? '' : ' Drag them onto the timeline.'));
+    // show where they landed: selected, and scrolled into view (a sound file can go to a track below the fold)
+    if (placedIds.length) { this.select(placedIds, null); requestAnimationFrame(() => this.timeline.reveal(placedIds)); }
+    toast(placed ? `Added ${ok.length} file${ok.length > 1 ? 's' : ''} to the timeline.` : `Added ${ok.length} file${ok.length > 1 ? 's' : ''} to the Media list: drag ${ok.length > 1 ? 'them' : 'it'} onto the timeline (or drop files straight onto the timeline or the preview next time).`, 5000);
   }
   /** New project from a saved template (layout, titles, intro/outro, music: everything in it). */
   async openTemplates() {
@@ -1596,7 +1601,8 @@ class App {
       if (handled) return;
       if (!e.dataTransfer.files.length) { if (e.dataTransfer.types.includes('Files')) toast('Reel couldn’t read that drop. Use File › Import… to pick it instead.', 5000); return; }
       const paths = this.dropPaths(e); // read now: the drop's file list is emptied once this returns
-      if (this.doc) this.importDropped(paths, null);
+      // dropped on the preview or anywhere but the Media panel: onto the timeline at the playhead
+      if (this.doc) this.importDropped(paths, { at: this.player.time });
       else this.newFromDrop(paths);
     });
     setInterval(() => { if (this.doc && this.dirty && !this.player.playing && !this._inChange) this.save(); }, 60000);

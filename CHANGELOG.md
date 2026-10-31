@@ -36,6 +36,10 @@
 - **Plug-ins on the master bus, easy to find.** The MIXER's master section has ★ MASTER PLUG-INS… (also Clip ›
   Master Bus & Plug-ins…): your own plug-ins on the whole mix, plus loudness and a limiter, applied to the export.
   Before, they were only reachable from the Export window.
+- **Drops land where you can see them.** A file dropped on the preview (or anywhere but the Media panel) goes on
+  the timeline at the playhead; one dropped on a track goes on that track. The timeline then scrolls to it, selects
+  it and makes it glow for a moment (a sound file can land on a track below the fold, which looked like nothing
+  happened). Files dropped on the Media panel go into the Media list, and Reel says so.
 - **Fix: dropping files said “Nothing in that could be imported”.** Reel now reads where each dropped file is at
   the very moment of the drop, one file at a time (falling back to the drop's file links), follows aliases and
   symlinks to the real file, and says exactly why a file was skipped.

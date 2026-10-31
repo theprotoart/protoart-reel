@@ -269,6 +269,18 @@ export class Timeline {
     this.scroll.scrollLeft = Math.max(0, this.x(at) - (clientX - rect.left));
   }
   /** Zoom all the way out: the whole project in view. */
+  /** Scrolls the timeline so these clips are in view (up/down to their tracks, sideways to their start). */
+  reveal(ids) {
+    const els = ids.map(id => this.tracksEl.querySelector(`.clip[data-id="${id}"]`)).filter(Boolean);
+    if (!els.length) return;
+    const sr = this.scroll.getBoundingClientRect();
+    const top = Math.min(...els.map(e => e.getBoundingClientRect().top)), bottom = Math.max(...els.map(e => e.getBoundingClientRect().bottom));
+    const left = Math.min(...els.map(e => e.getBoundingClientRect().left));
+    if (top < sr.top + 30) this.scroll.scrollTop += top - sr.top - 30;
+    else if (bottom > sr.bottom - 10) this.scroll.scrollTop += Math.min(bottom - sr.bottom + 10, top - sr.top - 30);
+    if (left < sr.left || left > sr.right - 80) this.scroll.scrollLeft += left - sr.left - 60;
+    for (const e of els) { e.classList.add('just-added'); setTimeout(() => e.classList.remove('just-added'), 1600); }
+  }
   fit() {
     this.pps = this.fitPps();
     this.zoomInput.value = this._toSlider(this.pps);

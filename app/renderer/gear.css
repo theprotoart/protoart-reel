@@ -1532,3 +1532,6 @@ span.take-state { cursor: default; }
 .tl-row.locked-track { background-image: repeating-linear-gradient(135deg, rgba(0,0,0,0.10) 0 6px, transparent 6px 12px); }
 .tl-row.locked-track .clip { cursor: not-allowed; filter: saturate(0.6); }
 .tl-head .lockbtn.on { background: linear-gradient(#ffe0a0, #e9a51c); }
+
+/* a clip that was just dropped in: a short glow so it's easy to spot */
+.clip.just-added { box-shadow: 0 0 0 2px #ffb02a, 0 0 16px rgba(255,176,42,0.8) !important; transition: box-shadow .3s; }
