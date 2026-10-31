@@ -26,6 +26,10 @@
 - **Your own keyboard shortcuts:** Settings › **Keyboard Shortcuts** lists every command (the editing keys like
   S, M, I / O and everything in the menus). Click one, press the keys you want; Reel warns if they're taken and
   offers to move them. ⌘ / ⌃ / ⌥ shortcuts show in the menus too. Search, clear, or reset any of them.
+- **Fix: the menu bar (File, Edit…) wouldn't open, and Reel felt sluggish.** Each time the preview played, seeked
+  or drew a waveform, Reel's main process read the rest of the media file into memory as fast as it could
+  (gigabytes on a long recording), too busy to answer the menu bar. It now reads only as fast as the editor uses
+  the data, a few MB ahead, which also saves a lot of memory on 8 GB Macs.
 - **Lock a track.** The 🔒 button on a track's header (or right-click the track › Lock track) locks it: nothing on
   it can be moved, trimmed, cut or deleted, ripple edits and Auto Edit elsewhere leave it exactly as it is, and
   nothing new lands on it. It's hatched while locked. Unlocking gives the clips back as they were.

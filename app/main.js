@@ -188,15 +188,28 @@ async function serveFile(file, request) {
   }
   headers['Content-Length'] = String(end - start + 1);
   if (st.size === 0) return new Response(new Uint8Array(0), { status: 200, headers });
-  const stream = fs.createReadStream(file, { start, end });
+  // Read only as fast as the editor takes it (pull, a few MB ahead). Pushing the whole rest of the file at once
+  // (players ask for "from here to the end" on every seek) kept the main process so busy reading gigabytes into
+  // memory that the Mac's menu bar couldn't get through to it, and it used memory an 8 GB Mac doesn't have.
+  let fh;
+  try { fh = await fs.promises.open(file, 'r'); } catch { return new Response('Not found', { status: 404 }); }
+  let pos = start, closed = false;
+  const done = async () => { if (!closed) { closed = true; await fh.close().catch(() => {}); } };
+  const CHUNK = 1 << 20;
   const body = new ReadableStream({
-    start(controller) {
-      stream.on('data', c => controller.enqueue(new Uint8Array(c.buffer, c.byteOffset, c.length)));
-      stream.on('end', () => controller.close());
-      stream.on('error', e => controller.error(e));
+    async pull(controller) {
+      try {
+        const n = Math.min(CHUNK, end + 1 - pos);
+        if (n <= 0) { await done(); controller.close(); return; }
+        const buf = Buffer.allocUnsafe(n);
+        const { bytesRead } = await fh.read(buf, 0, n, pos);
+        if (!bytesRead) { await done(); controller.close(); return; }
+        pos += bytesRead;
+        controller.enqueue(new Uint8Array(buf.buffer, buf.byteOffset, bytesRead));
+      } catch (e) { await done(); controller.error(e); }
     },
-    cancel() { stream.destroy(); },
-  });
+    async cancel() { await done(); },
+  }, { highWaterMark: 4 });
   return new Response(body, { status, headers });
 }
 
