@@ -1,5 +1,189 @@
 # Changelog
 
+## 1.5.7 — Cinematic transitions, device frames, visualizers, and a plug-in crash fixed
+
+- **Fix: “The plug-in host stopped (a plug-in may have crashed)”.** A plug-in that only takes stereo (like the stereo
+  half of a Waves shell) crashed Reel’s plug-in helper when given a mono microphone recording, again for every clip
+  of a track (25 crashes for one Render Into Track). The helper now checks each plug-in’s format first, feeds stereo-only
+  plug-ins the recording as stereo, and names a plug-in that can’t take the sound instead of crashing; Reel stops
+  after a failure instead of retrying every clip. Error messages no longer start with “Error invoking remote method”.
+- **Copy and paste effects.** Right-click a clip › Copy effects (zooms and pans, picture filters, sound effects, pointer
+  effects), then Paste effects onto other clips. Right-click an action › Copy this action › Paste action at playhead.
+- **Auto Edit keeps sped-up clips whole** when it cuts dead air (on by default), so time-lapses stay in the edit.
+- **Auto Edit motion to suit the video.** A new Motion setting: Punchy (quick push-ins and push-outs: TikTok, Reels,
+  Shorts), Ken Burns (slow, steady drifts: tutorials, YouTube; now their default) or Follow the action.
+- **Green screen, background removal and picture in picture, easy to find:** EFFECTS ▾ and the clip’s right-click menu.
+  Picture in picture puts the clip in a corner (rounded, with a shadow); again moves it round the corners.
+- **Cinematic transitions:** Cinematic fade, Dip to film, Dreamy glow, Letterbox close, Lens defocus, Exposure burn,
+  Lens flare sweep, Punch zoom, Chromatic split. New Auto Edit packs: Filmic and Social (fast).
+- **Cinematic filters:** Film grain, Letterbox bars (2.39 / 2 / 1.85 / 2.76 : 1), Halation glow, Chromatic aberration
+  (real colour fringing, on the graphics chip).
+- **Device frames:** a picture inside a browser window (with an address), a Mac window, a phone or a laptop.
+- **Motion backgrounds** (Gradient flow, Bokeh lights, Tech grid, Soft waves) on their own track under everything, and
+  **audio visualizers** (bars, wave, ring) that follow the sound.
+- **Pointer spotlight and magnifier** in Pointer effects.
+- **🎥 Stabilize** (EFFECTS ▾, or right-click a video): follows the camera shake once on small frames, keeps intended
+  moves, takes out the jitter and zooms in just enough to hide the edges. Smoothness, Strength and Zoom can be changed
+  any time; nothing is re-encoded and the preview and export match.
+- **When the projects drive isn’t connected**, making a project asks right there: Choose another folder… or Use
+  Movies › ProtoArt Reel, then makes it (no trip to Settings). The home screen says where projects are saved, with Change….
+- **✍ Title, description & chapters, written by Qwen on this Mac** (TEXT ▾, and in Export): 5 title ideas, a description
+  and chapter names from what’s said. Three sizes, 1.5B, 3B and 7B, downloaded from Reel; a size this Mac doesn’t
+  have the memory for is greyed out with the reason. Auto Edit names its chapters with it too.
+
+## 1.5.6 — Bounce in place, retake while recording, HandBrake-style presets
+
+- **Bounce to a new track (render effects in place).** Select sound clips › AUDIO ▾ › ⤓ Bounce to new track (or
+  right-click a clip, or a track’s name › Bounce track to a new track). Reel renders everything that shapes the sound
+  before the fader: each clip’s volume, fades, crossfades, pan, speed and own effects, then the track’s effects and
+  plug-ins. The result is a new WAV on a new “· rendered” track right under the original, cut into clips at exactly
+  the same times. You hear and mix the processed sound straight away; the plug-ins don’t run for it any more. The
+  originals stay, muted and greyed out (RENDERED ↓). The new track keeps the fader, pan and automation, so the mix
+  sounds the same. Right-click › ↩ Back to the original sound (or ⌘Z) undoes it at any time.
+- **RETAKE on the recording panel.** Press ↺ RETAKE twice (it asks SURE? so one slip can’t lose a take): that take’s
+  files are deleted and a fresh take starts after a 3-second count, with the same screen, camera and mic, without
+  going back to the editor. Also in the menu-bar icon’s menu.
+- **Export presets like HandBrake.** The Preset menu has HandBrake’s groups: General (Very Fast / Fast / HQ /
+  Super HQ at 4K, 1080p, 720p, 576p, 480p), Web (Creator, YouTube HQ, Social 25 MB, Discord, Email 25 MiB), Devices
+  (Apple, Android, Chromecast, Amazon Fire, PlayStation, Roku, Xbox), Hardware (VideoToolbox) and Production,
+  beside Reel’s own and yours. New: a Quality level, a **File size limit** (Reel works out the bitrate to fit,
+  and warns when that’s too little), frame rates that never go above your project’s, the bitrate in the summary,
+  and **Import HandBrake…** for your own HandBrake preset files (AV1, MKV or surround are made as the nearest MP4).
+- **Fix: in a narrow window the time display slid over the transport keys** and the zoom bar hid under the tools.
+  The deck now gives way step by step, and the tool strip grows when it wraps.
+- **Fix: after a recording, Reel’s menu bar stopped answering** (the menu bar showed another app’s menus) until you
+  switched apps. Reel now stays a normal app throughout, and clicking its window always brings its menus back.
+
+## 1.5.5 — Menus answer every time, WAV export, clear plug-in renders, de-click
+
+- **Colour schemes from ProtoArt Dandelion.** Settings › Appearance › Colour scheme: **Amber** (Reel’s original),
+  **Powder** (blue powder coat on Light, burnt orange on Dark, white printing), **Cream**, **Slate** and **Ember**,
+  each with the Light or Dark faceplate. The faceplate metal, lettering and every lit key and lamp take the scheme.
+- **Help covers everything, and you can search it by describing a problem.** A **Search help…** box sits in the
+  top bar next to HELP: type “export stuck”, “menu does nothing”, “mouth clicks” or “save a preset” and Help
+  opens on the answer. Help has **HOW TO** and **TROUBLESHOOTING** tabs (39 topics, every feature through 1.5.5),
+  understands everyday words (stuck / frozen / hangs, plug-in / VST / AudioSuite…), and Help › Search Help… and
+  Help › Troubleshooting… open it too.
+- **The menu bar answers every time.** After a recording, the floating recording panel switched Reel into a
+  background app and back (to float on every Space), which left the menu bar, starting with the ProtoArt Reel
+  menu, dead until you clicked another app and back. It no longer does. Reel also used to rebuild the whole menu
+  bar after each edit (to reword Undo / Redo), and a rebuild that landed as you clicked a menu made the click do nothing. It no longer does that: the Edit
+  menu says plain Undo / Redo, and the toast after each undo says exactly what was undone.
+- **Sound-only export no longer looks frozen.** It now shows “Sound 1:23 of 10:11 · 40× real time · about 15 s
+  left” instead of sitting on “Starting…”, and Cancel works during it. If the AAC encoder ever stops responding,
+  the export stops with a message instead of hanging. If a plug-in render is already running, the dialog says it’s
+  waiting for it.
+- **New: Sound only · WAV** (uncompressed 24-bit, 48 kHz stereo) in Export, for mastering or editing elsewhere.
+- **You can see a plug-in render happen, and see that it worked.** RENDER EFFECTS shows a meter with the percentage,
+  and the clip on the timeline shows RENDERING 42% with a bar. Afterwards the clip carries a green FX ✓ badge, its
+  waveform is redrawn from the new processed file (like AudioSuite in Pro Tools), and A/B switches between the
+  original and the processed sound. An amber FX ! means the effects aren’t rendered yet.
+- **Renders use what’s in the open plug-in window.** A plug-in’s settings were only saved when its window closed,
+  so rendering with CEDAR (or any plug-in) still open ran it on its default settings. That can sound like nothing
+  happened. Reel now reads the open window’s settings first, for clips, tracks and the master.
+- **Your plug-ins on the master bus, right in Export.** The Master row in the export dialog has + PLUG-IN, which
+  puts one of your Audio Unit plug-ins (CEDAR, Waves, iZotope, FabFilter…) on the whole mix. The same list is in
+  MASTER…, in the Mixer (★ MASTER PLUG-INS) and in Window › Master Bus & Plug-ins…
+- **New built-in De-click** track effect: removes mouth clicks, lip smacks, pops and crackle (presets: Mouth clicks,
+  Pops & crackle, Gentle).
+- **AUTO MIX can clean the dialogue.** Tick De-click (on by default), De-ess or Noise gate. They go on the dialogue
+  tracks before Auto Level, where you can adjust them, and Remove Auto Mix takes them off again.
+- **Music and Sound FX can go much quieter in AUTO MIX.** The sliders now reach −30 dB (up to +12), with quick
+  −30 / −20 / −12 / −6 / −3 / 0 / +3 / +6 buttons.
+- **Effects presets for a whole rack.** Every track’s ƒx rack has PRESETS ▾: built-in chains (Tutorial voice:
+  De-click → De-ess → Auto Level · Clean dialogue (light) · Podcast voice · Noisy room), and *Save this rack as a
+  preset…*, which keeps your own plug-ins (CEDAR, Waves…) with their settings. Your presets are on every track.
+- **Auto Edit › Tutorial.** A new recipe for screen tutorials: it finds your clap signals and cuts them out (each
+  leaves a take marker for ✂ TAKES), puts the Tutorial voice chain on the speech, evens the volume, cuts ums and
+  long pauses, adds gentle zooms and chapters. Every recipe now has **Claps** (Leave / Mark / Cut them out) and
+  **Voice** (any effects preset, your own saved ones included).
+- **End-screen picture boxes.** The end screen’s boxes take your own pictures: drop an image on a box in the
+  inspector, or press CHOOSE…. The picture fills the box, with your caption over it.
+- **New recordings are at the top of Media**, with a NEW tag for 10 minutes.
+
+## 1.5.4 — Smooth cuts, a big REC key, and fixes you asked for
+
+- **Every cut is smooth.** Where two clips meet after a cut (a delete, ripple, Close Gaps or Auto Edit joined them),
+  Reel adds a short crossfade, so the sound doesn't click and the picture doesn't jar; next to a gap the sound fades
+  out and in. A plain split of continuous footage needs nothing. Settings › Timeline › Smooth every cut: Off, Short
+  (0.1 s), Medium, Long. A cut set to NONE in Transitions stays a hard cut.
+- **REC is a big master key** like EXPORT: cream key, red jewel lamp, in its bezel at the top of the tool panel. It
+  latches down with the lamp blinking while you record.
+- **A long pause no longer loses a recording.** If macOS stops the screen capture during a pause (the Mac locked),
+  everything recorded is kept and saved when you resume or stop. A recording that has started is never thrown away:
+  if anything goes wrong, Reel saves what it has, or keeps the files. Clicking the menu-bar icon opens its menu
+  (Resume, Stop…) instead of stopping straight away.
+- **Settings… answers again.** Rebuilding the menus (for the Undo / Redo wording) while one was open swallowed the
+  click; menus are now only rebuilt when none is open.
+- **Transitions: THIS CUT or EVERY CUT.** A clear APPLY TO switch at the top of the panel says where a click goes.
+  NONE (Cut) on EVERY CUT now takes every transition off (it used to put Dissolve back on).
+- **Call-outs always show, live, and open with a double-click.** Titles, call-outs, elements, shapes and drawings are
+  drawn above the video even on a track below it (they used to vanish under a full-frame video). Their words
+  update as you type. Double-click any clip to edit it: its settings open with the cursor in its text.
+- **Markers are easy to remove.** Each marker has a flag on the timeline: click to jump, right-click to rename or
+  delete (or delete them all), ⌥-click deletes. The × beside each marker on the right is always visible now.
+- **Faster speeds:** up to 100× (64×, 32× and 16× buttons). The preview plays up to 16× and keeps up beyond that;
+  the export uses the exact speed.
+- **Parts snap together.** Part edges snap to other parts, clips, markers and the playhead, and two parts can meet
+  exactly end to end (they used to stop short or merge). Moving a whole part snaps too.
+- **A tidier tool bar.** One row: SELECT ▾ · BLADE · SPLICE · DELETE · GAPS ▾ (ripple, close gaps, auto) · + INSERT ▾ ·
+  EFFECTS ▾ (now with CALL-OUTS) · AUDIO ▾ · TEXT ▾ · PARTS ▾ · SNAP · ⚙ ▾. AUTO EDIT is in the tool panel.
+
+## 1.5.3 — AUTO MIX, colour-coded tracks, and exports that finish
+
+- **⚖ AUTO MIX: dialogue, music and sound effects levelled for you.** Every sound track has a colour-coded tag:
+  **blue DIALOGUE**, **orange MUSIC**, **green SOUND FX** (click it to go round them; any number of tracks can share
+  a colour, e.g. two orange music tracks). The track header, its mixer strip and its clips take the colour. AUTO MIX
+  (mixer, track right-click, AUDIO tab, or ⌥⌘M) reads the colours, measures every clip's loudness (the broadcast
+  LUFS meter the export uses), and sets each one to its colour's level: voices clear, music under them by a set
+  amount, sound effects heard without jumping out. Pick a style (Podcast, YouTube, Cinematic), nudge music or
+  effects louder or quieter, and preview with A/B before you keep it.
+- **Music dips while someone talks, smoothly.** Music tracks fade down just before dialogue and back up after it,
+  instead of jumping. It's set on the track, so music you add later dips too.
+- **Tidy tracks (save space).** AUTO MIX can put tracks of the same colour together: clips from plain tracks move
+  onto one track at the same times, and the empty tracks go. Tracks with their own effects or settings stay as
+  they are. Generic names ("Track 3") become "Dialogue", "Music", "Sound FX".
+- **A reminder to label.** When a project has several sound tracks without a colour, Reel asks once and makes
+  the unlabelled tags pulse.
+- **AUTO MIX is clear about what it did.** Press **▶ HEAR AUTO MIX**: the mixer closes, the result plays straight
+  away, the clips it changed flash on the timeline, and coloured chips say what moved ("DIALOGUE ▲ +10 dB · 2
+  clips", "MUSIC ▼ −15 dB"). Nothing is kept until you press KEEP IT.
+- **Remove Auto Mix, any time.** AUTO MIX remembers your own levels and tracks. While a mix is on, the key reads
+  ⚖ AUTO MIX ✓; open it (or right-click a track, or Edit menu) and REMOVE AUTO MIX puts every clip back at its own
+  level and on its own track, even after other edits. Your colour labels stay.
+- **A tidier top bar.** While you edit, the studio keys (REC, TAKES, ADD MEDIA, AUTO EDIT, AUTO MIX, MIXER,
+  SPECTRAL, AI IMAGE, THUMBNAIL, EXPORT) sit in a panel at the top of the right-hand column; the top bar keeps
+  just the project, SAVE, CLOSE, EXPLAIN and HELP. On the Projects screen they're back in the top bar.
+- **CLOSE GAPS (⌥⌫), and AUTO to never leave empty space.** Next to RIPPLE: CLOSE GAPS removes every empty
+  stretch of the edit (where nothing plays on any track, including before the first clip) and slides everything
+  after it up, so all the tracks stay in sync; markers, captions and parts move with it. Turn on AUTO and Delete
+  closes the gap it leaves, like RIPPLE. Locked tracks are never moved.
+- **Two select tools: hold SELECT.** A small panel opens with **→ SELECT** (one item at a time, as before) and
+  **⇉ SELECT FORWARD**: click anywhere on the timeline and everything to the right of it is selected, on every
+  track (video, audio, text, all of it), ready to drag. The key shows ⇉ FORWARD while it's on; A goes back to
+  the normal select tool, ⇧A picks forward. The other selections (select all, all video, all audio…) are under
+  MORE SELECTIONS, and right-click still opens them directly.
+- **EXPORT is the master key.** At the bottom of the tool panel: a chunky backlit key in a screwed bezel with a
+  green jewel lamp and a MASTER OUT plate. It sinks into the bezel when you press it, like a tape machine's
+  transport key, so it never gets lost among the other keys.
+- **Transport keys in the centre.** Play, stop, rewind and frame keys sit in the middle of the deck, over the tape
+  head; the tape-speed switch and picture size are on the left, the time and the tape counter on the right.
+- **Undo and Redo say what they do.** "↶ Undo: Move 2 clips" appears when you press ⌘Z, and the Edit menu reads
+  "Undo Move 2 Clips" / "Redo Auto Mix".
+- **Mixer: channel names at the top**, above the inserts, with the colour tag under them, so you don't have to
+  scroll down to see which strip is which.
+
+- **Exports with a plug-in on a track no longer crawl or fill the disk.** Every clip used to render the plug-in over
+  its whole source recording, so a recording cut into 90 pieces was processed 90 times (about 400 MB and a few
+  minutes each with a heavy plug-in like dxRevive). Now each recording is rendered once per plug-in setting and
+  every clip cut from it shares that render. Change the plug-in's settings and it renders once again.
+- **Long exports no longer stop with "Video decoding failed: Decoding error".** Each clip kept its own video
+  decoder open until the export ended; macOS has only a few, so an edit with dozens of clips cut from one recording
+  ran out part-way. Clips now let go of their decoder as soon as they're off screen, and clips from the same
+  recording share one reader instead of each reading the whole file's index.
+- **Space back from older projects.** Opening a project that already has those duplicate renders points every clip
+  at one copy and moves the spare copies to the Trash (empty the Trash to get the space back).
+
 ## 1.5.2 — Takes, a tidier tool bar, and edits that stay together
 
 - **✂ TAKES, in the top bar next to REC.** Messed up a line while recording? Clap three times (or press ⌥⇧⌘M, or

@@ -18,7 +18,7 @@
   <button id="btn-close-project" class="hw eject no-drag hidden" title="Close this project and go back to Projects (⌘W). It saves first."><span class="ej">⏏</span>CLOSE</button>
   <div class="spacer"></div>
   <div id="title-actions" class="no-drag">
-    <button id="btn-record" class="rec-btn" title="New recording (⌘R)"><span class="dot"></span>REC</button>
+    <button id="btn-record" class="rec-btn" title="New recording (⌘R)"><span class="dot"></span><span class="rk-word">REC</span><span class="rk-sub">SCREEN · CAMERA · MIC</span></button>
     <button id="btn-takes" class="hw takes-btn" title="TAKES: messed up a line while recording? Clap three times (or press ⌥⇧⌘M) and say it again. Reel splits the recording into takes here, to keep or drop.">✂ TAKES<span class="n"></span></button>
     <button id="btn-sound" class="hw adv" title="Mixer: every timeline track’s level, pan, mute, solo and effects, your microphone, and each Mac app’s sound (⇧⌘M)">MIXER</button>
     <button id="btn-spectral" class="hw adv" title="Spectral editor for the selected clip’s sound: de-noise, de-click, de-ess, de-bark, repair (⌥⌘S)">SPECTRAL</button>
@@ -26,9 +26,9 @@
     <button id="btn-aiimage" class="hw adv" title="Make a picture with ERNIE for the edit (⌥⌘I)">AI IMAGE</button>
     <button id="btn-thumb" class="hw amber adv" title="Thumbnail Studio (⌘T)">THUMBNAIL</button>
     <button id="btn-autoedit" class="hw role-auto" title="AUTO EDIT (⌥⌘E): Reel edits your video for TikTok, Shorts, a podcast clip or YouTube">⚡ AUTO EDIT</button>
-    <button id="btn-export" class="hw role-export" title="Export (⌘E): save the finished video">EXPORT</button>
+    <button id="btn-export" class="hw role-export" title="Export (⌘E): save the finished video"><span class="ex-jewel"></span><span class="ex-word">EXPORT</span><span class="ex-sub">MASTER OUT ▸</span></button>
     <button id="btn-explain" class="hw explain" aria-pressed="false" title="Explain mode: rest the pointer on anything to see what it does (⌘/)"><span class="ex-lamp"></span>EXPLAIN</button>
-    <button id="btn-help" class="hw help" title="How ProtoArt Reel works">HELP</button>
+    <input id="help-q" class="help-q" type="search" placeholder="Search help…" aria-label="Search help or describe a problem" title="Search the help, or describe a problem (“export stuck”, “menu does nothing”)"><button id="btn-help" class="hw help" title="How ProtoArt Reel works">HELP</button>
   </div>
 </div>
 
@@ -83,22 +83,36 @@
         <select id="preview-zoom" title="Preview size. Or scroll the mouse wheel (or pinch) over the picture to zoom; drag the empty area around it to pan; double-click there to fit."><option value="fit">Fit</option><option value="0.25">25%</option><option value="0.5">50%</option><option value="1">100%</option><option value="2">200%</option><option value="4">400%</option></select>
       </div>
     </div>
-    <aside id="inspector" class="panel"></aside>
+    <div id="right-col">
+      <div id="keypanel" class="hidden"></div>
+      <aside id="inspector" class="panel"></aside>
+    </div>
   </div>
   <div id="toolstrip">
     <span class="tool-pair"><button class="tool lit" data-tool="select" title="Select tool (A): click to select, ⌘-click to add, drag to move and trim. Press and hold (or right-click) to select all, or all video, audio, text…">▲ SELECT <i class="hold-mark">▾</i></button><button class="tool" data-tool="blade" title="Blade tool (T): click a clip to cut it where you click (⌥-click cuts only that clip, not its group)">✂ BLADE</button></span>
     <button class="tool splice" data-cmd="split" title="Splice: cut the clips at the playhead (S)"><span class="blade"></span>SPLICE</button>
     <button class="tool" data-cmd="delete" title="Delete (⌫)">DELETE</button>
-    <button class="tool adv" data-cmd="ripple-delete" title="Delete and close the gap (⇧⌫)">RIPPLE</button>
+    <span class="tgroup adv" title="Gaps: ripple delete, close every gap, auto close gaps">
+      <button class="tool tgroup-btn" type="button">GAPS ▾</button>
+      <span class="tgroup-items" hidden>
+        <button class="tool adv" data-cmd="ripple-delete" title="Delete and close the gap (⇧⌫)">Ripple delete (close the gap)</button>
+        <button class="tool adv" data-cmd="close-gaps" title="Close every gap: remove all the empty space in the edit (where nothing plays on any track), sliding everything up so the tracks stay in sync (⌥⌫)">Close every gap now</button>
+        <label class="tool toggle adv" title="Auto close gaps: when on, Delete also closes the gap it leaves (like RIPPLE), so the edit never has empty space"><input type="checkbox" id="auto-gaps"><span>Auto close gaps when deleting</span></label>
+      </span>
+    </span>
     <span class="sep"></span>
     <button class="tool insert-btn" id="btn-insert" title="Add text, titles, callouts, arrows, drawings, captions, speech, actions or markers">+ INSERT ▾</button>
-    <button class="tool ae-btn full-only" data-cmd="auto-edit" title="AUTO EDIT (⌥⌘E): pick TikTok, Shorts, a podcast clip or a YouTube video, and Reel edits your video for it: best moments, cuts, vertical, zooms, transitions, captions. Right-click a clip to auto edit just that clip.">⚡ AUTO EDIT</button>
     <span class="sep"></span>
     <span class="tgroup" title="Transitions, presets, Smart Zoom, time-lapse and vertical">
       <button class="tool tgroup-btn" type="button">EFFECTS ▾</button>
       <span class="tgroup-items" hidden>
         <button class="tool" data-cmd="transitions" title="Transitions &amp; fades">⧓ Transitions &amp; fades</button>
+        <button class="tool cta-btn" data-cmd="callouts" title="CALL-OUTS: animated Like, Subscribe, notification bell, Follow, comment prompts, an end screen, lower thirds, arrows and more, with live previews. Click one to add it at the playhead; Auto Edit can add them for you.">📣 Call-outs (like, subscribe, end screen…)</button>
         <button class="tool" data-cmd="presets" title="Presets with live previews">★ Presets</button>
+        <button class="tool" data-cmd="stabilize" title="Smooth out a shaky camera on the selected video clip">🎥 Stabilize</button>
+        <button class="tool" data-cmd="green-screen" title="Key out a green (or blue) screen behind the selected clip">🟩 Green screen</button>
+        <button class="tool" data-cmd="remove-background" title="Cut a person out of their background, no green screen needed">✂ Remove background</button>
+        <button class="tool" data-cmd="pip" title="Put the selected clip small in a corner over the rest (again: next corner)">▣ Picture in picture</button>
         <button class="tool" data-cmd="auto-zoom" title="Smart Zoom">Smart Zoom</button>
         <button class="tool" data-cmd="timelapse" title="Time-lapse">Time-lapse</button>
         <button class="tool" data-cmd="make-vertical" title="Make Vertical">Make vertical (9:16)</button>
@@ -111,6 +125,7 @@
         <button class="tool" data-cmd="adr-align" title="ADR — Align to Guide (⌥⌘A)">ADR: align to guide…</button>
         <button class="tool" data-cmd="takes" title="Takes">✂ Takes…</button>
         <button class="tool" data-cmd="find-claps" title="Find clap markers">Find clap markers…</button>
+        <button class="tool" data-cmd="bounce" title="Render the selected clips' effects into new audio on a new track (the originals are kept, muted)">⤓ Bounce to new track</button>
       </span>
     </span>
     <span class="tgroup" title="Captions and editing by text">
@@ -118,6 +133,7 @@
       <span class="tgroup-items" hidden>
         <button class="tool" data-cmd="auto-captions" title="Auto captions">Auto captions</button>
         <button class="tool" data-cmd="text-edit" title="Edit by text">Edit by text (transcript)</button>
+        <button class="tool" data-cmd="writer" title="Qwen writes title ideas, a description and chapter names from what's said (on this Mac)">✍ Title, description &amp; chapters…</button>
       </span>
     </span>
     <span class="tgroup parts-group" title="Pick parts of a long video for Auto Edit, and select ranges">

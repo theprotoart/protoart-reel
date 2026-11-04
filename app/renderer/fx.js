@@ -15,6 +15,9 @@ const BAND_NAMES = ['100', '250', '600', '1.5k', '4k', '10k'];
 // plug-ins worth showing first in the picker
 const FAVOURITE = /CEDAR|Clarity|Dns One|VoicEX|ScreenVox|StageVox|Dialogue|De-noise|De-?reverb|TG Mastering|Ozone|Pro-Q|Pro-L|Soothe|Supertone/i;
 
+/** An error as a person should read it: without Electron's "Error invoking remote method 'fx:edit': Error:" prefix. */
+export const plainError = e => String(e?.message || e).replace(/^Error invoking remote method '[^']+':\s*(Error:\s*)?/, '');
+
 let available = null;
 export async function fxAvailable(app) { return (available ||= await app.api.fxAvailable().catch(() => ({ plugins: false, voice: false }))); }
 
@@ -36,26 +39,110 @@ export async function ensureSource(app, m, onProgress) {
   });
 }
 
+/**
+ * Reads the settings out of every plug-in window that's still open, so a render uses what you see in the window.
+ * (Settings used to be saved only when the window closed: render with CEDAR still open and it ran on its default
+ * settings, which can sound like nothing happened.) Returns how many changed.
+ */
+export async function captureOpenPlugins(app) {
+  let n = 0;
+  for (const [slot, e] of [...app.fxEditing.entries()]) {
+    let state = '';
+    try { state = await app.api.fxState(slot); } catch { continue; }
+    if (!state) continue;
+    const doc = app.doc; if (!doc) return n;
+    if (e.master) { const it = (doc.master?.plugins || []).find(x => x.id === e.item); if (it && it.state !== state) { it.state = state; n++; } }
+    else if (e.track) { const tr = doc.tracks.find(t => t.id === e.track), f = tr && (tr.fx || []).find(x => x.id === e.item); if (f && f.state !== state) { f.state = state; n++; } }
+    else {
+      const c = doc.clips.find(x => x.id === e.clip), it = c?.fx?.chain.find(x => x.id === e.item);
+      if (it && it.state !== state) { it.state = state; c.fx.dirty = true; n++; }
+    }
+  }
+  if (n) app.setDirty(true);
+  return n;
+}
+
+/** Clips being rendered right now: clip id -> 0..1. The timeline and inspector show it. */
+export const renderingNow = new Map();
+const showProgress = (app, id, f) => {
+  if (f == null) renderingNow.delete(id); else renderingNow.set(id, f);
+  app.timeline?.renderProgress?.(id, f);
+  for (const l of progressListeners) l(id, f);
+};
+export const progressListeners = new Set();
+
 /** Renders a clip's chain; the clip then plays and exports the new file. */
 export async function renderClip(app, c, onProgress) {
+  const outer = onProgress;
+  showProgress(app, c.id, 0);
+  onProgress = f => { showProgress(app, c.id, f); outer?.(f); };
+  try { return await renderClipNow(app, c, onProgress); }
+  finally { showProgress(app, c.id, null); }
+}
+async function renderClipNow(app, c, onProgress) {
   const m = mediaById(app.doc, c.media);
   if (!m) throw new Error('Media is missing');
+  await captureOpenPlugins(app);
   const source = await ensureSource(app, m, onProgress);
+  const chain = chainOf(c);
+  // The render covers the whole source file, so every clip cut from the same recording with the same effects
+  // can share one render: split a recording into 90 pieces and it is rendered once, not 90 times.
+  const key = renderKey(source, chain);
+  const done = (r, quiet) => { c.fx.file = r.file; c.fx.key = key; c.fx.dirty = false; if (!quiet) app.commit(() => {}); else app.setDirty(true); return r; };
+  const keyOf = o => o.fx.key || (o.media === c.media && o.fx.chain ? renderKey(source, chainOf(o)) : '');
+  const twin = app.doc.clips.find(o => o !== c && o.fx && !o.fx.dirty && o.fx.file && keyOf(o) === key);
+  if (twin) { onProgress?.(1); return done({ file: twin.fx.file }, true); }
+  if (rendering.has(key)) { const r = await rendering.get(key); onProgress?.(1); return done(r, true); }
   const tag = `${c.id}-${Date.now().toString(36)}`;
   const listener = p => { if (p.tag === tag && onProgress) onProgress(0.3 + p.f * 0.7); };
   app.fxListeners.add(listener);
+  const job = app.api.fxRender(app.token, { source, chain, tag });
+  rendering.set(key, job);
   try {
-    const chain = c.fx.chain.map(it => (it.kind === 'reel' ? { kind: 'reel', params: it.params, bypass: !!it.bypass } : { kind: 'au', plugin: it.plugin, state: it.state || '', bypass: !!it.bypass }));
-    const r = await app.api.fxRender(app.token, { source, chain, tag });
-    app.commit(() => { c.fx.file = r.file; c.fx.dirty = false; });
-    return r;
-  } finally { app.fxListeners.delete(listener); }
+    const r = await job;
+    // hand the same render to every other clip waiting on it
+    for (const o of app.doc.clips) if (o !== c && o.fx?.dirty && o.media === c.media && o.fx.chain && renderKey(source, chainOf(o)) === key) { o.fx.file = r.file; o.fx.key = key; o.fx.dirty = false; }
+    return done(r, false);
+  } finally { app.fxListeners.delete(listener); rendering.delete(key); }
 }
+const rendering = new Map();
+
+/**
+ * On opening a project (no undo history yet): clips cut from the same recording with the same effects each had
+ * their own identical full-length render before 1.5.3. Point them all at one, and move the spare copies to the
+ * Trash. Returns the bytes freed (roughly) and how many files went.
+ */
+export async function shareDuplicateRenders(app) {
+  const doc = app.doc; if (!doc) return { files: 0 };
+  const groups = new Map();
+  for (const c of doc.clips) {
+    if (!c.fx || c.fx.dirty || !c.fx.file || !c.fx.chain?.length || c.type !== 'media') continue;
+    const k = c.media + '|' + JSON.stringify(chainOf(c));
+    if (!groups.has(k)) groups.set(k, []);
+    groups.get(k).push(c);
+  }
+  const before = new Set(doc.clips.map(c => c.fx?.file).filter(Boolean));
+  let changed = false;
+  for (const list of groups.values()) {
+    const keep = list[0].fx.file;
+    for (const c of list) if (c.fx.file !== keep) { c.fx.file = keep; changed = true; }
+  }
+  if (!changed) return { files: 0 };
+  app.setDirty(true);
+  const still = new Set(doc.clips.map(c => c.fx?.file).filter(Boolean));
+  const spare = [...before].filter(f => !still.has(f) && /^fx-[\w-]+\.wav$/.test(f));
+  let files = 0;
+  for (const f of spare) { try { await app.api.deleteMedia(app.token, f); files++; } catch { /* leave it */ } }
+  await app.save?.();
+  return { files };
+}
+const chainOf = c => c.fx.chain.map(it => (it.kind === 'reel' ? { kind: 'reel', params: it.params, bypass: !!it.bypass } : { kind: 'au', plugin: it.plugin, state: it.state || '', bypass: !!it.bypass }));
+const renderKey = (source, chain) => source + '|' + JSON.stringify(chain);
 
 export function pickPlugin(app) {
   return new Promise(async resolve => {
     let list = [];
-    try { list = await app.api.fxPlugins(); } catch (e) { toast(e.message, 5000); return resolve(null); }
+    try { list = await app.api.fxPlugins(); } catch (e) { toast(plainError(e), 6000); return resolve(null); }
     const search = el('input', { type: 'text', placeholder: `Search ${list.length} plug-ins…`, style: { width: '100%' } });
     const box = el('div', { class: 'plug-list' });
     const draw = () => {
@@ -98,7 +185,7 @@ export async function editPlugin(app, c, item) {
   const slot = `s${item.id}`;
   app.fxEditing.set(slot, { clip: c.id, item: item.id });
   try { await app.api.fxEdit(slot, item.plugin, item.state || '', `${item.name} — ${c.name || 'clip'}`); }
-  catch (e) { app.fxEditing.delete(slot); toast(e.message, 6000); }
+  catch (e) { app.fxEditing.delete(slot); toast(plainError(e), 7000); }
 }
 
 /** Called by the app when a plug-in window closes. */
@@ -160,16 +247,44 @@ export function effectsSection(app, c, insp) {
   } });
   sec.append(el('div', { class: 'btn-row' }, addVoice, addPlug));
   if (fx && fx.chain.length) {
-    const prog = el('div', { class: 'progress hidden' }, el('i'));
-    const render = el('button', { class: 'hw' + (fx.dirty || !fx.file ? ' amber' : ''), text: fx.dirty || !fx.file ? 'RENDER EFFECTS' : 'RENDERED ✓', onclick: async () => {
-      render.disabled = true; prog.classList.remove('hidden');
-      try { await renderClip(app, c, f => { prog.firstChild.style.width = Math.round(f * 100) + '%'; }); toast('Effects rendered.'); }
-      catch (e) { toast(`Couldn’t render: ${e.message}`, 7000); }
-      render.disabled = false; prog.classList.add('hidden'); insp.render();
+    // A clear, AudioSuite-style result: a meter while it renders, then the clip plays a new processed file
+    // (its waveform redraws from it), with A/B to compare against the original.
+    const names = fx.chain.filter(x => !x.bypass).map(x => x.name).join(' → ') || 'effects';
+    const fill = el('i'), pct = el('span', { class: 'fxr-pct' });
+    const meter = el('div', { class: 'fxr-meter hidden' }, el('div', { class: 'fxr-bar' }, fill), pct);
+    const state = el('p', { class: 'note fxr-state' });
+    const fresh = !fx.dirty && fx.file;
+    state.textContent = fresh
+      ? `✓ Rendered: this clip now plays a new processed file (${names}). The waveform shows the processed sound. Use A/B to compare.`
+      : `Not rendered yet. RENDER runs ${names} over the clip’s sound and puts the result in its place, like AudioSuite in Pro Tools.`;
+    state.classList.toggle('ok', !!fresh);
+    const render = el('button', { class: 'hw' + (fresh ? '' : ' amber'), text: fresh ? 'RENDERED ✓' : 'RENDER EFFECTS', onclick: async () => {
+      render.disabled = true; render.textContent = 'RENDERING…'; meter.classList.remove('hidden');
+      state.textContent = (fx.chain.some(x => x.kind === 'au' && [...app.fxEditing.values()].some(e => e.item === x.id)) ? 'Using the settings in the open plug-in window. ' : '') + `Rendering ${names}…`;
+      const set = f => { const v = Math.round(f * 100); fill.style.width = v + '%'; pct.textContent = v + '%'; render.textContent = `RENDERING ${v}%`; };
+      set(0);
+      const t0 = performance.now();
+      try {
+        await renderClip(app, c, set);
+        set(1);
+        toast(`Rendered ${names} in ${((performance.now() - t0) / 1000).toFixed(1)} s. The clip now plays the processed sound.`, 4000);
+      } catch (e) { toast(`Couldn’t render: ${e.message}`, 7000); }
+      render.disabled = false; insp.render();
     } });
     const listenBtn = el('button', { class: 'tool', text: 'LISTEN', title: 'Hear 12 s from the playhead with these effects', onclick: () => listen(app, c, m) });
     const ab = el('button', { class: 'tool' + (fx.bypass ? '' : ' on-amber'), text: fx.bypass ? 'A: ORIGINAL' : 'B: EFFECTS', title: 'Switch the clip between its original and processed sound', onclick: () => app.commit(() => { fx.bypass = !fx.bypass; }) });
-    sec.append(el('div', { class: 'btn-row' }, render, listenBtn, fx.file ? ab : null), prog);
+    sec.append(el('div', { class: 'btn-row' }, render, listenBtn, fx.file ? ab : null), meter, state);
+    // already rendering (started from the timeline or before an export): follow it here too
+    if (renderingNow.has(c.id)) {
+      render.disabled = true; meter.classList.remove('hidden');
+      const follow = (id, f) => {
+        if (id !== c.id) return;
+        if (!sec.isConnected) { progressListeners.delete(follow); return; }
+        if (f == null) { progressListeners.delete(follow); insp.render(); return; }
+        const v = Math.round(f * 100); fill.style.width = v + '%'; pct.textContent = v + '%'; render.textContent = `RENDERING ${v}%`;
+      };
+      progressListeners.add(follow); follow(c.id, renderingNow.get(c.id));
+    }
   }
   return sec;
 }

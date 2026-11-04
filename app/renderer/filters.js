@@ -8,6 +8,7 @@ import { gate } from './capability.js';
 const KINDS = [
   ['color', 'Colour'], ['look', 'Look'], ['lut', 'LUT (.cube)…'], ['sharpen', 'Sharpen'], ['blur', 'Blur'],
   ['vignette', 'Vignette'], ['bw', 'Black & white'], ['chroma', 'Green screen'],
+  ['grain', 'Film grain (cinematic)'], ['letterbox', 'Letterbox bars (cinematic)'], ['halation', 'Halation glow (cinematic)'], ['aberration', 'Chromatic aberration (cinematic)'],
 ];
 const LOOK_NAMES = { warm: 'Warm', cool: 'Cool', tealOrange: 'Teal & orange', faded: 'Faded', punchy: 'Punchy', moody: 'Moody', vintage: 'Vintage', crisp: 'Crisp' };
 const pct = v => Math.round(v * 100) + '%';
@@ -50,6 +51,15 @@ export function filtersSection(app, insp, c) {
       case 'blur': body.append(sl(f, 'amount', 'Radius', { def: 8, min: 0, max: 60, step: 0.5, fmt: v => v.toFixed(1) })); break;
       case 'vignette': body.append(sl(f, 'amount', 'Amount', { def: 0.4, min: 0, max: 1, step: 0.01, fmt: pct })); break;
       case 'bw': body.append(sl(f, 'amount', 'Amount', { def: 1, min: 0, max: 1, step: 0.01, fmt: pct })); break;
+      case 'grain': body.append(sl(f, 'amount', 'Grain', { def: 0.35, min: 0, max: 1, step: 0.01, fmt: pct })); break;
+      case 'halation': body.append(sl(f, 'amount', 'Glow', { def: 0.4, min: 0, max: 1, step: 0.01, fmt: pct })); break;
+      case 'aberration': body.append(sl(f, 'amount', 'Fringing', { def: 0.35, min: 0, max: 1, step: 0.01, fmt: pct })); break;
+      case 'letterbox': {
+        const r = el('select', {}, ...[[2.39, '2.39 : 1 (scope)'], [2, '2 : 1'], [1.85, '1.85 : 1'], [2.76, '2.76 : 1 (ultra)']].map(([v, t]) => el('option', { value: v, text: t, selected: Math.abs((f.ratio || 2.39) - v) < 0.01 })));
+        r.addEventListener('change', () => insp.edit(() => { f.ratio = Number(r.value); }));
+        body.append(el('div', { class: 'row' }, el('label', { text: 'Shape' }), r));
+        break;
+      }
       case 'chroma': {
         const col = el('input', { type: 'color', value: f.color || '#00d000' });
         col.addEventListener('change', () => insp.edit(() => { f.color = col.value; }));
@@ -83,6 +93,10 @@ export function filtersSection(app, insp, c) {
     const base = { id: uid('f'), type };
     if (type === 'look') base.look = 'warm';
     if (type === 'chroma') Object.assign(base, { color: '#00d000', tolerance: 0.12, softness: 0.08, spill: 0.6 });
+    if (type === 'grain') base.amount = 0.35;
+    if (type === 'letterbox') base.ratio = 2.39;
+    if (type === 'halation') base.amount = 0.4;
+    if (type === 'aberration') base.amount = 0.35;
     insp.edit(() => { c.filters.push(base); });
   });
   sec.append(el('div', { class: 'row' }, el('label', { text: 'Add' }), add));
@@ -122,4 +136,60 @@ async function runMatte(app, c, m, quality) {
     toast('Background removed. Put a screen recording or a picture on the track below.');
   } catch (e) { dlg.close(); toast(e.message, 7000); }
   void slider;
+}
+
+// ------------------------------------------------------------------ stabilize
+/** Stabilize: measure the camera shake once (on small frames, on this Mac), then smooth it out as it plays. */
+export function stabilizeSection(app, insp, c, m) {
+  const sec = el('div', { class: 'insp-section' }, el('span', { class: 'engr', text: 'Stabilize' }));
+  if (!c.stab) {
+    sec.append(el('p', { class: 'note', text: 'Smooths out a shaky camera: Reel follows the shake, keeps slow intended moves, and zooms in a little so the edges stay hidden. Measured once on this Mac; the original isn’t changed.' }),
+      el('div', { class: 'btn-row' }, el('button', { class: 'tool on-amber', text: '🎥 Stabilize', onclick: () => runStabilize(app, c, m) })));
+    return sec;
+  }
+  const st = c.stab;
+  const on = el('input', { type: 'checkbox', checked: !st.off });
+  on.addEventListener('change', () => insp.edit(() => { st.off = !on.checked; }));
+  sec.append(el('div', { class: 'row' }, el('label', { text: 'Stabilized' }), on),
+    insp.sl('Smoothness', () => st.smooth ?? 1.5, v => { st.smooth = v; }, { min: 0.3, max: 5, step: 0.1, fmt: v => v.toFixed(1) + ' s' }),
+    insp.sl('Strength', () => st.strength ?? 1, v => { st.strength = v; }, { min: 0, max: 1, step: 0.01, fmt: v => Math.round(v * 100) + '%' }),
+    insp.sl('Zoom', () => st.zoom || 0, v => { st.zoom = v < 1.005 ? 0 : v; }, { min: 1, max: 1.4, step: 0.005, fmt: v => (v < 1.005 ? 'Automatic' : Math.round(v * 100) + '%') }),
+    el('p', { class: 'note', text: 'Smoothness: how long a move must last to be kept (higher is steadier, like a tripod). Zoom hides the moving edges; set it by hand if you’d rather crop less and allow a little edge.' }),
+    el('div', { class: 'btn-row' },
+      el('button', { class: 'tool', text: 'Measure again', onclick: () => runStabilize(app, c, m) }),
+      el('button', { class: 'tool', text: 'Remove', onclick: () => insp.edit(() => { delete c.stab; }) })));
+  return sec;
+}
+
+export async function runStabilize(app, c, m) {
+  const t0 = Math.max(0, c.in || 0), t1 = t0 + c.duration * (c.speed || 1);
+  const rate = t1 - t0 > 180 ? 10 : 15; // a long clip is measured a little more sparsely
+  const file = m.proxy?.file || m.file; // the proxy is smaller to decode; the motion is the same
+  const bar = el('div', { class: 'progress' }, el('i'));
+  const w = new Worker('stab-worker.js', { type: 'module' });
+  let stopped = false;
+  const dlg = modal('Stabilize', el('div', {}, el('p', { class: 'note', text: `Following the camera through “${m.name || 'the clip'}” (${Math.round(t1 - t0)} s)…` }), bar),
+    [{ label: 'Stop', onClick: x => { stopped = true; w.postMessage({ type: 'cancel' }); setTimeout(() => w.terminate(), 500); x(); } }]);
+  try {
+    const moves = await new Promise((resolve, reject) => {
+      w.onmessage = e => {
+        const msg = e.data;
+        if (msg.type === 'progress') bar.firstChild.style.width = Math.round(msg.f * 100) + '%';
+        else if (msg.type === 'done') resolve(msg.moves);
+        else if (msg.type === 'error') reject(new Error(msg.message));
+      };
+      w.postMessage({ type: 'start', url: `app://reel/m/${app.token}/${encodeURIComponent(file)}`, t0, t1, rate });
+    });
+    w.terminate();
+    if (stopped) return;
+    const { cumulative } = await import('./lib/stabilize.js');
+    const p = cumulative(moves);
+    const r5 = a => a.map(v => Math.round(v * 1e5) / 1e5);
+    app.commit(() => { c.stab = { rate, t0, x: r5(p.x), y: r5(p.y), r: r5(p.r), smooth: c.stab?.smooth ?? 1.5, strength: c.stab?.strength ?? 1, zoom: c.stab?.zoom || 0 }; });
+    dlg.close();
+    toast('Stabilized. Adjust Smoothness and Zoom on the right; play it to see.', 5000);
+  } catch (e) {
+    w.terminate(); dlg.close();
+    if (!stopped) toast(`Couldn’t stabilize: ${e.message}`, 6000);
+  }
 }

@@ -30,7 +30,7 @@ export function fitHeader() {
     for (const id of order) {
       if (!overflowing()) break;
       const b = document.getElementById(id);
-      if (!b || b.classList.contains('hidden')) continue;
+      if (!b || b.classList.contains('hidden') || !box.contains(b)) continue; // keys in the side panel don't fold
       b.classList.add('folded'); more.classList.remove('hidden');
     }
     busy = false;

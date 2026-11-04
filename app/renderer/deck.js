@@ -145,11 +145,15 @@ export class Deck {
     const meters = el('div', { class: 'deck-meters' }, el('div', { class: 'vu-glass' }, this.vuL.svg), el('div', { class: 'vu-glass' }, this.vuR.svg));
     const spacer = el('div', { class: 'spacer' });
     const tape = el('div', { class: 'deck-tape' }); // tape running along the bottom between the reels, past the head
+    void spacer;
+    // left: tape speed, picture size, meters · centre: the transport keys · right: the time and the tape counter
     host.replaceChildren(
       el('div', { class: 'deck-reel-well' }, this.supply.svg),
-      keyBank, counters, index, meters, spacer, sw, zoom,
+      el('div', { class: 'deck-side deck-left' }, sw, zoom, meters),
+      keyBank,
+      el('div', { class: 'deck-side deck-right' }, counters, index),
       el('div', { class: 'deck-reel-well' }, this.takeup.svg), tape);
-    host.classList.add('deck');
+    host.classList.add('deck', 'deck-centred');
     this.rate = 1;
     this.setFill(0);
     // grab either reel and turn it to scrub picture and sound, like rocking the reels across the head

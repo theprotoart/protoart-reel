@@ -231,7 +231,7 @@ async function record(app, st) {
   const api = app.api;
   await api.selectSource(st.source.id, st.system);
   const streams = [];
-  let ids = null;
+  let ids = null, going = false;
   const stopAll = () => streams.forEach(s => s.getTracks().forEach(t => t.stop()));
   try {
     // ---- capture streams
@@ -272,92 +272,123 @@ async function record(app, st) {
     await countdown(st.countdown || 3);
     if (st.hide) { await api.hideWindow(); await new Promise(r => setTimeout(r, 350)); }
     const apps = st.sysMode === 'apps' ? st.apps.map(k => ({ key: k, name: (st.appNames || {})[k] || k })) : [];
-    ids = await api.recBegin(app.token, specs, apps, { clicks: !!st.clicks, keys: !!st.keys });
-    const tBegin = performance.now();
-    const starts = {};
-    const done = [];
-
-    // ---- video recorders
     const type = pickType();
-    const recorders = [];
-    const addVideo = (role, stream, bps) => {
-      const mr = new MediaRecorder(new MediaStream(stream.getVideoTracks()), { mimeType: type.replace(/,mp4a.*$/, ''), videoBitsPerSecond: bps });
-      let chain = Promise.resolve();
-      mr.ondataavailable = e => { if (e.data && e.data.size) chain = chain.then(async () => api.recChunk(ids[role], new Uint8Array(await e.data.arrayBuffer()))); };
-      mr.onstart = () => { starts[role] = performance.now(); };
-      done.push(new Promise(res => { mr.onstop = () => chain.then(res); }));
-      recorders.push(mr);
-    };
     const vs = vtrack.getSettings();
-    addVideo('screen', screen, Math.min(45e6, Math.max(6e6, (vs.width || 1920) * (vs.height || 1080) * (st.fps || 30) * 0.14)));
-    if (cam) addVideo('camera', cam, 8e6);
+    // the screen picture can end on its own (window closed, display unplugged): it ends whichever take is running
+    let endTake = null, screenLost = false, paused = false;
+    vtrack.addEventListener('ended', () => {
+      screenLost = true;
+      if (paused) { toast('The Mac stopped the screen capture during the pause (it may have locked). Everything recorded so far is safe: press RESUME or STOP to save it.', 12000); return; }
+      toast('The screen capture stopped, so the recording was ended and saved.', 8000);
+      endTake?.('stop');
+    }, { once: true });
+    let tBegin = 0, starts = {};
+    // One take after another: RETAKE on the panel throws the current take away (its files are deleted) and starts
+    // a fresh one with the same screen, camera and microphone, without going back to the editor.
+    for (let take = 1; ; take++) {
+      ids = await api.recBegin(app.token, specs, apps, { clicks: !!st.clicks, keys: !!st.keys });
+      tBegin = performance.now();
+      starts = {};
+      const done = [], nodes = [];
 
-    // ---- audio capture
-    const workers = [];
-    const addAudio = (role, track, ch, pick) => {
-      let src = ctx.createMediaStreamSource(new MediaStream([track]));
-      if (pick) { // one input of a stereo interface (0 = input 1, 1 = input 2) or both summed, as mono
-        const split = ctx.createChannelSplitter(2), g = ctx.createGain();
-        src.connect(split);
-        if (pick === 'mix') { split.connect(g, 0); split.connect(g, 1); g.gain.value = 0.5; } else split.connect(g, pick === '2' ? 1 : 0);
-        g.channelCount = 1; g.channelCountMode = 'explicit';
-        src = g;
-      }
-      const node = new AudioWorkletNode(ctx, 'rec-capture', { numberOfInputs: 1, numberOfOutputs: 1, channelCount: ch, channelCountMode: 'explicit', processorOptions: { channels: ch } });
-      src.connect(node); node.connect(sink);
-      let stopped;
-      done.push(new Promise(r => { stopped = r; }));
-      node.port.onmessage = e => {
-        const m = e.data;
-        if (m.started !== undefined) starts[role] = performance.now();
-        if (m.data) api.recChunk(ids[role], new Uint8Array(m.data.buffer));
-        if (m.stopped) stopped();
+      // ---- video recorders
+      const recorders = [];
+      const addVideo = (role, stream, bps) => {
+        const mr = new MediaRecorder(new MediaStream(stream.getVideoTracks()), { mimeType: type.replace(/,mp4a.*$/, ''), videoBitsPerSecond: bps });
+        let chain = Promise.resolve();
+        const myIds = ids;
+        mr.ondataavailable = e => { if (e.data && e.data.size) chain = chain.then(async () => api.recChunk(myIds[role], new Uint8Array(await e.data.arrayBuffer()))); };
+        mr.onstart = () => { starts[role] = performance.now(); };
+        done.push(new Promise(res => { mr.onstop = () => chain.then(res); }));
+        recorders.push(mr);
       };
-      workers.push(node);
-    };
-    if (mic) addAudio('mic', mic.getAudioTracks()[0], micCh, micCh === 1 && devCh === 2 ? (micIn === '2' ? '2' : micIn === 'mix' ? 'mix' : '1') : null);
-    if (sysTrack) addAudio('system', sysTrack, 2);
+      addVideo('screen', screen, Math.min(45e6, Math.max(6e6, (vs.width || 1920) * (vs.height || 1080) * (st.fps || 30) * 0.14)));
+      if (cam) addVideo('camera', cam, 8e6);
 
-    // ---- go
-    for (const n of workers) n.port.postMessage('start');
-    for (const r of recorders) r.start(1000);
-    app.setRecording(true);
-
-    // the screen picture can end on its own (window closed, display unplugged)
-    let timer = null, timerLeft = st.stopAfter > 0 ? st.stopAfter * 60000 : 0, timerFrom = 0;
-    let paused = false, busy = false;
-    await new Promise(resolve => {
-      app.onStopRecording = resolve;
-      vtrack.addEventListener('ended', resolve, { once: true });
-      // recording timer: counts recorded time, so a pause doesn't eat into it
-      const arm = () => { if (timerLeft > 0) { timerFrom = performance.now(); timer = setTimeout(resolve, timerLeft); } };
-      arm();
-      // PAUSE / RESUME (the floating panel, ⌥⇧⌘2 or the menu-bar icon): every recorder pauses in the same
-      // instant, so the files simply leave the pause out and stay in sync. Nothing is captured while paused.
-      app.onPauseRecording = async () => {
-        if (busy) return;
-        busy = true;
-        paused = !paused;
-        if (paused) {
-          for (const r of recorders) if (r.state === 'recording') r.pause();
-          for (const n of workers) n.port.postMessage('pause');
-          if (timer) { clearTimeout(timer); timer = null; timerLeft = Math.max(1000, timerLeft - (performance.now() - timerFrom)); }
-        } else {
-          for (const r of recorders) if (r.state === 'paused') r.resume();
-          for (const n of workers) n.port.postMessage('resume');
-          arm();
+      // ---- audio capture
+      const workers = [];
+      const addAudio = (role, track, ch, pick) => {
+        let src = ctx.createMediaStreamSource(new MediaStream([track]));
+        nodes.push(src);
+        if (pick) { // one input of a stereo interface (0 = input 1, 1 = input 2) or both summed, as mono
+          const split = ctx.createChannelSplitter(2), g = ctx.createGain();
+          src.connect(split);
+          if (pick === 'mix') { split.connect(g, 0); split.connect(g, 1); g.gain.value = 0.5; } else split.connect(g, pick === '2' ? 1 : 0);
+          g.channelCount = 1; g.channelCountMode = 'explicit';
+          nodes.push(split, g);
+          src = g;
         }
-        try { await api.recPause(paused); } catch { /* the recording carries on regardless */ }
-        app.setRecordingPaused(paused);
-        busy = false;
+        const node = new AudioWorkletNode(ctx, 'rec-capture', { numberOfInputs: 1, numberOfOutputs: 1, channelCount: ch, channelCountMode: 'explicit', processorOptions: { channels: ch } });
+        src.connect(node); node.connect(sink);
+        nodes.push(node);
+        let stopped;
+        done.push(new Promise(r => { stopped = r; }));
+        const myIds = ids;
+        node.port.onmessage = e => {
+          const m = e.data;
+          if (m.started !== undefined) starts[role] = performance.now();
+          if (m.data) api.recChunk(myIds[role], new Uint8Array(m.data.buffer));
+          if (m.stopped) stopped();
+        };
+        workers.push(node);
       };
-    });
-    clearTimeout(timer);
-    app.onStopRecording = null;
-    app.onPauseRecording = null;
-    for (const r of recorders) if (r.state !== 'inactive') r.stop();
-    for (const n of workers) n.port.postMessage('stop');
-    await Promise.race([Promise.all(done), new Promise(r => setTimeout(r, 5000))]);
+      if (mic) addAudio('mic', mic.getAudioTracks()[0], micCh, micCh === 1 && devCh === 2 ? (micIn === '2' ? '2' : micIn === 'mix' ? 'mix' : '1') : null);
+      if (sysTrack) addAudio('system', sysTrack, 2);
+
+      // ---- go
+      for (const n of workers) n.port.postMessage('start');
+      for (const r of recorders) r.start(1000);
+      going = true; // from here on, what's been recorded is kept whatever happens (unless you press RETAKE)
+      app.setRecording(true);
+      if (take > 1) toast(`Take ${take}: recording.`, 2000);
+
+      let timer = null, timerLeft = st.stopAfter > 0 ? st.stopAfter * 60000 : 0, timerFrom = 0;
+      let busy = false;
+      paused = false;
+      const reason = await new Promise(resolve => {
+        endTake = resolve;
+        app.onStopRecording = () => resolve('stop');
+        app.onDiscardRecording = () => { if (!busy) resolve('retake'); };
+        // recording timer: counts recorded time, so a pause doesn't eat into it
+        const arm = () => { if (timerLeft > 0) { timerFrom = performance.now(); timer = setTimeout(() => resolve('stop'), timerLeft); } };
+        arm();
+        // PAUSE / RESUME (the floating panel, ⌥⇧⌘2 or the menu-bar icon): every recorder pauses in the same
+        // instant, so the files simply leave the pause out and stay in sync. Nothing is captured while paused.
+        app.onPauseRecording = async () => {
+          if (busy) return;
+          busy = true;
+          paused = !paused;
+          if (paused) {
+            for (const r of recorders) if (r.state === 'recording') r.pause();
+            for (const n of workers) n.port.postMessage('pause');
+            if (timer) { clearTimeout(timer); timer = null; timerLeft = Math.max(1000, timerLeft - (performance.now() - timerFrom)); }
+          } else {
+            if (screenLost) { busy = false; resolve('stop'); return; } // the picture is gone: save what was recorded
+            for (const r of recorders) if (r.state === 'paused') r.resume();
+            for (const n of workers) n.port.postMessage('resume');
+            arm();
+          }
+          try { await api.recPause(paused); } catch { /* the recording carries on regardless */ }
+          app.setRecordingPaused(paused);
+          busy = false;
+        };
+      });
+      clearTimeout(timer);
+      endTake = null;
+      app.onStopRecording = null;
+      app.onPauseRecording = null;
+      app.onDiscardRecording = null;
+      for (const r of recorders) if (r.state !== 'inactive') r.stop();
+      for (const n of workers) n.port.postMessage('stop');
+      await Promise.race([Promise.all(done), new Promise(r => setTimeout(r, 5000))]);
+      for (const n of nodes) { try { n.disconnect(); } catch { /* already */ } }
+      if (reason !== 'retake' || screenLost) break;
+      // ---- RETAKE: this take's files are deleted; a new take starts after a short count on the panel
+      const old = ids; ids = null; going = false;
+      if (paused) app.setRecordingPaused(false);
+      await api.recDiscard(Object.values(old), 3);
+      await new Promise(r => setTimeout(r, 3000));
+    }
     stopAll();
     ctx.close();
     app.setRecording(false);
@@ -372,7 +403,16 @@ async function record(app, st) {
   } catch (e) {
     stopAll();
     app.setRecording(false);
-    if (ids) await api.recCancel(Object.values(ids)).catch(() => {});
+    if (ids && going) {
+      // the recording had started: never throw it away. Save what there is; if even that fails, keep the files.
+      try {
+        const res = await api.recEnd(Object.values(ids), {});
+        if (res?.media?.some(r => !r.error)) { app.addRecording(res, { cursorOffset: 0, appLead: 0, marks: res.marks || [] }); toast(`The recording hit a problem (${e.message}), but everything recorded was saved.`, 9000); return; }
+      } catch { /* fall through: the files stay in the project's media folder */ }
+      toast(`The recording hit a problem (${e.message}). The recorded files were kept in the project's media folder.`, 10000);
+      return;
+    }
+    await api.recCancel(ids ? Object.values(ids) : []).catch(() => {});
     throw e;
   }
 }

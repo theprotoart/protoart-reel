@@ -2,6 +2,7 @@
 // Pure functions over a plain JSON document, shared by the editor and the export worker.
 
 import { pref } from './prefs.js';
+import { duckWeight } from './lib/automix.js';
 export const EPS = 1e-6;
 export const uid = (p = 'c') => p + Math.random().toString(36).slice(2, 9) + Date.now().toString(36).slice(-3);
 export const clamp = (v, lo, hi) => Math.min(hi, Math.max(lo, v));
@@ -128,6 +129,16 @@ function applyTransition(p, tr, k, dir) {
     case 'flash-cut': p.dip = { color: '#fff', amount: (1 - k) ** 2 }; break;
     case 'glitch-cut': { const j = Math.sin(k * 151.7) * 43758.5453, r = j - Math.floor(j); p.x += (1 - k) * (r - 0.5) * 0.08; p.glitch = Math.max(p.glitch || 0, (1 - k)); break; }
     case 'shake-cut': { const e = 1 - k; p.x += Math.sin(k * 60) * 0.02 * e; p.y += Math.cos(k * 47) * 0.02 * e; p.scale *= 1 + e * 0.06; break; }
+    // cinematic: lens and light (1.5.7)
+    case 'lens-defocus': { const e = 1 - k; p.blur = e ** 1.5 * 55; p.bright = 1 + e * 0.25; p.scale *= 1 + e * 0.04; break; }
+    case 'exposure-burn': { const e = 1 - k; p.bright = 1 + e * e * 3; p.sat = 1 - e * 0.5; if (e > 0.6) p.dip = { color: '#fff', amount: (e - 0.6) * 1.5 }; break; }
+    case 'dreamy': p.opacity *= k; p.blur = (1 - k) * 14; p.bright = 1 + (1 - k) * 0.45; p.sat = 1 - (1 - k) * 0.3; break;
+    case 'dip-film': p.opacity *= k; p.dip = { color: '#1a0f08', amount: 1 - k }; p.grain = Math.max(p.grain || 0, 1 - k); p.sat = 0.4 + 0.6 * k; break;
+    case 'cine-fade': { const s2 = k * k * (3 - 2 * k); p.opacity *= s2 ** 1.6; p.sat = 0.55 + 0.45 * s2; p.bright = 0.85 + 0.15 * s2; break; }
+    case 'letterbox': p.bars = Math.max(p.bars || 0, 1 - k); break;
+    case 'flare-sweep': p.flare = { k: dir === 'out' ? (1 - k) * 0.5 : 0.5 + k * 0.5, amt: 1 - k, dir }; break; // the streak crosses the cut left to right
+    case 'punch-zoom': { const e = 1 - k; p.scale *= dir === 'out' ? 1 + e * e * 0.35 : 1 + e ** 3 * 0.25; p.blur = e * e * 20; break; }
+    case 'chroma-split': { const e = 1 - k; p.split = e; p.x += Math.sin(k * 40) * 0.006 * e; break; }
     // the transition pack: masks (the picture is revealed through a moving shape)
     case 'wipe-left': case 'wipe-right': case 'wipe-up': case 'wipe-down': case 'iris': case 'clock': case 'barn': case 'blinds': case 'diagonal':
       p.mask = { type: tr.type, k, dir }; break;
@@ -149,8 +160,10 @@ export function gainAt(doc, c, local) {
   const xi = c.xfadeIn || 0, xo = c.xfadeOut || 0;
   if (xi > 0 && local < xi / 2) g *= Math.sin(clamp((local + xi / 2) / xi, 0, 1) * Math.PI / 2);
   if (xo > 0 && local > c.duration - xo / 2) g *= Math.cos(clamp((local - (c.duration - xo / 2)) / xo, 0, 1) * Math.PI / 2);
-  // ducking: lower this clip while a clip marked as voice is sounding
-  if (a.duck > 0 && doc.clips.some(o => o !== c && o.audio?.voice && o.start <= c.start + local && clipEnd(o) > c.start + local)) g *= 1 - a.duck;
+  // ducking: lower this clip while dialogue plays (a clip marked as voice, or anything on a Dialogue track), with
+  // smooth fades in and out. The amount is the clip's own, else its track's (AUTO MIX sets it on music tracks).
+  const duck = a.duck > 0 ? a.duck : tr?.role === 'music' ? tr.duck || 0 : 0;
+  if (duck > 0) { const w = duckWeight(doc, c, c.start + local); if (w > 0) g *= 1 - duck * w; }
   return g;
 }
 
@@ -473,6 +486,84 @@ export function removeRange(doc, t0, t1) {
   return d;
 }
 
+/**
+ * Empty stretches of the edit: times where nothing plays on any track (clips, their crossfade handles, captions).
+ * Includes empty time before the first clip. Gaps shorter than `min` seconds are ignored. Returns [[t0, t1], …].
+ */
+export function findGaps(doc, min = 0.05) {
+  const spans = doc.clips.filter(c => !c.disabled).map(c => [spanStart(c), spanEnd(c)])
+    .concat((doc.captions || []).map(c => [c.t, c.end])).sort((a, b) => a[0] - b[0]);
+  const gaps = [];
+  let at = 0;
+  for (const [s, e] of spans) {
+    if (s > at + min) gaps.push([at, s]);
+    at = Math.max(at, e);
+  }
+  return gaps;
+}
+/**
+ * Closes the empty stretches: everything after each gap slides up, so all tracks stay in sync. A gap with
+ * anything on a locked track after it is left (locked tracks never move). Returns { closed, seconds, skipped }.
+ */
+export function closeGaps(doc, min = 0.05) {
+  const gaps = findGaps(doc, min);
+  let closed = 0, seconds = 0, skipped = 0;
+  for (const [t0, t1] of gaps.reverse()) { // last first, so earlier times don't move under us
+    if (doc.clips.some(c => trackLocked(doc, c.track) && c.start >= t1 - EPS)) { skipped++; continue; }
+    seconds += removeRange(doc, t0, t1); closed++;
+  }
+  return { closed, seconds, skipped };
+}
+
+/**
+ * Smooth cuts: every place where two clips on a track meet with a jump between them (a cut joined up by a delete,
+ * ripple, Close Gaps or Auto Edit) gets a short crossfade, so the sound doesn't click and the picture doesn't jar;
+ * a clip edge next to empty space gets a short sound fade. A plain split (continuous footage) needs nothing.
+ * Uses the footage past each cut as the blend; where there isn't enough, the sound gets tiny fades instead.
+ * Cuts you set to a straight Cut (NONE) are left alone (b.hardCut). xf: crossfade length in seconds.
+ * Returns how many cuts it smoothed. Auto ones are marked (xfAuto) so they can be told from yours.
+ */
+export function smoothCuts(doc, xf = 0.1) {
+  if (!(xf > 0)) return 0;
+  const FADE = Math.min(0.05, xf / 2);
+  let n = 0;
+  const media = new Map((doc.media || []).map(m => [m.id, m]));
+  const sound = c => { const m = c.type === 'media' && media.get(c.media); return !!m && (m.kind === 'audio' || m.hasAudio); };
+  const srcEnd = c => (c.in || 0) + c.duration * (c.speed || 1);
+  // auto fades are Reel's own (fadeAutoIn / fadeAutoOut): they're taken back where they're no longer needed
+  const setFade = (c, side, on) => {
+    const flag = side === 'in' ? 'fadeAutoIn' : 'fadeAutoOut', key = side === 'in' ? 'fadeIn' : 'fadeOut';
+    if (on) { if (!(c.audio?.[key] > 0)) { c.audio = { ...(c.audio || {}), [key]: FADE }; c[flag] = true; } }
+    else if (c[flag]) { c.audio = { ...(c.audio || {}), [key]: 0 }; delete c[flag]; }
+  };
+  for (const tr of doc.tracks) {
+    if (tr.locked) continue; // a locked track is never changed
+    const list = doc.clips.filter(c => c.track === tr.id && c.type === 'media' && !c.disabled).sort((x, y) => x.start - y.start);
+    const wantIn = new Set(), wantOut = new Set(); // decided first, then applied once per clip
+    for (let i = 0; i < list.length; i++) {
+      const a = list[i], b = list[i + 1], prev = list[i - 1];
+      if (prev && clipEnd(prev) < a.start - 1e-3) wantIn.add(a); // after empty space, the sound fades in
+      if (!b) continue;
+      const touching = Math.abs(clipEnd(a) - b.start) < 1e-3;
+      if (!touching) { if (clipEnd(a) < b.start - 1e-3) wantOut.add(a); continue; }
+      if (b.hardCut || a.xfadeOut || b.xfadeIn) continue;
+      if ((a.transOut && a.transOut.type !== 'none') || (b.transIn && b.transIn.type !== 'none')) continue;
+      const continuous = a.media === b.media && (a.speed || 1) === (b.speed || 1) && !a.reversed && !b.reversed && Math.abs(b.in - srcEnd(a)) < 0.02;
+      if (continuous) continue;
+      const ma = media.get(a.media), mb = media.get(b.media), half = xf / 2;
+      const roomA = ma?.kind === 'image' || ((ma?.duration ?? 0) - srcEnd(a)) / (a.speed || 1) >= half - 1e-3;
+      const roomB = mb?.kind === 'image' || (b.in || 0) / (b.speed || 1) >= half - 1e-3;
+      if (roomA && roomB && Math.min(a.duration, b.duration) > xf * 2) {
+        a.xfadeOut = xf; b.xfadeIn = xf; a.xfAuto = true; b.xfAuto = true; n++;
+      } else if (sound(a) || sound(b)) {
+        wantOut.add(a); wantIn.add(b); n++; // no footage to blend with: tiny fades on the sound so it doesn't click
+      }
+    }
+    for (const c of list) if (sound(c)) { setFade(c, 'in', wantIn.has(c)); setFade(c, 'out', wantOut.has(c)); }
+  }
+  return n;
+}
+
 /** The clip that ends exactly where c starts (side 'start') or starts where c ends ('end'). */
 export function neighbour(doc, c, side) {
   return doc.clips.find(o => o !== c && o.track === c.track && (side === 'start' ? Math.abs(clipEnd(o) - c.start) < 1e-3 : Math.abs(o.start - clipEnd(c)) < 1e-3)) || null;
@@ -646,8 +737,8 @@ export function fmtTime(t, fps, frames = false) {
 }
 
 // ------------------------------------------------------------------ speed
-export const SPEED_STEPS = [0.1, 0.25, 0.5, 0.75, 1, 1.25, 1.5, 2, 3, 4, 8, 16];
-export const SPEED_MIN = 0.05, SPEED_MAX = 20;
+export const SPEED_STEPS = [0.1, 0.25, 0.5, 0.75, 1, 1.25, 1.5, 2, 3, 4, 8, 16, 32, 64];
+export const SPEED_MIN = 0.05, SPEED_MAX = 100;
 /**
  * Plays the same stretch of source at a new speed: the clip gets longer or shorter (anchored at its start, or
  * its end), and its keyframes and actions stretch with it. It never runs into the next clip on its track: when
@@ -679,7 +770,8 @@ export function setSpeed(doc, c, sp, anchor = 'start') {
 
 /** The cut transitions: one look applied to both sides of a cut. */
 export const CUT_TRANSITIONS = [['zoom-through', 'Zoom through'], ['spin-through', 'Spin through'], ['whip-through', 'Whip through'], ['blur-through', 'Blur through'],
-  ['light-leak', 'Light leak'], ['film-burn', 'Film burn'], ['flash-cut', 'Flash'], ['glitch-cut', 'Glitch'], ['shake-cut', 'Shake']];
+  ['light-leak', 'Light leak'], ['film-burn', 'Film burn'], ['flash-cut', 'Flash'], ['glitch-cut', 'Glitch'], ['shake-cut', 'Shake'],
+  ['lens-defocus', 'Lens defocus'], ['exposure-burn', 'Exposure burn'], ['flare-sweep', 'Lens flare sweep'], ['punch-zoom', 'Punch zoom'], ['chroma-split', 'Chromatic split']];
 /** Clips meeting at a cut on one track: [outgoing, incoming] for the cut nearest time t (within `near` s). */
 export function cutAt(doc, trackId, t, near = 1.5) {
   const list = clipsOnTrack(doc, trackId).filter(c => c.type !== 'caption');

@@ -5,7 +5,7 @@ const load = () => { try { return JSON.parse(localStorage.getItem(KEY) || '{}') 
 const save = v => { try { localStorage.setItem(KEY, JSON.stringify(v)); } catch { /* fine */ } };
 
 export function makeResizable(onResize) {
-  const lib = document.getElementById('library'), insp = document.getElementById('inspector'), upper = document.getElementById('upper'), stage = document.getElementById('stage-wrap');
+  const lib = document.getElementById('library'), insp = document.getElementById('right-col') || document.getElementById('inspector'), upper = document.getElementById('upper'), stage = document.getElementById('stage-wrap');
   if (!lib || !insp || !upper || !stage || document.querySelector('.split-v')) return;
   const sizes = load();
   const apply = () => {

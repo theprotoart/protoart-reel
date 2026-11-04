@@ -101,6 +101,24 @@ export function pauseRanges(words, { longer = 0.8, keep = 0.3, from = null, to =
   return mergeRanges(out);
 }
 
+/**
+ * Ranges minus the timeline spans to protect (e.g. sped-up clips, which are silent on purpose): what's left of
+ * each range outside every span. Pieces shorter than `min` seconds are dropped.
+ */
+export function withoutSpans(ranges, spans, min = 0.05) {
+  let out = ranges.map(r => ({ ...r }));
+  for (const [a, b] of spans) {
+    const next = [];
+    for (const r of out) {
+      if (r.end <= a || r.t >= b) { next.push(r); continue; }
+      if (r.t < a) next.push({ ...r, end: a });
+      if (r.end > b) next.push({ ...r, t: b });
+    }
+    out = next;
+  }
+  return out.filter(r => r.end - r.t >= min);
+}
+
 /** Removes ranges from the edit, last first, with `remove(doc, t0, t1)` (ripple). Returns seconds removed. */
 export function cutRanges(doc, ranges, remove) {
   let total = 0;

@@ -2,7 +2,7 @@
 // master (e.g. Abbey Road TG Mastering Chain, Ozone), and a loudness target for the export.
 import { el, modal, toast, selectRow, checkRow } from './ui.js';
 import { defaultMaster, MASTER_PRESETS, TONE_FREQS, PRESENCE_FREQS, HP_FREQS, LP_FREQS } from './lib/master.js';
-import { pickPlugin } from './fx.js';
+import { pickPlugin, plainError } from './fx.js';
 import { uid, fmtTime, duration } from './model.js';
 
 export const LOUDNESS = [['off', 'Off (no loudness change)'], ['youtube', 'YouTube · −14 LUFS'], ['spotify', 'Spotify / TikTok · −14 LUFS'], ['apple', 'Apple Music · −16 LUFS'], ['podcast', 'Podcast · −16 LUFS'], ['broadcast', 'Broadcast (EBU R128) · −23 LUFS']];
@@ -94,6 +94,18 @@ function module(name, state, rows) {
   return el('div', { class: 'mod' }, head, ...rows);
 }
 
+/** Picks one of your plug-ins and puts it on the master bus (then opens its window). */
+export async function addMasterPlugin(app) {
+  const p = await pickPlugin(app);
+  if (!p) return null;
+  const m = masterOf(app.doc);
+  const it = { id: uid('f'), kind: 'au', plugin: p.id, name: p.name, maker: p.maker, state: '' };
+  app.commit(() => { masterOf(app.doc).plugins.push(it); }, { quiet: true });
+  void m;
+  editMasterPlugin(app, it);
+  return it;
+}
+
 function pluginsBox(app, m, redraw) {
   const box = el('div', { class: 'mod wide' }, el('div', { class: 'mod-head' }, el('span', { class: 'engr', text: 'Your plug-ins on the master' })));
   for (const it of m.plugins) {
@@ -114,11 +126,11 @@ function pluginsBox(app, m, redraw) {
   return box;
 }
 
-async function editMasterPlugin(app, it) {
+export async function editMasterPlugin(app, it) {
   const slot = `m${it.id}`;
   app.fxEditing.set(slot, { master: true, item: it.id });
   try { await app.api.fxEdit(slot, it.plugin, it.state || '', `${it.name} — Master`); }
-  catch (e) { app.fxEditing.delete(slot); toast(e.message, 6000); }
+  catch (e) { app.fxEditing.delete(slot); toast(plainError(e), 7000); }
 }
 
 /** Mixes 15 s from the playhead through the master (built-in + plug-ins) and plays it. */

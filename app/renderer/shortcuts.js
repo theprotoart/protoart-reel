@@ -9,9 +9,11 @@ export const KEY_COMMANDS = [
   { cmd: 'play-pause', label: 'Play / pause', def: 'Space' },
   { cmd: 'split', label: 'Splice at the playhead', def: 'S' },
   { cmd: 'tool-select', label: 'Select tool', def: 'A' },
+  { cmd: 'tool-forward', label: 'Select forward tool (everything to the right)', def: 'Shift+A' },
   { cmd: 'tool-blade', label: 'Blade tool', def: 'T' },
   { cmd: 'delete', label: 'Delete', def: 'Backspace' },
   { cmd: 'ripple-delete', label: 'Ripple delete', def: 'Shift+Backspace' },
+  { cmd: 'close-gaps', label: 'Close every gap (remove empty space)', def: 'Alt+Backspace' },
   { cmd: 'marker', label: 'Add marker', def: 'M' },
   { cmd: 'clip-marker', label: 'Add clip marker', def: 'Shift+M' },
   { cmd: 'mark-in', label: 'Set In', def: 'I' },
@@ -68,6 +70,7 @@ export function runCommand(app, cmd) {
   switch (cmd) {
     case 'play-pause': if (app.shuttle) { app.stopShuttle(); p.pause(); } else p.toggle(); return;
     case 'tool-select': app.timeline.setTool('select'); return;
+    case 'tool-forward': app.timeline.setTool('forward'); return;
     case 'tool-blade': app.timeline.setTool(app.timeline.tool === 'blade' ? 'select' : 'blade'); return;
     case 'shuttle-back': if (p.playing || app.shuttle) app.shuttleStep(-1); else app.seek(p.time - 5); return;
     case 'shuttle-fwd': if (p.playing || app.shuttle) app.shuttleStep(1); else app.seek(p.time + 5); return;

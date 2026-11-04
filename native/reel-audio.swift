@@ -862,6 +862,57 @@ final class PluginHost: NSObject, NSWindowDelegate {
         next(0)
     }
 
+    /// The format a chain of plug-ins can run in: the file's own channel count if every plug-in takes it, else stereo
+    /// (a stereo-only plug-in, like the stereo half of a Waves shell, gets a mono recording as two channels).
+    /// nil: no format works. This must be checked first: asking AVAudioEngine to connect a plug-in in a format it
+    /// refuses raises an exception that ends the whole helper ("The plug-in host stopped").
+    func chainFormat(_ units: [AVAudioUnit], rate: Double, channels: AVAudioChannelCount) -> AVAudioFormat? {
+        var tries: [AVAudioChannelCount] = [channels]
+        if channels != 2 { tries.append(2) }
+        for ch in tries {
+            guard let f = AVAudioFormat(standardFormatWithSampleRate: rate, channels: ch) else { continue }
+            var ok = true
+            for u in units {
+                let au = u.auAudioUnit
+                if au.renderResourcesAllocated {
+                    // a plug-in whose window is open is already running: it can only take what it runs in now
+                    if au.inputBusses.count > 0 && (au.inputBusses[0].format.channelCount != ch || au.inputBusses[0].format.sampleRate != rate) { ok = false; break }
+                    continue
+                }
+                do {
+                    if au.inputBusses.count > 0 { try au.inputBusses[0].setFormat(f) }
+                    if au.outputBusses.count > 0 { try au.outputBusses[0].setFormat(f) }
+                } catch { ok = false; break }
+            }
+            if ok { return f }
+        }
+        return nil
+    }
+
+    /// A stereo copy of a mono WAV (the same sound on both sides), for plug-ins that only take stereo.
+    func stereoCopy(of src: AVAudioFile, to path: String) throws -> AVAudioFile {
+        let rate = src.processingFormat.sampleRate
+        let stereo = AVAudioFormat(standardFormatWithSampleRate: rate, channels: 2)!
+        let out = try AVAudioFile(forWriting: URL(fileURLWithPath: path), settings: [
+            AVFormatIDKey: kAudioFormatLinearPCM, AVSampleRateKey: rate, AVNumberOfChannelsKey: 2,
+            AVLinearPCMBitDepthKey: 32, AVLinearPCMIsFloatKey: true, AVLinearPCMIsNonInterleaved: false,
+        ], commonFormat: .pcmFormatFloat32, interleaved: false)
+        let inBuf = AVAudioPCMBuffer(pcmFormat: src.processingFormat, frameCapacity: 65536)!
+        let outBuf = AVAudioPCMBuffer(pcmFormat: stereo, frameCapacity: 65536)!
+        src.framePosition = 0
+        while src.framePosition < src.length {
+            try src.read(into: inBuf, frameCount: min(65536, AVAudioFrameCount(src.length - src.framePosition)))
+            let n = Int(inBuf.frameLength)
+            if n == 0 { break }
+            let mono = inBuf.floatChannelData![0]
+            memcpy(outBuf.floatChannelData![0], mono, n * 4)
+            memcpy(outBuf.floatChannelData![1], mono, n * 4)
+            outBuf.frameLength = AVAudioFrameCount(n)
+            try out.write(from: outBuf)
+        }
+        return try AVAudioFile(forReading: URL(fileURLWithPath: path))
+    }
+
     /// Offline render: in.wav -> chain -> out.wav (same length; plug-in latency compensated).
     func render(_ m: [String: Any], _ rid: Any) {
         guard let inPath = m["in"] as? String, let outPath = m["out"] as? String, inPath.hasPrefix("/"), outPath.hasPrefix("/"), outPath.hasSuffix(".wav"),
@@ -869,9 +920,20 @@ final class PluginHost: NSObject, NSWindowDelegate {
         buildChain(chain) { units, err in
             guard let units else { return fail(err ?? "chain failed", rid) }
             DispatchQueue.global(qos: .userInitiated).async {
+                var tmpStereo: String? = nil
+                defer { if let t = tmpStereo { try? FileManager.default.removeItem(atPath: t) } }
                 do {
-                    let src = try AVAudioFile(forReading: URL(fileURLWithPath: inPath))
-                    let fmt = AVAudioFormat(standardFormatWithSampleRate: src.processingFormat.sampleRate, channels: src.processingFormat.channelCount)!
+                    var src = try AVAudioFile(forReading: URL(fileURLWithPath: inPath))
+                    guard let fmt = self.chainFormat(units, rate: src.processingFormat.sampleRate, channels: src.processingFormat.channelCount) else {
+                        let names = units.map { $0.auAudioUnit.audioUnitName ?? "a plug-in" }.joined(separator: " + ")
+                        return fail("\(names) can’t process this sound (\(src.processingFormat.channelCount == 1 ? "mono" : "\(src.processingFormat.channelCount) channels"), \(Int(src.processingFormat.sampleRate)) Hz). Try its stereo version, or another plug-in.", rid)
+                    }
+                    if fmt.channelCount != src.processingFormat.channelCount {
+                        // the plug-ins take stereo only: feed them the recording on both sides
+                        let t = outPath + ".stereo-src.wav"
+                        tmpStereo = t
+                        src = try self.stereoCopy(of: src, to: t)
+                    }
                     let engine = AVAudioEngine()
                     let player = AVAudioPlayerNode()
                     engine.attach(player)
@@ -927,8 +989,16 @@ final class PluginHost: NSObject, NSWindowDelegate {
         stopPreview()
         guard let inPath = m["in"] as? String, inPath.hasPrefix("/"), let slotIds = m["slots"] as? [String] else { return fail("auPreview: bad request", rid) }
         do {
-            let src = try AVAudioFile(forReading: URL(fileURLWithPath: inPath))
-            let fmt = AVAudioFormat(standardFormatWithSampleRate: src.processingFormat.sampleRate, channels: src.processingFormat.channelCount)!
+            var src = try AVAudioFile(forReading: URL(fileURLWithPath: inPath))
+            let open = slotIds.compactMap { slots[$0] }
+            guard let fmt = chainFormat(open, rate: src.processingFormat.sampleRate, channels: src.processingFormat.channelCount) else {
+                return fail("This plug-in can’t play this sound (\(src.processingFormat.channelCount == 1 ? "mono" : "\(src.processingFormat.channelCount) channels")). Try its stereo version.", rid)
+            }
+            if fmt.channelCount != src.processingFormat.channelCount {
+                let t = NSTemporaryDirectory() + "reel-preview-stereo.wav"
+                try? FileManager.default.removeItem(atPath: t)
+                src = try stereoCopy(of: src, to: t)
+            }
             let engine = AVAudioEngine()
             let player = AVAudioPlayerNode()
             engine.attach(player)

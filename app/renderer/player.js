@@ -386,6 +386,8 @@ export class Player {
 
   get sources() {
     return {
+      // a picture from the project by media id (an end screen's boxes); drawn once it has loaded
+      image: id => { const m = mediaById(this.doc, id); if (!m || m.kind !== 'image') return null; const img = this._image(m); return img.complete && img.naturalWidth ? img : null; },
       frame: (c) => {
         const m = mediaById(this.doc, c.media);
         if (!m) return null;
@@ -583,10 +585,12 @@ export class Player {
       if (active.has(c.id)) continue;
       active.add(c.id);
       const st = sourceTime(c, this.time + shift);
-      const speed = (c.speed || 1) * this.rate;
+      // browsers play media at up to 16×: past that the picture runs at 16× and is kept in step by seeking
+      // (the re-seek below), and the sound is muted (the export always uses the exact speed)
+      const want = (c.speed || 1) * this.rate, speed = Math.min(16, want), tooFast = want > 16;
       if (el.playbackRate !== speed) el.playbackRate = speed;
       el.preservesPitch = c.audio?.keepPitch !== false; // off: faster sound goes up in pitch, like tape
-      const g = m.hasAudio || m.kind === 'audio' ? gainAt(this.doc, c, this.time + shift - c.start) : 0;
+      const g = (m.hasAudio || m.kind === 'audio') && !tooFast ? gainAt(this.doc, c, this.time + shift - c.start) : 0;
       const fxOn = !!(c.fx && c.fx.file && !c.fx.bypass);
       const pan = m.hasAudio || m.kind === 'audio' ? panAt(this.doc, c, this.time + shift - c.start) : 0;
       const keep = c.audio?.keepPitch !== false;

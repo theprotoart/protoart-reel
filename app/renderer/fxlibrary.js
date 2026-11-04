@@ -7,9 +7,10 @@ import { pref } from './prefs.js';
 import { drawFrame } from './compositor.js';
 import { TEXT_ANIMS } from './compositor.js';
 import { TRANSITIONS } from './inspector.js';
-import { CUT_TRANSITIONS, cutAt, cutsOn, applyCut, newTextClip, newElementClip, newMediaClip, mediaById, clipEnd, isFree, addTrack, split, uid, DEFAULT_PROPS } from './model.js';
+import { CUT_TRANSITIONS, cutAt, cutsOn, applyCut, newTextClip, newElementClip, newMediaClip, mediaById, clipEnd, isFree, addTrack, split, uid, DEFAULT_PROPS, duration as docDuration } from './model.js';
+import { peaksFor } from './peaks.js';
 import { MOTION_PRESETS, applyMotion } from './motion.js';
-import { ELEMENTS, elementHome } from './lib/elements.js';
+import { ELEMENTS, elementHome, VIZ_RATE } from './lib/elements.js';
 import { SFX, makeSfx, SFX_FOR } from './lib/sfx.js';
 import { wavHeader } from './voiceover.js';
 import { analyse as zoomAnalyse } from './autozoom.js';
@@ -20,7 +21,9 @@ export const PACKS = {
   smooth: { name: 'Smooth', hint: 'Zoom-throughs and light leaks — vlogs, travel', list: ['zoom-through', 'light-leak', 'blur-through'], dur: 0.6 },
   punchy: { name: 'Punchy', hint: 'Whips, flashes and shakes — YouTube, Shorts', list: ['whip-through', 'flash-cut', 'zoom-through', 'shake-cut'], dur: 0.4 },
   glitchy: { name: 'Glitchy', hint: 'Digital glitches — tech, gaming', list: ['glitch-cut', 'flash-cut', 'glitch-cut', 'whip-through'], dur: 0.35 },
-  cinematic: { name: 'Cinematic', hint: 'Light leaks and film burns — trailers, stories', list: ['light-leak', 'film-burn', 'blur-through'], dur: 0.8 },
+  cinematic: { name: 'Cinematic', hint: 'Light leaks, film burns, lens defocus and flares — trailers, stories', list: ['light-leak', 'lens-defocus', 'film-burn', 'flare-sweep', 'blur-through'], dur: 0.8 },
+  filmic: { name: 'Filmic', hint: 'Lens defocus, exposure burns and soft flares — short films, music videos', list: ['lens-defocus', 'exposure-burn', 'flare-sweep', 'lens-defocus'], dur: 0.9 },
+  social: { name: 'Social (fast)', hint: 'Punch zooms, chromatic splits and flashes — TikTok, Reels, Shorts', list: ['punch-zoom', 'chroma-split', 'flash-cut', 'punch-zoom', 'whip-through'], dur: 0.3 },
 };
 
 // ------------------------------------------------------------------ sound effects in the project
@@ -107,9 +110,52 @@ function applyMotionPreset(app, id) {
   app.commit(() => { for (const c of list) applyMotion(c, id); });
 }
 function addElement(app, kind) {
+  const group = ELEMENTS[kind].group;
+  if (group === 'Backgrounds') return addBackground(app, kind);
+  if (group === 'Audio visualizers') return addVisualizer(app, kind);
   const c = newElementClip(null, app.player.time, kind, elementHome(kind), kind === 'burst' || kind === 'ringPop' ? 1.5 : 4);
   c.name = ELEMENTS[kind].name;
   app._insert(c);
+}
+/** A motion background: on its own track at the bottom, under everything, as long as the edit from the playhead. */
+function addBackground(app, kind) {
+  const t = app.player.time, len = Math.max(10, docDuration(app.doc) - t);
+  let id = null;
+  app.commit(d => {
+    const tr = addTrack(d, d.tracks.length); tr.name = 'Background';
+    const c = newElementClip(tr.id, t, kind, { x: 0.5, y: 0.5 }, len); c.name = ELEMENTS[kind].name; c.props.scale = 1;
+    d.clips.push(c); id = c.id;
+  });
+  app.select([id], null);
+  toast(`${ELEMENTS[kind].name}: on a Background track under everything. Pick its colours on the right; scale your video down (or use Picture in picture) to see it around it.`, 6000);
+}
+/** An audio visualizer that follows the sound under it: its loudness is measured now from the waveforms. */
+async function addVisualizer(app, kind) {
+  const doc = app.doc, t0 = app.player.time;
+  const sound = doc.clips.filter(c => c.type === 'media' && !c.disabled && !c.audio?.mute && (mediaById(doc, c.media)?.kind === 'audio' || mediaById(doc, c.media)?.hasAudio));
+  const under = sound.filter(c => c.start <= t0 + 0.05 && c.start + c.duration > t0);
+  const end = under.length ? Math.max(...under.map(c => c.start + c.duration)) : t0 + 10;
+  const len = Math.max(2, Math.min(600, end - t0));
+  const n = Math.ceil(len * VIZ_RATE), env = new Array(n).fill(0);
+  for (const c of sound) {
+    if (c.start >= t0 + len || c.start + c.duration <= t0) continue;
+    const m = mediaById(doc, c.media);
+    let pk = null; try { pk = await peaksFor(app, m); } catch { /* no waveform */ }
+    if (!pk) continue;
+    for (let i = 0; i < n; i++) {
+      const T = t0 + i / VIZ_RATE; if (T < c.start || T >= c.start + c.duration) continue;
+      const st = (c.in || 0) + (T - c.start) * (c.speed || 1), k = Math.floor(st * pk.rate);
+      env[i] = Math.max(env[i], (pk.data[k] || 0) * (c.audio?.volume ?? 1));
+    }
+  }
+  // peaks are square-rooted for display: bring them to a loudness-like 0..1, gently smoothed
+  const top = Math.max(0.05, ...env);
+  let prev = 0;
+  for (let i = 0; i < n; i++) { const v = Math.min(1, (env[i] / top) ** 1.6); prev = v > prev ? v : prev * 0.82 + v * 0.18; env[i] = Math.round(prev * 100) / 100; }
+  const c = newElementClip(null, t0, kind, elementHome(kind), len);
+  c.name = ELEMENTS[kind].name; c.element.env = env;
+  app._insert(c);
+  toast(sound.length ? `${ELEMENTS[kind].name}: follows the sound for ${len.toFixed(1)} s from the playhead.` : 'No sound under the playhead yet: the visualizer idles. Add sound, then add it again.', 5000);
 }
 
 /**
@@ -162,7 +208,7 @@ function miniDoc(kind, id) {
   else if (kind === 'trans') { doc.clips.push(clip('B', 't2', 0, 2.4), clip('A', 't1', 0.2, 2, { transIn: { type: id, dur: 0.7 }, transOut: { type: id, dur: 0.7 } })); }
   else if (kind === 'title') { const c = newTextClip('t1', 0, 'Your title'); c.text = { ...c.text, anim: id, size: 46, animDur: 0.6 }; c.duration = 2.4; doc.clips.push(clip('A', 't2', 0, 2.4), c); }
   else if (kind === 'motion') { const c = clip('A', 't1', 0, 2.4); applyMotion(c, id); doc.clips.push(c); }
-  else if (kind === 'element') { const c = newElementClip('t1', 0, id, elementHome(id), 2.6); c.props.scale = 1; doc.clips.push(clip('B', 't2', 0, 2.6), c); len = 2.6; }
+  else if (kind === 'element') { const L = ELEMENTS[id]?.group === 'Social' ? 3.6 : 2.6; const c = newElementClip('t1', 0, id, elementHome(id), L); c.props.scale = 1; doc.clips.push(clip('B', 't2', 0, L), c); len = L; } // social ones click through a sequence: a little longer
   const sources = { frame: c => ({ img: c.media === 'A' ? A : B, w: W, h: H }), cursor: () => null, input: () => null, fx: () => null, lut: () => null, matte: () => null };
   return { doc, sources, len };
 }
@@ -214,7 +260,9 @@ export function openPresetBrowser(app, page = 'cut') {
       for (const [id, p] of Object.entries(MOTION_PRESETS)) if (match(p.name) || match(p.group)) grid.append(tile('motion', id, p.name, () => applyMotionPreset(app, id)));
     } else if (k === 'element') {
       note.textContent = 'Animated graphics. Click to add one at the playhead; change its words and colours in the inspector.';
-      for (const [id, p] of Object.entries(ELEMENTS)) if (match(p.name) || match(p.group)) grid.append(tile('element', id, p.name, () => addElement(app, id)));
+      // social call-outs (like, subscribe, follow, end screen) first: the ones people look for
+      const order = g => (g === 'Social' ? 0 : g === 'Call-outs' ? 1 : g === 'Lower thirds' ? 2 : 3);
+      for (const [id, p] of Object.entries(ELEMENTS).sort((a, b) => order(a[1].group) - order(b[1].group))) if (match(p.name) || match(p.group)) grid.append(tile('element', id, p.name, () => addElement(app, id)));
     } else if (k === 'sound') {
       note.textContent = 'Sound effects made by Reel (free to use anywhere). ▶ to listen, click the name to add it at the playhead on the Sound FX track.';
       for (const [id, s] of Object.entries(SFX)) if (match(s.name) || match(s.hint)) {

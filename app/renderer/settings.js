@@ -7,7 +7,7 @@ import { el, modal, toast, ask } from './ui.js';
 import { audioDevices, fillSelect, permissionNote } from './devices.js';
 import { shortcutsPage } from './shortcuts.js';
 import { FEATURES, can, thisMac, isUnlocked, setUnlocked } from './capability.js';
-import { themeChoice, setTheme } from './theme.js';
+import { themeChoice, setTheme, SKINS, skinChoice, setSkin, effectiveTheme } from './theme.js';
 import { PREFS, PAGES, pref } from './prefs.js';
 
 const readRec = () => { try { return JSON.parse(localStorage.getItem('rec-settings') || '{}') || {}; } catch { return {}; } };
@@ -125,7 +125,18 @@ export async function openSettings(app, page = 'general') {
     const card = (v, t, h) => el('button', { class: 'starter' + (cur === v ? ' lit' : ''), type: 'button', onclick: () => { setTheme(v); drawLook(); } }, el('b', { text: t }), el('small', { text: h }));
     lookPage.replaceChildren(el('h3', { class: 'engr', text: 'Appearance' }),
       el('div', { class: 'sz-styles' }, card('dark', 'Dark', 'Black anodized faceplate, the studio-at-night look'), card('light', 'Light', 'Brushed aluminium, like a light-grey console'), card('system', 'Match macOS', 'Follows System Settings › Appearance')),
-      el('p', { class: 'note', text: 'Knobs, faders, VU meters, lamps, the tape reels and the LED displays look the same in both. Switch quickly with View › Light / Dark (⇧⌘L).' }));
+      el('p', { class: 'note', text: 'Knobs, faders, VU meters, the tape reels and the LED displays look the same in both. Switch quickly with View › Light / Dark (⇧⌘L).' }),
+      el('h3', { class: 'engr', text: 'Colour scheme' }),
+      el('p', { class: 'note', text: 'The same five schemes as ProtoArt Dandelion. Each works with the Light and Dark faceplates; keys and lamps light up in the scheme’s colour.' }),
+      el('div', { class: 'sz-styles skin-cards' }, ...Object.entries(SKINS).map(([id, k]) => {
+        const light = effectiveTheme() === 'light', m = k.metal[light ? 'light' : 'dark'];
+        const hx = n => '#' + n.toString(16).padStart(6, '0');
+        const sw = el('span', { class: 'skin-sw', style: { background: `rgb(${m.join(',')})` } },
+          el('i', { style: { background: `radial-gradient(circle at 35% 35%, ${hx(k.lit[0])}, ${hx(k.lit[1])} 45%, ${hx(k.lit[2])})`, boxShadow: `0 0 8px rgb(${k.glow.join(',')})` } }),
+          el('b', { text: 'Aa', style: { color: hx(k.text[light ? 'light' : 'dark']) } }));
+        return el('button', { class: 'starter' + (skinChoice() === id ? ' lit' : ''), type: 'button', onclick: () => { setSkin(id); drawLook(); } },
+          sw, el('b', { text: k.name + (id === 'amber' ? ' (Reel’s original)' : '') }), el('small', { text: k.hint }));
+      })));
   };
   drawLook();
   // ---------------------------------------------------------------- the rest, built from the list in prefs.js

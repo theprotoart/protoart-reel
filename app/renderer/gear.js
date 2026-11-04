@@ -37,7 +37,7 @@ export function seededRandom(seed) {
 // ------------------------------------------------------------------ faceplate
 
 /** Black anodized, brushed faceplate (same recipe as Press), drawn on a canvas. */
-export function faceplateCanvas(width = 1600, height = 1000, seed = 0x5245454c, light = false) {
+export function faceplateCanvas(width = 1600, height = 1000, seed = 0x5245454c, light = false, metal = null) {
   const canvas = document.createElement('canvas');
   canvas.width = width; canvas.height = height;
   const W = width, H = height, ctx = canvas.getContext('2d');
@@ -46,7 +46,10 @@ export function faceplateCanvas(width = 1600, height = 1000, seed = 0x5245454c, 
   // dark: black anodized; light: brushed aluminium, the same grain and wear
   const lift = light ? 0.66 : 0;
   [[0, .115], [.18, .155], [.37, .13], [.55, .175], [.72, .14], [.86, .16], [1, .12]]
-    .forEach(([o, v]) => sheen.addColorStop(o, `rgb(${(v + lift) * 255},${(v + lift) * 255},${(v + lift) * 255 + (light ? -2 : 3)})`));
+    .forEach(([o, v]) => sheen.addColorStop(o, metal
+      // a colour scheme's metal (Dandelion's skins): the same sheen, around that colour
+      ? `rgb(${metal.map(c => Math.min(255, c * (v + lift) / (light ? 0.8 : 0.145))).join(',')})`
+      : `rgb(${(v + lift) * 255},${(v + lift) * 255},${(v + lift) * 255 + (light ? -2 : 3)})`));
   ctx.fillStyle = sheen; ctx.fillRect(0, 0, W, H);
   const vert = ctx.createLinearGradient(0, 0, 0, H);
   vert.addColorStop(0, 'rgba(255,255,255,0.08)'); vert.addColorStop(0.35, 'rgba(255,255,255,0)'); vert.addColorStop(1, 'rgba(0,0,0,0.1)');
@@ -102,13 +105,16 @@ export function faceplateCanvas(width = 1600, height = 1000, seed = 0x5245454c, 
 
 /** Paints the faceplate behind the whole app (once per launch), as a small JPEG blob URL. */
 const plates = {};
-export function installFaceplate(light = document.documentElement.dataset.theme === 'light') {
-  const key = light ? 'light' : 'dark';
-  if (plates[key]) { document.documentElement.style.setProperty('--plate', plates[key]); return; }
+export function installFaceplate(light = document.documentElement.dataset.theme === 'light', metal = null) {
+  const key = (light ? 'light' : 'dark') + (metal ? metal.join('-') : '');
+  const set = () => { if (plates[key] && current === key) document.documentElement.style.setProperty('--plate', plates[key]); };
+  current = key;
+  if (plates[key]) { set(); return; }
   try {
-    faceplateCanvas(1600, 1000, 0x5245454c, light).toBlob(b => { if (b) { plates[key] = `url("${URL.createObjectURL(b)}")`; if ((document.documentElement.dataset.theme === 'light') === light) document.documentElement.style.setProperty('--plate', plates[key]); } }, 'image/jpeg', 0.9);
+    faceplateCanvas(1600, 1000, 0x5245454c, light, metal).toBlob(b => { if (b) { plates[key] = `url("${URL.createObjectURL(b)}")`; set(); } }, 'image/jpeg', 0.9);
   } catch { /* plain colour fallback */ }
 }
+let current = '';
 
 // ------------------------------------------------------------------ small parts
 

@@ -10,6 +10,7 @@ import { FX_TYPES } from './lib/trackfx.js';
 import { gate } from './capability.js';
 import { openFxEditor, addFxMenu, fxSlotMenu, removeFx, fxName } from './fxrack.js';
 import { openMaster, masterOf } from './master-ui.js';
+import { roleButton, tint, openAutoMix } from './automix.js';
 
 const STORE = 'reel.console';
 const docIds = new WeakMap(); let docSeq = 0;
@@ -379,7 +380,9 @@ export async function openMixer(app) {
         knob({ label: 'PAN', color: 'red', value: tr.pan ?? 0, def: 0, min: -1, max: 1, center: true, fmt: v => (Math.abs(v) < 0.01 ? 'C' : (v < 0 ? 'L' : 'R') + Math.round(Math.abs(v) * 100)), onInput: v => { touch(); tr.pan = v; }, title: auto ? 'Pan (this track has automation; the lane wins while playing)' : 'Pan: left / right' })),
       el('div', { class: 'cs-sec cs-mutes' }, muteBtn, soloBtn),
       fd.el,
-      el('div', { class: 'cs-scribble', title: `${tr.name || ''} — double-click to rename`, ondblclick: () => app.renameTrack(tr) }, el('span', { text: (tr.name || `Track ${n}`).toUpperCase() })));
+      el('div', { class: 'cs-scribble', title: `${tr.name || ''} — double-click to rename`, ondblclick: () => app.renameTrack(tr) }, el('span', { text: (tr.name || `Track ${n}`).toUpperCase() })),
+      roleButton(app, tr, { compact: true }));
+    tint(strip, tr);
     strip.addEventListener('contextmenu', e => { e.preventDefault(); app.trackMenu(tr, e.clientX, e.clientY); });
     trackStrips.push({ tr, meter: fd.meter, fxChanged: () => JSON.stringify((tr.fx || []).map(f => [f.id, f.type, !!f.off])) !== fxKey, drawFx });
     return strip;
@@ -444,11 +447,12 @@ export async function openMixer(app) {
   }, 50);
 
   const tabTracks = el('button', { class: 'cs-tab on', text: 'TIMELINE TRACKS' }), tabApps = el('button', { class: 'cs-tab', text: 'MAC APPS' });
+  const autoMixBtn = el('button', { class: 'cs-tab cs-automix', text: '⚖ AUTO MIX', title: 'Set dialogue, music and sound effects against each other automatically (label each track’s colour first: blue dialogue, orange music, green sound FX)', onclick: () => openAutoMix(app) });
   const wrapTracks = el('div', { class: 'cs-bay-wrap' }, tracksBay), wrapApps = el('div', { class: 'cs-bay-wrap hidden' }, bay);
   const showTab = apps => { tabTracks.classList.toggle('on', !apps); tabApps.classList.toggle('on', apps); wrapTracks.classList.toggle('hidden', apps); wrapApps.classList.toggle('hidden', !apps); };
   tabTracks.onclick = () => showTab(false); tabApps.onclick = () => showTab(true);
   gate(tabApps, 'perAppAudio');
-  const desk = el('div', { class: 'cs-desk' }, el('div', { class: 'cs-left' }, el('div', { class: 'cs-tabs' }, tabTracks, tabApps), wrapTracks, wrapApps), master);
+  const desk = el('div', { class: 'cs-desk' }, el('div', { class: 'cs-left' }, el('div', { class: 'cs-tabs' }, tabTracks, tabApps, autoMixBtn), wrapTracks, wrapApps), master);
   screwCorners(desk, 10, 6);
 
   levelHandler = levels => {

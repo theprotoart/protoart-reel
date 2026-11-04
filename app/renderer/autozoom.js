@@ -10,7 +10,8 @@ import { previewFile } from './proxies.js';
 
 export const STYLES = {
   follow: { label: 'Follow the action', hint: 'Screen recordings and tutorials: zooms in where things happen and back out when the action spreads.', zoom: 1.8, transition: 0.6, minHold: 1.1, maxBox: 0.5, punch: 0, drift: 0 },
-  punchy: { label: 'Punchy (social)', hint: 'Vlogs, Shorts, TikTok: quick punch-ins on the action and a jump zoom on every other cut.', zoom: 1.45, transition: 0.22, minHold: 0.7, maxBox: 0.6, punch: 1.18, drift: 0 },
+  punchy: { label: 'Punchy (social)', hint: 'Shorts, TikTok, Reels: quick push-ins and push-outs on the cuts and fast zooms on the action.', zoom: 1.45, transition: 0.22, minHold: 0.7, maxBox: 0.6, punch: 1.18, pullOut: true, drift: 0 },
+  kenburns: { label: 'Ken Burns (tutorials)', hint: 'Tutorials and talks: slow, steady drifts across every shot and zooms on the action that ease in gently.', zoom: 1.5, transition: 1.6, minHold: 1.6, maxBox: 0.5, punch: 0, drift: 1.1, driftAll: true },
   cinematic: { label: 'Cinematic (old footage)', hint: 'Home video and archive clips: slow Ken Burns pushes toward the detail in each shot and gentle zooms on movement.', zoom: 1.3, transition: 1.4, minHold: 2, maxBox: 0.55, punch: 0, drift: 1.12 },
 };
 
@@ -196,6 +197,11 @@ export function plan(samples, duration, { style = 'follow', strength = 1, base, 
       if (S.punch && shotIndex % 2 === 1) {
         const d = inShot.length ? avgDetail(inShot) : { x: 0.5, y: 0.5 };
         push(s0, 0.02, at(d, zoomOf(S.punch)), 'linear'); state = 'punch';
+      } else if (S.pullOut && shotIndex % 4 === 2 && s1 - s0 > 1.2) {
+        // social: start tight on the detail and pull out fast (the push-out to the punch-in)
+        const d = inShot.length ? avgDetail(inShot) : { x: 0.5, y: 0.5 };
+        push(s0, 0.02, at(d, zoomOf(S.punch * 1.05)), 'linear');
+        push(s0 + 0.04, 0.45, home, 'out');
       } else push(s0, 0.02, home, 'linear');
     }
     for (const s of inShot) {
@@ -222,7 +228,13 @@ export function plan(samples, duration, { style = 'follow', strength = 1, base, 
       }
     }
     // a still shot with nothing to follow: a slow push toward the detail (cinematic)
-    if (S.drift && !events && s1 - s0 > 2.5 && state === 'home') {
+    // (Ken Burns: on every shot that stayed wide, alternating in and out so it never feels like one long zoom)
+    if (S.driftAll && !events && s1 - s0 > 2.5 && state === 'home' && shotIndex % 2 === 1) {
+      const d = avgDetail(inShot.length ? inShot : sm);
+      push(s0 + 0.02, 0.02, at(d, zoomOf(S.drift)), 'linear');
+      push(s0 + 0.06, Math.max(1, s1 - s0 - 0.2), home, 'linear');
+      state = 'drift';
+    } else if (S.drift && !events && s1 - s0 > 2.5 && state === 'home') {
       push(s0 + 0.05, Math.max(1, s1 - s0 - 0.15), at(avgDetail(inShot.length ? inShot : sm), zoomOf(S.drift)), 'linear');
       state = 'drift';
     }

@@ -204,7 +204,8 @@ export function addPart(app, a, b, clearRange = false) {
     const list = [...(d.sections || []), { id: uid('sec'), t0: Math.max(0, a), t1: b }].sort((p, q) => p.t0 - q.t0);
     // overlapping sections become one
     const out = [];
-    for (const s of list) { const last = out[out.length - 1]; if (last && s.t0 <= last.t1 + 0.05) last.t1 = Math.max(last.t1, s.t1); else out.push({ ...s }); }
+    // parts that overlap become one; parts that only touch stay two (snapped end to end)
+    for (const s of list) { const last = out[out.length - 1]; if (last && s.t0 < last.t1 - 0.01) last.t1 = Math.max(last.t1, s.t1); else { if (last && s.t0 < last.t1) s.t0 = last.t1; out.push({ ...s }); } }
     d.sections = out; if (clearRange) delete d.range; n = out.length;
   });
   const f = t => `${Math.floor(t / 60)}:${String(Math.floor(t % 60)).padStart(2, '0')}`;
@@ -247,6 +248,55 @@ export function pasteStyle(app, all) {
       }
     }
   });
+}
+
+// ------------------------------------------------------------------ copy / paste effects
+// "Effects" are what a clip does on top of its media: zoom and pan actions, picture filters (colour, LUT, blur…),
+// its sound effects chain (built-in tools and your plug-ins) and pointer effects. Position, size and text stay put.
+const sid = p => p + Math.random().toString(36).slice(2, 9);
+export function copyEffects(app, c = selected(app)[0]) {
+  if (!c) { toast('Select the clip to copy effects from.'); return; }
+  const parts = [];
+  const fx = {};
+  if (c.actions?.length) { fx.actions = structuredClone(c.actions); parts.push(`${c.actions.length} action${c.actions.length === 1 ? '' : 's'}`); }
+  if (c.filters?.length) { fx.filters = structuredClone(c.filters); parts.push(`${c.filters.length} picture filter${c.filters.length === 1 ? '' : 's'}`); }
+  if (c.fx?.chain?.some(x => !x.fromTrack)) { fx.sound = structuredClone(c.fx.chain.filter(x => !x.fromTrack)); parts.push('sound effects'); }
+  if (c.cursor) { fx.cursor = structuredClone(c.cursor); parts.push('pointer effects'); }
+  if (!parts.length) { toast('This clip has no effects to copy (zooms, filters, sound effects or pointer effects).'); return; }
+  app.effectsClip = { ...fx, duration: c.duration, from: c.name || 'clip' };
+  toast(`Copied ${parts.join(', ')}. Select clips and right-click › Paste effects.`, 4000);
+}
+/** Copies one action (a zoom, pan or fade on the clip) to paste at the playhead. */
+export function copyAction(app, a) { app.effectsClip = { actions: [structuredClone(a)], single: true, from: 'action' }; toast('Action copied. Right-click a clip › Paste effects (it lands at the playhead), or select clips and paste.', 4000); }
+export function pasteEffects(app, ids = app.selection.clips) {
+  const src = app.effectsClip;
+  if (!src) { toast('Copy effects first: right-click a clip › Copy effects.'); return; }
+  const list = app.doc.clips.filter(c => ids.includes(c.id) && !c.locked);
+  if (!list.length) { toast('Select the clips to paste onto.'); return; }
+  let n = 0, sound = 0;
+  app.commit(() => {
+    for (const c of list) {
+      const visual = c.type !== 'media' || (!c.audioOnly && mediaById(app.doc, c.media)?.kind !== 'audio');
+      const audible = c.type === 'media' && (mediaById(app.doc, c.media)?.kind === 'audio' || mediaById(app.doc, c.media)?.hasAudio);
+      let did = false;
+      if (src.actions && visual) {
+        // a single copied action lands at the playhead; a clip's set keeps its timing (what fits in this clip)
+        const at = src.single ? Math.max(0, Math.min(c.duration - (src.actions[0].dur || 0), app.player.time - c.start)) : null;
+        const fresh = src.actions.map(a => ({ ...structuredClone(a), id: sid('a'), ...(at != null ? { t: at } : {}) })).filter(a => a.t < c.duration);
+        if (fresh.length) { c.actions = [...(src.single ? c.actions || [] : []), ...fresh].sort((x, y) => x.t - y.t); did = true; }
+      }
+      if (src.filters && visual) { c.filters = structuredClone(src.filters); did = true; }
+      if (src.sound && audible) {
+        const own = structuredClone(src.sound).map(x => ({ ...x, id: sid('f') }));
+        const fromTrack = (c.fx?.chain || []).filter(x => x.fromTrack);
+        c.fx = { chain: [...own, ...fromTrack], file: null, dirty: true, bypass: false };
+        did = true; sound++;
+      }
+      if (src.cursor && c.type === 'media' && mediaById(app.doc, c.media)?.cursor) { c.cursor = structuredClone(src.cursor); did = true; }
+      if (did) n++;
+    }
+  });
+  toast(n ? `Pasted effects onto ${n} clip${n === 1 ? '' : 's'}.${sound ? ` The sound effects need a render: select the clip and press RENDER EFFECTS (it shows FX !).` : ''}` : 'Those clips can’t take these effects (picture effects need a picture, sound effects need sound).', 6000);
 }
 
 // ------------------------------------------------------------------ save frame, unused media

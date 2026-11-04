@@ -14,7 +14,7 @@ test('every sound effect renders, has sound, and stays below full scale', () => 
 });
 test('every element draws at every moment without errors', () => {
   const calls = { n: 0 };
-  const ctx = new Proxy({}, { get: (o, k) => (k in o ? o[k] : typeof k === 'string' && /^(measureText)$/.test(k) ? () => ({ width: 100 }) : k === 'createRadialGradient' ? () => ({ addColorStop() {} }) : () => { calls.n++; }), set: (o, k, v) => { o[k] = v; return true; } });
+  const ctx = new Proxy({}, { get: (o, k) => (k in o ? o[k] : typeof k === 'string' && /^(measureText)$/.test(k) ? () => ({ width: 100 }) : (k === 'createRadialGradient' || k === 'createLinearGradient') ? () => ({ addColorStop() {} }) : () => { calls.n++; }), set: (o, k, v) => { o[k] = v; return true; } });
   for (const k of Object.keys(ELEMENTS)) for (const t of [0, 0.1, 0.5, 1, 1.5, 2.9, 3, 4]) drawElement(ctx, { kind: k }, { x: 0.5, y: 0.5, scale: 1, opacity: 1 }, t, 4, 1920, 1080);
   assert.ok(calls.n > 100);
 });

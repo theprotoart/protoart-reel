@@ -8,12 +8,46 @@ const easeOut = k => 1 - (1 - k) ** 3;
 const easeInOut = k => (k < 0.5 ? 4 * k * k * k : 1 - (-2 * k + 2) ** 3 / 2);
 const back = k => { const c = 1.7; return 1 + (c + 1) * (k - 1) ** 3 + c * (k - 1) ** 2; };
 const elastic = k => (k <= 0 ? 0 : k >= 1 ? 1 : 2 ** (-10 * k) * Math.sin((k * 10 - 0.75) * (2 * Math.PI) / 3) + 1);
+/** #rrggbb with an alpha, as rgba(). */
+const hexAlpha = (h, a) => { const n = parseInt(String(h || '#000').replace('#', '').slice(0, 6), 16) || 0; return `rgba(${n >> 16 & 255},${n >> 8 & 255},${n & 255},${a})`; };
+/** A visualizer's loudness (0..1) at element time t, from its sound envelope (25 per second), smoothed. */
+const VIZ_RATE = 25;
+function vizLevel(e, t) {
+  const env = e.env || [];
+  if (!env.length) return 0.35 + 0.25 * Math.sin(t * 6) * Math.sin(t * 2.3); // no sound measured yet: a gentle idle
+  const f = Math.max(0, t) * VIZ_RATE, i = Math.floor(f), u = f - i;
+  const a = env[Math.min(env.length - 1, i)] || 0, b = env[Math.min(env.length - 1, i + 1)] || 0;
+  return Math.min(1, a + (b - a) * u);
+}
+export { VIZ_RATE };
+/** Motion backgrounds draw with the pictures (under the video), not on top like the other elements. */
+export const isBackgroundElement = el => ELEMENTS[el?.kind]?.group === 'Backgrounds';
 const rnd = (i, s) => { const x = Math.sin(i * 127.1 + s * 311.7) * 43758.5453; return x - Math.floor(x); };
 /** in-progress (0..1 over `len` s from the start) and out-progress (1..0 over the last `out` s). */
 const io = (t, d, len = 0.6, out = 0.4) => [clamp(t / len, 0, 1), clamp((d - t) / out, 0, 1)];
 const font = (w, size, fam = 'Avenir Next, Helvetica Neue, sans-serif') => `${w} ${size}px ${fam}`;
 
 function roundRect(ctx, x, y, w, h, r) { ctx.beginPath(); if (ctx.roundRect) ctx.roundRect(x, y, w, h, r); else ctx.rect(x, y, w, h); }
+
+/** The arrow pointer that comes in and clicks (tip at px, py). */
+function pointer(ctx, px, py, down = false) {
+  ctx.save(); ctx.translate(px, py); if (down) ctx.scale(0.9, 0.9);
+  ctx.fillStyle = '#fff'; ctx.strokeStyle = '#000'; ctx.lineWidth = 3;
+  ctx.beginPath(); ctx.moveTo(0, 0); ctx.lineTo(0, 60); ctx.lineTo(16, 46); ctx.lineTo(28, 72); ctx.lineTo(38, 66); ctx.lineTo(26, 42); ctx.lineTo(46, 42); ctx.closePath(); ctx.fill(); ctx.stroke();
+  ctx.restore();
+}
+const EMOJI = size => `${size}px Apple Color Emoji, Segoe UI Emoji, sans-serif`;
+/** A rounded pill with a label (optionally an emoji in front), centred at x, y. */
+function pill(ctx, x, y, w, h, fill, ink, text, emoji = '', size = 44) {
+  ctx.fillStyle = fill; roundRect(ctx, x - w / 2, y - h / 2, w, h, h / 2); ctx.fill();
+  ctx.textBaseline = 'middle'; ctx.textAlign = 'center';
+  if (emoji) {
+    ctx.font = font(800, size); const tw = ctx.measureText(text).width, ew = size * 1.15, gap = text ? 12 : 0;
+    const x0 = x - (tw + ew + gap) / 2;
+    ctx.font = EMOJI(size); ctx.textAlign = 'left'; ctx.fillText(emoji, x0, y + 2);
+    ctx.fillStyle = ink; ctx.font = font(800, size); ctx.fillText(text, x0 + ew + gap, y + 2);
+  } else { ctx.fillStyle = ink; ctx.font = font(800, size); ctx.fillText(text, x, y + 2); }
+}
 
 export const ELEMENTS = {
   // ---------------------------------------------------------------- lower thirds
@@ -173,6 +207,90 @@ export const ELEMENTS = {
         ctx.fillStyle = cols[i % cols.length]; ctx.fillRect(-8, -4, 16, 8 + rnd(i, 4) * 10); ctx.restore();
       }
     } },
+  // ---------------------------------------------------------------- motion backgrounds (full frame, looping)
+  bgFlow: { name: 'Gradient flow', group: 'Backgrounds', box: [1920, 1080], defaults: { text: '', sub: '', color: '#2a1a6e', accent: '#ff6a3d' },
+    draw(ctx, e, t) {
+      ctx.fillStyle = e.color; ctx.fillRect(-960, -540, 1920, 1080);
+      const cols = [e.accent, e.color, '#ffffff'];
+      for (let i = 0; i < 4; i++) {
+        const x = Math.sin(t * 0.21 + i * 1.7) * 700, y = Math.cos(t * 0.17 + i * 2.3) * 380, r = 520 + 160 * Math.sin(t * 0.3 + i);
+        const g = ctx.createRadialGradient(x, y, 0, x, y, r);
+        g.addColorStop(0, hexAlpha(cols[i % 3], i === 2 ? 0.18 : 0.75)); g.addColorStop(1, hexAlpha(cols[i % 3], 0));
+        ctx.fillStyle = g; ctx.fillRect(-960, -540, 1920, 1080);
+      }
+    } },
+  bgBokeh: { name: 'Bokeh lights', group: 'Backgrounds', box: [1920, 1080], defaults: { text: '', sub: '', color: '#0b1020', accent: '#ffb347' },
+    draw(ctx, e, t) {
+      ctx.fillStyle = e.color; ctx.fillRect(-960, -540, 1920, 1080);
+      ctx.save(); ctx.globalCompositeOperation = 'lighter';
+      for (let i = 0; i < 36; i++) {
+        const sp = 0.02 + rnd(i, 5) * 0.05, x = ((rnd(i, 1) + t * sp) % 1) * 2200 - 1100, y = (rnd(i, 2) - 0.5) * 1080 + Math.sin(t * 0.4 + i) * 30;
+        const r = 30 + rnd(i, 3) * 110, a = 0.08 + 0.18 * (0.5 + 0.5 * Math.sin(t * (0.6 + rnd(i, 4)) + i));
+        const g = ctx.createRadialGradient(x, y, r * 0.6, x, y, r);
+        g.addColorStop(0, hexAlpha(i % 3 ? e.accent : '#ffffff', a)); g.addColorStop(1, hexAlpha(e.accent, 0));
+        ctx.fillStyle = g; ctx.beginPath(); ctx.arc(x, y, r, 0, Math.PI * 2); ctx.fill();
+      }
+      ctx.restore();
+    } },
+  bgGrid: { name: 'Tech grid', group: 'Backgrounds', box: [1920, 1080], defaults: { text: '', sub: '', color: '#06121f', accent: '#2ad1ff' },
+    draw(ctx, e, t) {
+      ctx.fillStyle = e.color; ctx.fillRect(-960, -540, 1920, 1080);
+      const step = 80, off = (t * 30) % step;
+      ctx.strokeStyle = hexAlpha(e.accent, 0.18); ctx.lineWidth = 1.5;
+      for (let x = -960 - off; x < 960; x += step) { ctx.beginPath(); ctx.moveTo(x, -540); ctx.lineTo(x, 540); ctx.stroke(); }
+      for (let y = -540 + off; y < 540; y += step) { ctx.beginPath(); ctx.moveTo(-960, y); ctx.lineTo(960, y); ctx.stroke(); }
+      for (let i = 0; i < 14; i++) { // pulses running along the lines
+        const k = (t * 0.25 + rnd(i, 1)) % 1, row = Math.floor(rnd(i, 2) * 13) - 6;
+        const x = -960 + k * 1920, y = row * step + off;
+        const g = ctx.createRadialGradient(x, y, 0, x, y, 40); g.addColorStop(0, hexAlpha(e.accent, 0.9)); g.addColorStop(1, hexAlpha(e.accent, 0));
+        ctx.fillStyle = g; ctx.fillRect(x - 40, y - 40, 80, 80);
+      }
+      const v = ctx.createRadialGradient(0, 0, 300, 0, 0, 1100); v.addColorStop(0, 'rgba(0,0,0,0)'); v.addColorStop(1, 'rgba(0,0,0,0.65)');
+      ctx.fillStyle = v; ctx.fillRect(-960, -540, 1920, 1080);
+    } },
+  bgWaves: { name: 'Soft waves', group: 'Backgrounds', box: [1920, 1080], defaults: { text: '', sub: '', color: '#101828', accent: '#7c5cff' },
+    draw(ctx, e, t) {
+      ctx.fillStyle = e.color; ctx.fillRect(-960, -540, 1920, 1080);
+      for (let k = 0; k < 5; k++) {
+        ctx.beginPath(); ctx.moveTo(-960, 540);
+        for (let x = -960; x <= 960; x += 24) ctx.lineTo(x, 120 + k * 70 + Math.sin(x * 0.004 + t * (0.5 + k * 0.12) + k) * (60 - k * 6));
+        ctx.lineTo(960, 540); ctx.closePath();
+        ctx.fillStyle = hexAlpha(e.accent, 0.1 + k * 0.05); ctx.fill();
+      }
+    } },
+  // ---------------------------------------------------------------- audio visualizers (they follow the sound under them)
+  vizBars: { name: 'Audio bars', group: 'Audio visualizers', box: [1200, 360], defaults: { text: '', sub: '', color: '#ffb02a', accent: '#ff3b30', env: [] },
+    draw(ctx, e, t) { const lv = vizLevel(e, t); const n = 40, w = 1200 / n;
+      for (let i = 0; i < n; i++) {
+        const shape = 0.35 + 0.65 * Math.sin(Math.PI * (i + 0.5) / n), wob = 0.55 + 0.45 * Math.abs(Math.sin(t * (3 + rnd(i, 1) * 5) + i));
+        const h = Math.max(6, lv * shape * wob * 340);
+        const g = ctx.createLinearGradient(0, 180, 0, 180 - h); g.addColorStop(0, e.color); g.addColorStop(1, e.accent);
+        ctx.fillStyle = g; ctx.fillRect(-600 + i * w + 3, 180 - h, w - 6, h);
+      }
+    } },
+  vizWave: { name: 'Audio wave', group: 'Audio visualizers', box: [1200, 300], defaults: { text: '', sub: '', color: '#ffffff', accent: '#2ad1ff', env: [] },
+    draw(ctx, e, t) {
+      ctx.lineWidth = 6; ctx.lineCap = 'round';
+      for (const [col, ph, a] of [[e.accent, 0.7, 0.5], [e.color, 0, 1]]) {
+        ctx.strokeStyle = col; ctx.globalAlpha = a; ctx.beginPath();
+        for (let x = -600; x <= 600; x += 8) {
+          const lv = vizLevel(e, t - (x + 600) / 1200 * 0.5), env = Math.sin(Math.PI * (x + 600) / 1200);
+          ctx.lineTo(x, Math.sin(x * 0.045 + t * 9 + ph) * lv * env * 130);
+        }
+        ctx.stroke();
+      }
+      ctx.globalAlpha = 1;
+    } },
+  vizCircle: { name: 'Audio ring', group: 'Audio visualizers', box: [600, 600], defaults: { text: '', sub: '', color: '#ffb02a', accent: '#ffffff', env: [] },
+    draw(ctx, e, t) { const lv = vizLevel(e, t), n = 64;
+      ctx.strokeStyle = e.color; ctx.lineWidth = 8; ctx.lineCap = 'round';
+      for (let i = 0; i < n; i++) {
+        const a = (i / n) * Math.PI * 2, wob = 0.4 + 0.6 * Math.abs(Math.sin(t * (2 + rnd(i, 1) * 4) + i * 0.7));
+        const r0 = 170, r1 = r0 + 20 + lv * wob * 110;
+        ctx.beginPath(); ctx.moveTo(Math.cos(a) * r0, Math.sin(a) * r0); ctx.lineTo(Math.cos(a) * r1, Math.sin(a) * r1); ctx.stroke();
+      }
+      ctx.fillStyle = hexAlpha(e.accent, 0.12 + lv * 0.25); ctx.beginPath(); ctx.arc(0, 0, 150 + lv * 12, 0, Math.PI * 2); ctx.fill();
+    } },
   // ---------------------------------------------------------------- social & info
   subscribe: { name: 'Subscribe button', group: 'Social', box: [620, 200], defaults: { text: 'SUBSCRIBE', sub: '', color: '#ff0000', accent: '#ffffff' },
     draw(ctx, e, t, d) {
@@ -188,6 +306,110 @@ export const ELEMENTS = {
         ctx.fillStyle = '#fff'; ctx.strokeStyle = '#000'; ctx.lineWidth = 3;
         ctx.beginPath(); ctx.moveTo(px, py); ctx.lineTo(px, py + 60); ctx.lineTo(px + 16, py + 46); ctx.lineTo(px + 28, py + 72); ctx.lineTo(px + 38, py + 66); ctx.lineTo(px + 26, py + 42); ctx.lineTo(px + 46, py + 42); ctx.closePath(); ctx.fill(); ctx.stroke();
       }
+    } },
+  likeButton: { name: 'Like button', group: 'Social', box: [420, 200], defaults: { text: 'LIKE', sub: '', color: '#272727', accent: '#ffffff' },
+    draw(ctx, e, t, d) {
+      const [ki, ko] = io(t, d, 0.5), k = Math.min(back(ki), easeInOut(ko));
+      const clicked = t > 1.3, press = t > 1.1 && t < 1.35 ? 0.92 : 1, pop = clicked ? 1 + 0.12 * Math.max(0, 1 - (t - 1.3) * 3) : 1;
+      ctx.save(); ctx.scale(k * press * pop, k * press * pop);
+      pill(ctx, 0, 0, 330, 110, clicked ? '#3ea6ff' : e.color, e.accent, clicked ? 'LIKED' : e.text, '👍', 46);
+      ctx.restore();
+      if (clicked && t < 2.4) { ctx.globalAlpha = clamp(1 - (t - 1.3) / 1.1, 0, 1) * ko; ctx.fillStyle = '#3ea6ff'; ctx.font = font(900, 40); ctx.textAlign = 'center'; ctx.fillText('+1', 120, -70 - (t - 1.3) * 60); ctx.globalAlpha = 1; }
+      const pk = clamp((t - 0.5) / 0.6, 0, 1);
+      if (t > 0.5 && ko > 0.5) pointer(ctx, 260 - 200 * easeInOut(pk), 150 - 140 * easeInOut(pk), t > 1.1 && t < 1.35);
+    } },
+  bell: { name: 'Notification bell', group: 'Social', box: [760, 200], defaults: { text: 'Turn on notifications', sub: '', color: '#272727', accent: '#ffffff' },
+    draw(ctx, e, t, d) {
+      const [ki, ko] = io(t, d, 0.5), k = Math.min(back(ki), easeInOut(ko));
+      const on = t > 1.4, ring = on ? Math.sin((t - 1.4) * 22) * 0.35 * Math.max(0, 1 - (t - 1.4) * 1.2) : Math.sin(t * 6) * 0.08;
+      ctx.save(); ctx.scale(k, k);
+      ctx.fillStyle = e.color; roundRect(ctx, -340, -60, 680, 120, 60); ctx.fill();
+      ctx.save(); ctx.translate(-270, 0); ctx.rotate(ring); ctx.font = EMOJI(64); ctx.textAlign = 'center'; ctx.textBaseline = 'middle'; ctx.fillText(on ? '🔔' : '🔕', 0, 4); ctx.restore();
+      ctx.fillStyle = e.accent; ctx.font = font(800, 40); ctx.textAlign = 'left'; ctx.textBaseline = 'middle'; ctx.fillText(on ? 'Notifications on ✓' : e.text, -205, 3);
+      ctx.restore();
+      const pk = clamp((t - 0.6) / 0.6, 0, 1);
+      if (t > 0.6 && ko > 0.5) pointer(ctx, -120 - 150 * easeInOut(pk), 150 - 140 * easeInOut(pk), t > 1.2 && t < 1.45);
+    } },
+  likeSubscribe: { name: 'Like · Subscribe · Bell', group: 'Social', box: [1240, 220], defaults: { text: 'SUBSCRIBE', sub: 'LIKE', color: '#ff0000', accent: '#ffffff' },
+    draw(ctx, e, t, d) {
+      const [ki, ko] = io(t, d, 0.5), k = Math.min(back(ki), easeInOut(ko));
+      const liked = t > 1.1, subbed = t > 1.9, rung = t > 2.7;
+      const tap = (at) => (t > at - 0.15 && t < at + 0.05 ? 0.92 : 1);
+      ctx.save(); ctx.scale(k, k);
+      ctx.save(); ctx.translate(-400, 0); ctx.scale(tap(1.1), tap(1.1)); pill(ctx, 0, 0, 300, 110, liked ? '#3ea6ff' : '#272727', '#fff', liked ? 'LIKED' : (e.sub || 'LIKE'), '👍', 42); ctx.restore();
+      ctx.save(); ctx.translate(40, 0); ctx.scale(tap(1.9), tap(1.9)); pill(ctx, 0, 0, 480, 110, subbed ? '#606060' : e.color, e.accent, subbed ? 'SUBSCRIBED ✓' : e.text, '', 46); ctx.restore();
+      ctx.save(); ctx.translate(420, 0); ctx.scale(tap(2.7), tap(2.7)); ctx.fillStyle = rung ? '#3ea6ff' : '#272727'; ctx.beginPath(); ctx.arc(0, 0, 55, 0, Math.PI * 2); ctx.fill();
+      ctx.rotate(rung ? Math.sin((t - 2.7) * 22) * 0.35 * Math.max(0, 1 - (t - 2.7) * 1.2) : 0); ctx.font = EMOJI(54); ctx.textAlign = 'center'; ctx.textBaseline = 'middle'; ctx.fillText('🔔', 0, 4); ctx.restore();
+      ctx.restore();
+      // the pointer visits each in turn
+      const stops = [[-400, 20, 1.1], [40, 20, 1.9], [420, 20, 2.7]];
+      if (t > 0.5 && ko > 0.5) {
+        let px = -300, py = 170;
+        let prev = [-300, 170, 0.5];
+        for (const s of stops) {
+          if (t <= s[2]) { const q = easeInOut(clamp((t - prev[2]) / (s[2] - prev[2] - 0.1), 0, 1)); px = prev[0] + (s[0] - prev[0]) * q; py = prev[1] + (s[1] - prev[1]) * q; break; }
+          prev = s; px = s[0]; py = s[1];
+        }
+        pointer(ctx, px, py, stops.some(s => t > s[2] - 0.15 && t < s[2] + 0.05));
+      }
+    } },
+  follow: { name: 'Follow button', group: 'Social', box: [480, 180], defaults: { text: 'FOLLOW', sub: '', color: '#fe2c55', accent: '#ffffff' },
+    draw(ctx, e, t, d) {
+      const [ki, ko] = io(t, d, 0.45), k = Math.min(back(ki), easeInOut(ko));
+      const done = t > 1.2, press = t > 1.0 && t < 1.25 ? 0.92 : 1;
+      ctx.save(); ctx.scale(k * press, k * press);
+      pill(ctx, 0, 0, 400, 104, done ? '#3a3a3a' : e.color, e.accent, done ? '✓ FOLLOWING' : '+ ' + e.text, '', 44);
+      ctx.restore();
+      const pk = clamp((t - 0.4) / 0.55, 0, 1);
+      if (t > 0.4 && ko > 0.5) pointer(ctx, 230 - 170 * easeInOut(pk), 140 - 125 * easeInOut(pk), t > 1.0 && t < 1.25);
+    } },
+  commentPrompt: { name: 'Comment prompt', group: 'Social', box: [900, 220], defaults: { text: 'Tell me in the comments!', sub: '', color: '#ffffff', accent: '#111111' },
+    draw(ctx, e, t, d) {
+      const [ki, ko] = io(t, d, 0.5), k = Math.min(back(ki), easeInOut(ko));
+      ctx.save(); ctx.scale(k, k);
+      ctx.fillStyle = e.color; roundRect(ctx, -420, -80, 840, 140, 40); ctx.fill();
+      ctx.beginPath(); ctx.moveTo(-300, 58); ctx.lineTo(-340, 110); ctx.lineTo(-250, 58); ctx.closePath(); ctx.fill();
+      ctx.font = EMOJI(60); ctx.textBaseline = 'middle'; ctx.textAlign = 'center'; ctx.fillText('💬', -340, -8);
+      ctx.fillStyle = e.accent; ctx.textAlign = 'left';
+      if (t < 1.05) { for (let i = 0; i < 3; i++) { ctx.globalAlpha = 0.35 + 0.65 * (0.5 + 0.5 * Math.sin(t * 9 - i)); ctx.beginPath(); ctx.arc(-240 + i * 40, -8, 12, 0, Math.PI * 2); ctx.fill(); } ctx.globalAlpha = 1; }
+      else { const n = Math.max(1, Math.ceil(clamp((t - 1.0) / 1.0, 0, 1) * e.text.length)); ctx.font = font(800, 46); ctx.fillText(e.text.slice(0, n), -270, -6); }
+      ctx.restore();
+    } },
+  endCard: { name: 'End screen (watch next)', group: 'Social', box: [1700, 900], defaults: { text: 'THANKS FOR WATCHING', sub: 'WATCH NEXT', color: '#ff0000', accent: '#ffffff', img1: '', img2: '', cap1: '', cap2: '' },
+    // each box can show a picture of your own (a thumbnail of the video to watch next) with its own caption
+    slots: [{ key: 'img1', cap: 'cap1', label: 'Left box' }, { key: 'img2', cap: 'cap2', label: 'Right box' }],
+    draw(ctx, e, t, d, img) {
+      const [ki, ko] = io(t, d, 0.8, 0.6), k = Math.min(easeOut(ki), easeInOut(ko));
+      ctx.save(); ctx.globalAlpha *= k;
+      ctx.fillStyle = e.accent; ctx.font = font(900, 70); ctx.textAlign = 'center'; ctx.textBaseline = 'middle';
+      ctx.fillText(e.text, 0, -360 + (1 - k) * -40);
+      // two "watch next" boxes and a subscribe circle, where YouTube's end-screen elements go
+      const box = (x, i) => {
+        const kk = easeOut(clamp((t - 0.4 - i * 0.2) / 0.6, 0, 1));
+        ctx.save(); ctx.translate(x, 20); ctx.scale(kk, kk);
+        const pic = img && img(i === 0 ? e.img1 : e.img2), cap = (i === 0 ? e.cap1 : e.cap2) || '';
+        ctx.fillStyle = 'rgba(0,0,0,0.55)'; roundRect(ctx, -330, -186, 660, 372, 22); ctx.fill();
+        if (pic) {
+          // the picture fills the box (cropped to fit), with the caption on a shade along the bottom
+          ctx.save(); roundRect(ctx, -330, -186, 660, 372, 22); ctx.clip();
+          const iw = pic.width || pic.naturalWidth, ih = pic.height || pic.naturalHeight, sc = Math.max(660 / iw, 372 / ih);
+          ctx.drawImage(pic, -iw * sc / 2, -ih * sc / 2, iw * sc, ih * sc);
+          if (cap) {
+            const g = ctx.createLinearGradient(0, 70, 0, 186); g.addColorStop(0, 'rgba(0,0,0,0)'); g.addColorStop(1, 'rgba(0,0,0,0.8)');
+            ctx.fillStyle = g; ctx.fillRect(-330, 70, 660, 116);
+            ctx.fillStyle = '#fff'; ctx.font = font(800, 36); ctx.fillText(cap, 0, 140, 600);
+          }
+          ctx.restore();
+        } else {
+          ctx.fillStyle = e.accent; ctx.font = font(800, 40); ctx.fillText(cap || e.sub, 0, 0); ctx.font = EMOJI(54); ctx.fillText('▶️', 0, -80);
+        }
+        ctx.strokeStyle = e.accent; ctx.lineWidth = 6; roundRect(ctx, -330, -186, 660, 372, 22); ctx.stroke();
+        ctx.restore();
+      };
+      box(-380, 0); box(380, 1);
+      const kc = back(clamp((t - 0.9) / 0.6, 0, 1));
+      ctx.save(); ctx.translate(0, 330); ctx.scale(kc, kc); pill(ctx, 0, 0, 440, 100, e.color, '#fff', 'SUBSCRIBE', '', 42); ctx.restore();
+      ctx.restore();
     } },
   counter: { name: 'Number counter', group: 'Info', box: [600, 220], defaults: { text: '1000', sub: 'subscribers', color: '#ffffff', accent: '#ffb02a' },
     draw(ctx, e, t, d) {
@@ -214,7 +436,8 @@ export const ELEMENTS = {
 };
 
 /** Draws an element clip into a W×H frame. p: position props (x, y, scale, rotation, opacity). */
-export function drawElement(ctx, el, p, t, d, W, H) {
+/** img(mediaId) → a loaded picture or null: for elements with picture slots (an end screen's boxes). */
+export function drawElement(ctx, el, p, t, d, W, H, img = null) {
   const def = ELEMENTS[el.kind]; if (!def) return;
   const e = { ...def.defaults, ...el };
   const u = (Math.min(W, H) / 1080) * (p.scale ?? 1);
@@ -224,7 +447,7 @@ export function drawElement(ctx, el, p, t, d, W, H) {
   if (p.rotation) ctx.rotate((p.rotation * Math.PI) / 180);
   ctx.scale(u, u);
   ctx.textAlign = 'left';
-  try { def.draw(ctx, e, t, d); } finally { ctx.restore(); }
+  try { def.draw(ctx, e, t, d, img); } finally { ctx.restore(); }
 }
 /** Size of an element's box on a W×H frame (for the selection box). */
 export function elementBox(el, p, W, H) {
@@ -235,5 +458,5 @@ export function elementBox(el, p, W, H) {
 /** Where an element sits by default (lower thirds low on the left; the rest in the middle). */
 export function elementHome(kind) {
   const g = ELEMENTS[kind]?.group;
-  return g === 'Lower thirds' ? { x: 0.3, y: 0.82 } : kind === 'subscribe' ? { x: 0.5, y: 0.8 } : kind === 'progressBar' ? { x: 0.5, y: 0.88 } : { x: 0.5, y: 0.5 };
+  return g === 'Lower thirds' ? { x: 0.3, y: 0.82 } : ['subscribe', 'likeButton', 'bell', 'likeSubscribe', 'follow', 'commentPrompt'].includes(kind) ? { x: 0.5, y: 0.8 } : kind === 'progressBar' ? { x: 0.5, y: 0.88 } : { x: 0.5, y: 0.5 };
 }

@@ -26,7 +26,7 @@ fi
 "$HF" auth whoami >/dev/null 2>&1 || "$HF" whoami >/dev/null 2>&1 || { echo "Log in to Hugging Face (paste a write token):"; "$HF" auth login 2>/dev/null || "$HF" login || fail "not logged in"; }
 
 echo "Uploading $(basename "$DMG") to huggingface.co/$REPO …"
-"$HF" upload "$REPO" "$DMG" "$(basename "$DMG")" --commit-message "ProtoArt Reel $VERSION" || fail "the DMG upload didn't finish"
-"$HF" upload "$REPO" "$DMG.sha256" "$(basename "$DMG").sha256" --commit-message "ProtoArt Reel $VERSION checksum" || fail "the checksum upload didn't finish"
+"$HF" upload "$REPO" "$DMG" "$(basename "$DMG")" --private --commit-message "ProtoArt Reel $VERSION" || fail "the DMG upload didn't finish"
+"$HF" upload "$REPO" "$DMG.sha256" "$(basename "$DMG").sha256" --private --commit-message "ProtoArt Reel $VERSION checksum" || fail "the checksum upload didn't finish"
 printf '\nSTATUS: DONE. https://huggingface.co/%s/tree/main\n' "$REPO"
 read -r -p "Press Return to close this window." _

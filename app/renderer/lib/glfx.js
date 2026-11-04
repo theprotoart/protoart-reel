@@ -14,7 +14,7 @@ uniform sampler2D img, mask, lut;
 uniform vec2 texel;
 uniform float exposure, contrast, saturation, vibrance, temperature, tint, highlights, shadows;
 uniform float inBlack, inWhite, gammaV, outBlack, outWhite, brightness;
-uniform float sharpen, vignette, bw, lutAmount, lutSize, useMask, maskFeather;
+uniform float sharpen, vignette, bw, lutAmount, lutSize, useMask, maskFeather, aberr;
 uniform vec3 key; uniform float keyOn, keyTol, keySoft, keySpill;
 
 vec3 lutLookup(vec3 c) {
@@ -34,6 +34,10 @@ void main() {
   vec4 src = texture(img, uv);
   vec3 c = src.rgb;
   float a = src.a;
+  if (aberr > 0.0) { // chromatic aberration: red and blue land a little apart, more toward the edges (like a lens)
+    vec2 d = (uv - 0.5) * aberr * 0.025;
+    c = vec3(texture(img, uv + d).r, c.g, texture(img, uv - d).b);
+  }
   if (sharpen > 0.0) {
     vec3 blur = (texture(img, uv + vec2(texel.x, 0.0)).rgb + texture(img, uv - vec2(texel.x, 0.0)).rgb +
                  texture(img, uv + vec2(0.0, texel.y)).rgb + texture(img, uv - vec2(0.0, texel.y)).rgb) * 0.25;
@@ -77,7 +81,7 @@ void main() {
 /** Effective uniforms for a clip's filter stack (bypassed filters skipped; later ones add up). */
 export function filterParams(filters = [], levels = null) {
   const u = { inBlack: 0, inWhite: 1, gammaV: 1, outBlack: 0, outWhite: 1, brightness: 0, exposure: 0, contrast: 0, saturation: 0, vibrance: 0, temperature: 0, tint: 0, highlights: 0, shadows: 0,
-    sharpen: 0, vignette: 0, bw: 0, lut: null, lutAmount: 0, key: null, blur: 0 };
+    sharpen: 0, vignette: 0, bw: 0, lut: null, lutAmount: 0, key: null, blur: 0, aberr: 0 };
   for (const f of filters) {
     if (!f || f.off) continue;
     switch (f.type) {
@@ -88,6 +92,7 @@ export function filterParams(filters = [], levels = null) {
       case 'vignette': u.vignette += f.amount ?? 0.4; break;
       case 'bw': u.bw = Math.max(u.bw, f.amount ?? 1); break;
       case 'blur': u.blur += f.amount ?? 8; break;
+      case 'aberration': u.aberr += f.amount ?? 0.35; break;
       case 'chroma': u.key = { color: f.color || '#00d000', tol: f.tolerance ?? 0.12, soft: f.softness ?? 0.08, spill: f.spill ?? 0.6 }; break;
       default: break;
     }
@@ -102,7 +107,7 @@ export function filterParams(filters = [], levels = null) {
 const levelsOn = u => u.inBlack !== 0 || u.inWhite !== 1 || u.gammaV !== 1 || u.outBlack !== 0 || u.outWhite !== 1 || u.brightness !== 0;
 /** Does this stack need the GPU pass (blur alone is done by the 2D canvas)? */
 export function needsGl(u, matte) {
-  return !!(matte || levelsOn(u) || u.key || u.lut || u.sharpen || u.vignette || u.bw || u.exposure || u.contrast || u.saturation || u.vibrance || u.temperature || u.tint || u.highlights || u.shadows);
+  return !!(matte || levelsOn(u) || u.key || u.lut || u.aberr || u.sharpen || u.vignette || u.bw || u.exposure || u.contrast || u.saturation || u.vibrance || u.temperature || u.tint || u.highlights || u.shadows);
 }
 
 /** Built-in looks (our own colour settings, not copies of anyone's LUTs). */
@@ -138,7 +143,7 @@ export class GlFx {
     const loc = gl.getAttribLocation(prog, 'p');
     gl.enableVertexAttribArray(loc); gl.vertexAttribPointer(loc, 2, gl.FLOAT, false, 0, 0);
     this.u = {};
-    for (const n of ['inBlack', 'inWhite', 'gammaV', 'outBlack', 'outWhite', 'brightness', 'img', 'mask', 'lut', 'texel', 'exposure', 'contrast', 'saturation', 'vibrance', 'temperature', 'tint', 'highlights', 'shadows', 'sharpen', 'vignette', 'bw', 'lutAmount', 'lutSize', 'useMask', 'maskFeather', 'key', 'keyOn', 'keyTol', 'keySoft', 'keySpill']) this.u[n] = gl.getUniformLocation(prog, n);
+    for (const n of ['inBlack', 'inWhite', 'gammaV', 'outBlack', 'outWhite', 'brightness', 'img', 'mask', 'lut', 'texel', 'exposure', 'contrast', 'saturation', 'vibrance', 'temperature', 'tint', 'highlights', 'shadows', 'sharpen', 'vignette', 'bw', 'lutAmount', 'lutSize', 'useMask', 'maskFeather', 'key', 'keyOn', 'keyTol', 'keySoft', 'keySpill', 'aberr']) this.u[n] = gl.getUniformLocation(prog, n);
     this.tex = [0, 1, 2].map(i => { const t = gl.createTexture(); gl.activeTexture(gl.TEXTURE0 + i); gl.bindTexture(gl.TEXTURE_2D, t); gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MIN_FILTER, gl.LINEAR); gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MAG_FILTER, gl.LINEAR); gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_S, gl.CLAMP_TO_EDGE); gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_T, gl.CLAMP_TO_EDGE); return t; });
     gl.uniform1i(this.u.img, 0); gl.uniform1i(this.u.mask, 1); gl.uniform1i(this.u.lut, 2);
     gl.pixelStorei(gl.UNPACK_PREMULTIPLY_ALPHA_WEBGL, false);
@@ -166,7 +171,7 @@ export class GlFx {
     if (mask) gl.texImage2D(gl.TEXTURE_2D, 0, gl.RGBA, gl.RGBA, gl.UNSIGNED_BYTE, mask);
     if (u.lut && lut) this.setLut(u.lut, lut);
     const f = (n, v) => gl.uniform1f(this.u[n], v);
-    for (const k of ['exposure', 'contrast', 'saturation', 'vibrance', 'temperature', 'tint', 'highlights', 'shadows', 'sharpen', 'vignette', 'bw', 'brightness', 'inBlack', 'outBlack']) f(k, u[k] || 0);
+    for (const k of ['exposure', 'contrast', 'saturation', 'vibrance', 'temperature', 'tint', 'highlights', 'shadows', 'sharpen', 'vignette', 'bw', 'brightness', 'inBlack', 'outBlack', 'aberr']) f(k, u[k] || 0);
     for (const k of ['inWhite', 'gammaV', 'outWhite']) f(k, u[k] ?? 1);
     gl.uniform2f(this.u.texel, 1 / w, 1 / h);
     f('lutAmount', u.lut && lut ? u.lutAmount : 0); f('lutSize', u.lut && lut ? lut.size : 0);

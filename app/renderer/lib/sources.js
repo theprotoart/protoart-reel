@@ -108,6 +108,14 @@ export class VideoSource {
     const k = keyframeBefore(this.track, t);
     return k > this.next;
   }
+  /** Frees the hardware decoder while this clip isn't showing (macOS allows only a few at once); the next
+   *  frameAt opens a fresh one at the right place. */
+  release() {
+    if (!this.decoder) return;
+    this._clear();
+    if (this.decoder.state !== 'closed') try { this.decoder.close(); } catch { /* closed */ }
+    this.decoder = null; this.lastT = null; this.error = null;
+  }
   close() { this._clear(); if (this.decoder && this.decoder.state !== 'closed') try { this.decoder.close(); } catch { /* closed */ } }
 }
 
@@ -289,11 +297,21 @@ export async function openAudio(url, file) {
   return new Mp4Audio(reader, a).open();
 }
 
-export async function openVideo(url) {
+// One reader and one index per file: clips cut from the same recording share them (a long recording split into
+// 90 clips would otherwise be read and indexed 90 times). Each clip still gets its own decoder.
+const opened = new Map();
+async function openFile(url) {
   const reader = await new HttpReader(url).open();
   const d = await demux(reader);
   const v = d.tracks.find(t => t.kind === 'video');
   if (!v) return null;
   if (!(await VideoSource.supported(v))) throw new Error(`This video's format (${v.codec || v.fourcc}) can't be decoded for export. Convert it to H.264 or HEVC first (ProtoArt Press can do that).`);
-  return new VideoSource(reader, v);
+  return { reader, v };
+}
+/** Drops the shared readers (call when an export is done). */
+export function forgetVideos() { opened.clear(); }
+export async function openVideo(url) {
+  if (!opened.has(url)) opened.set(url, openFile(url).catch(e => { opened.delete(url); throw e; }));
+  const f = await opened.get(url);
+  return f ? new VideoSource(f.reader, f.v) : null;
 }

@@ -40,9 +40,16 @@ export class Library {
       return;
     }
     const usedSet = new Set(doc.clips.map(c => c.media));
+    // newest first: a new recording (or anything just added) is at the top, where you'll find it
     const shown = doc.media.filter(m => !m.hidden // reversed copies live inside their clips
       && (!this.query || m.name.toLowerCase().includes(this.query))
-      && (this.filter === 'all' || (this.filter === 'unused' ? !usedSet.has(m.id) : m.kind === this.filter)));
+      && (this.filter === 'all' || (this.filter === 'unused' ? !usedSet.has(m.id) : m.kind === this.filter))).reverse();
+    // what's arrived since this list was last drawn gets a NEW badge for a while, and the list goes back to the top
+    const known = this._known ||= new Map(), now = Date.now(), first = this._knownDoc !== this.app.token;
+    if (first) { known.clear(); this._knownDoc = this.app.token; }
+    let fresh = false;
+    for (const m of doc.media) if (!known.has(m.id)) { known.set(m.id, first ? 0 : now); if (!first) fresh = true; }
+    if (fresh) requestAnimationFrame(() => { this.list.scrollTop = 0; });
     if (!shown.length) this.list.append(el('div', { class: 'note', style: { gridColumn: '1 / -1' }, text: 'Nothing matches.' }));
     for (const m of shown) {
       const thumb = el('div', { class: 'lthumb', text: ICON[m.kind] || '?' });
@@ -53,6 +60,7 @@ export class Library {
         class: 'lib-item' + (this.selected === m.id ? ' selected' : '') + (used ? '' : ' unused'), draggable: true,
         title: `${m.name}\n${m.kind}${m.width ? ` ${m.width}×${m.height}` : ''} · ${fmtTime(m.duration || 0)}${used ? '' : '\nNot on the timeline yet'}\nDouble-click to add at the playhead. Right-click for more.`,
       }, thumb, ROLE[m.role] ? el('span', { class: 'lrole', text: ROLE[m.role], 'data-role': m.role }) : null, more,
+      now - (known.get(m.id) || 0) < 10 * 60e3 ? el('span', { class: 'lnew', text: 'NEW', title: 'Just added' }) : null,
       el('div', { class: 'lname', text: m.name }), el('div', { class: 'ldur', text: m.kind === 'image' ? 'image' : fmtTime(m.duration || 0) }));
       item.addEventListener('dragstart', e => { e.dataTransfer.setData('application/x-reel-media', m.id); e.dataTransfer.effectAllowed = 'copy'; this._dragging = true; });
       item.addEventListener('dragend', () => { this._dragging = false; if (this._renderLater) { this._renderLater = false; this.render(); } });

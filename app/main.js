@@ -103,7 +103,7 @@ async function repairDurations(dir, doc) {
 async function freeProjectDir(base) {
   const root = projectsRoot();
   try { await fs.promises.mkdir(root, { recursive: true }); }
-  catch { throw new Error(`Can’t save in ${root} (is the drive connected?). Choose another place in Settings › Storage.`); }
+  catch { throw new Error(`STORAGE_MISSING|${root}`); } // the editor offers to choose another folder (or the default) and tries again
   const clean = validate.fileStem(base) || 'Untitled';
   for (let i = 1; i < 1000; i++) {
     const dir = path.join(root, (i === 1 ? clean : `${clean} ${i}`) + PROJECT_EXT);
@@ -323,7 +323,7 @@ const HUD_URL = `${APP_ORIGIN}/renderer/hud.html`;
 function showHud() {
   if (hud && !hud.isDestroyed()) return;
   const wa = screen.getPrimaryDisplay().workArea;
-  const w = 520, h = 48;
+  const w = 640, h = 48;
   hud = new BrowserWindow({
     width: w, height: h, x: Math.round(wa.x + (wa.width - w) / 2), y: Math.round(wa.y + wa.height - h - 18),
     frame: false, transparent: true, resizable: false, minimizable: false, maximizable: false, fullscreenable: false,
@@ -331,7 +331,11 @@ function showHud() {
     webPreferences: { preload: path.join(__dirname, 'hud-preload.js'), contextIsolation: true, sandbox: true, nodeIntegration: false, devTools: false },
   });
   hud.setAlwaysOnTop(true, 'screen-saver');
-  hud.setVisibleOnAllWorkspaces(true, { visibleOnFullScreen: true });
+  // skipTransformProcessType: without it, Electron turns Reel into a background (menu-less) app and back to put the
+  // panel on every Space, and macOS then leaves Reel's menu bar dead until you switch away and back (the
+  // "ProtoArt Reel menu won't open" after a recording). The panel still floats above other windows.
+  hud.setVisibleOnAllWorkspaces(true, { visibleOnFullScreen: true, skipTransformProcessType: true });
+  beRegularApp();
   hud.setContentProtection(true); // ask macOS to leave it out of screen captures
   hud.webContents.on('will-navigate', e => e.preventDefault());
   hud.webContents.setWindowOpenHandler(() => ({ action: 'deny' }));
@@ -339,10 +343,19 @@ function showHud() {
   hud.once('ready-to-show', () => { if (hud && !hud.isDestroyed()) hud.showInactive(); });
   hud.on('closed', () => { hud = null; });
 }
-function hideHud() { if (hud && !hud.isDestroyed()) hud.destroy(); hud = null; }
+function hideHud() { if (hud && !hud.isDestroyed()) hud.destroy(); hud = null; beRegularApp(); }
+// Reel must stay a normal app (Dock icon, its own menu bar). If anything ever turns it into a background app,
+// clicking its window no longer makes it the active app: the menu bar keeps showing another app's menus.
+function beRegularApp() {
+  if (process.platform !== 'darwin') return;
+  try { app.setActivationPolicy?.('regular'); } catch { /* fine */ }
+  try { if (app.dock && !app.dock.isVisible()) app.dock.show()?.catch?.(() => {}); } catch { /* fine */ }
+}
+app.on('browser-window-focus', () => beRegularApp()); // clicking a Reel window always makes Reel the active app again
 const fromHud = event => hud && !hud.isDestroyed() && event.sender === hud.webContents && event.senderFrame?.url === HUD_URL;
 ipcMain.on('hud:stop', event => { if (fromHud(event)) sendMenu('stop-recording'); });
 ipcMain.on('hud:pause', event => { if (fromHud(event)) sendMenu('pause-recording'); });
+ipcMain.on('hud:discard', event => { if (fromHud(event)) sendMenu('discard-recording'); });
 ipcMain.on('hud:mark', event => { if (fromHud(event)) dropMark(); });
 /** A marker at this moment of the recording (recorded time, so pauses don't push it later). */
 function dropMark() {
@@ -356,6 +369,8 @@ function recTrayMenu() {
     { label: recording.paused ? 'Resume Recording' : 'Pause Recording', accelerator: 'Command+Alt+Shift+2', click: () => sendMenu('pause-recording') },
     { label: 'Add Marker Here', accelerator: 'Command+Alt+Shift+M', click: () => dropMark() },
     { label: 'Stop Recording', accelerator: 'Command+Shift+2', click: () => sendMenu('stop-recording') },
+    { type: 'separator' },
+    { label: 'Discard This Take and Start Again', click: () => sendMenu('discard-recording') },
   ]));
   tray.setToolTip(recording.paused ? 'ProtoArt Reel: recording paused' : 'ProtoArt Reel is recording');
 }
@@ -365,13 +380,15 @@ function setRecordingUi(on) {
     if (!tray) {
       tray = new Tray(nativeImage.createFromPath(path.join(__dirname, 'assets', 'trayRecTemplate.png')));
       tray.setToolTip('ProtoArt Reel is recording');
-      tray.on('click', () => sendMenu('stop-recording'));
+      // a click opens the menu (Pause / Resume, Stop…) rather than stopping at once: a paused recording was
+      // easy to end by accident from the menu bar
+      tray.on('click', () => { try { tray.popUpContextMenu(); } catch { /* the menu shows on its own */ } });
     }
     recTrayMenu();
     globalShortcut.register('Command+Shift+2', () => sendMenu('stop-recording'));
     globalShortcut.register('Command+Alt+Shift+2', () => sendMenu('pause-recording'));
     globalShortcut.register('Command+Alt+Shift+M', () => dropMark());
-    recording.blocker = powerSaveBlocker.start('prevent-display-sleep');
+    if (recording.blocker == null || !powerSaveBlocker.isStarted(recording.blocker)) recording.blocker = powerSaveBlocker.start('prevent-display-sleep');
     showHud();
   } else {
     globalShortcut.unregister('Command+Shift+2');
@@ -1087,6 +1104,8 @@ handle('rec:begin', async (token, tracks, apps, input) => {
   recording.project = p;
   recording.stamp = stamp;
   recording.started = Date.now();
+  // a new take while the panel is up (RETAKE): its clock and marker count start again
+  if (hud && !hud.isDestroyed()) { hud.webContents.send('hud:paused', false, 0); hud.webContents.send('hud:marked', 0); }
   if (recording.sourceId) { startCursorTrack(recording.sourceId); startInputTrack(input && typeof input === 'object' ? { clicks: input.clicks === true, keys: input.keys === true } : null); }
   setRecordingUi(true);
   return out;
@@ -1176,6 +1195,25 @@ handle('rec:cancel', async ids => {
   if (win && !win.isDestroyed()) win.show();
 });
 
+// RETAKE on the recording panel: throw this take away (its files are deleted) but stay in recording mode, so the
+// editor can start a fresh take straight away with the same screen, camera and microphone.
+handle('rec:discard', async (ids, seconds) => {
+  stopCursorTrack();
+  recording.active = false;
+  if (recording.apps && recording.apps.length) {
+    await audio.recStop(recording.stamp).catch(() => {});
+    for (const a of recording.apps) await fs.promises.rm(path.join(mediaDir(recording.project), a.file), { force: true }).catch(() => {});
+    recording.apps = [];
+  }
+  for (const id of Array.isArray(ids) ? ids : []) {
+    const h = await closeHandle(id);
+    if (h) await fs.promises.rm(h.file, { force: true });
+  }
+  const n = Math.max(0, Math.min(10, Number(seconds) || 0));
+  if (hud && !hud.isDestroyed()) hud.webContents.send('hud:retake', n);
+  return true;
+});
+
 handle('rec:hideWindow', async () => { if (win) win.hide(); });
 
 handle('media:readJson', async (token, name) => {
@@ -1196,7 +1234,7 @@ handle('media:delete', async (token, name) => {
 handle('export:begin', async (token, suggested, kind) => {
   ai.release(); // free AI memory for the encoder on 8–16 GB Macs
   const p = projectOf(token);
-  const ext = kind === 'm4a' ? 'm4a' : kind === 'gif' ? 'gif' : kind === 'apng' ? 'png' : 'mp4';
+  const ext = kind === 'm4a' ? 'm4a' : kind === 'wav' ? 'wav' : kind === 'gif' ? 'gif' : kind === 'apng' ? 'png' : 'mp4';
   const r = await dialog.showSaveDialog(win, {
     title: 'Export', defaultPath: path.join(app.getPath('videos'), `${validate.fileStem(suggested) || p.name}.${ext}`),
     filters: [{ name: ext.toUpperCase(), extensions: [ext] }],
@@ -1221,7 +1259,7 @@ handle('export:beginIn', async (token, folderId, suggested, kind) => {
   const p = projectOf(token);
   const dir = batchFolders.get(folderId);
   if (!dir) throw new Error('Pick the batch folder again');
-  const ext = kind === 'm4a' ? 'm4a' : kind === 'gif' ? 'gif' : kind === 'apng' ? 'png' : 'mp4';
+  const ext = kind === 'm4a' ? 'm4a' : kind === 'wav' ? 'wav' : kind === 'gif' ? 'gif' : kind === 'apng' ? 'png' : 'mp4';
   const stem = validate.fileStem(String(suggested || p.name)) || 'Export';
   let dst = path.join(dir, `${stem}.${ext}`);
   for (let i = 2; fs.existsSync(dst) && i < 1000; i++) dst = path.join(dir, `${stem} ${i}.${ext}`);
@@ -1432,6 +1470,16 @@ handle('ai:saveImage', async (token, png, label) => {
   return { file: name, name: name.replace(/\.png$/, ''), role: 'ai', ...(await probeMedia(file)) };
 });
 handle('ai:suggest', async req => ai.suggest(validate.suggestRequest(req), ev => { if (win && !win.isDestroyed()) win.webContents.send('ai-event', ev); }));
+// the writer (Qwen): titles, descriptions and chapter names from the transcript
+handle('ai:writerStatus', async () => ai.writerStatus());
+handle('ai:writerSetup', async key => ai.setupWriter(typeof key === 'string' ? key : '', ev => { if (win && !win.isDestroyed()) win.webContents.send('ai-event', ev); }));
+handle('ai:writerSetupCancel', async () => ai.cancelWriterSetup());
+handle('ai:write', async req => {
+  const r = req && typeof req === 'object' ? req : {};
+  const str = (v, n) => (typeof v === 'string' ? v.slice(0, n) : '');
+  return ai.write({ system: str(r.system, 4000), prompt: str(r.prompt, 24000), maxTokens: Math.max(16, Math.min(1200, Number(r.maxTokens) || 400)), temperature: Math.max(0, Math.min(1.2, Number(r.temperature) || 0.6)), size: str(r.size, 10) },
+    ev => { if (win && !win.isDestroyed()) win.webContents.send('ai-event', ev); });
+});
 
 // Per-app audio: mixer (SoundSource-style) and app list for recording (Loopback-style)
 handle('audio:available', async () => audio.available());
@@ -1483,6 +1531,8 @@ handle('fx:upBegin', async (token, purpose, mediaFile, channels) => {
   let name;
   if (purpose === 'source' && validate.mediaName(mediaFile)) name = `fxsrc-${validate.fileStem(path.basename(mediaFile, path.extname(mediaFile))).replace(/\s+/g, '-')}.wav`;
   else if (purpose === 'master') name = await freeMediaName(p, 'master-mix.wav');
+  // bounce in place: a track's clips rendered through their effects, kept in the project as new media
+  else if (purpose === 'bounce') name = await freeMediaName(p, `${(validate.fileStem(String(mediaFile || '')) || 'Rendered').slice(0, 60)}.wav`);
   else throw new Error('Bad upload');
   const file = path.join(mediaDir(p), name);
   await fs.promises.rm(file, { force: true });
@@ -1604,6 +1654,34 @@ handle('shortcuts:set', async own => {
   return clean;
 });
 
+// what Undo and Redo will do, sent by the editor after each edit ("Undo Move 2 Clips")
+const undoLabels = { undo: 'Undo', redo: 'Redo' };
+const cleanLabel = (v, base) => (typeof v === 'string' && v.startsWith(base) ? v.replace(/[\u0000-\u001f]/g, '').slice(0, 80) : base);
+handle('menu:undoLabels', async (u, r) => {
+  const undo = cleanLabel(u, 'Undo'), redo = cleanLabel(r, 'Redo');
+  if (undo === undoLabels.undo && redo === undoLabels.redo) return true;
+  undoLabels.undo = undo; undoLabels.redo = redo;
+  // The menu bar is NOT rebuilt for this any more: a rebuild that landed just as a menu was clicked made the click
+  // do nothing ("sometimes the menu is unresponsive"). Electron can't change a label in place, so the Edit menu
+  // keeps plain Undo / Redo and the editor shows what they'll do (toast and tooltips).
+  return true;
+});
+// Rebuilding the menu bar while one of its menus is open closes that menu and swallows the click (Settings… looked
+// dead). So the new Undo / Redo wording waits until no menu is open, and is applied a moment after.
+let menusOpen = 0, relabelPending = false, relabelTimer = null;
+function relabelSoon() {
+  relabelPending = true;
+  clearTimeout(relabelTimer);
+  relabelTimer = setTimeout(() => { if (menusOpen > 0) return; relabelPending = false; buildMenu(); }, 600);
+}
+function watchMenus(menu) {
+  for (const it of menu.items) if (it.submenu) {
+    it.submenu.on('menu-will-show', () => { menusOpen++; clearTimeout(relabelTimer); });
+    it.submenu.on('menu-will-close', () => { menusOpen = Math.max(0, menusOpen - 1); if (!menusOpen && relabelPending) relabelSoon(); });
+    watchMenus(it.submenu);
+  }
+}
+
 function buildMenu() {
   const m = cmd => { const f = () => sendMenu(cmd); f.cmd = cmd; return f; };
   const tpl = ([
@@ -1642,6 +1720,8 @@ function buildMenu() {
       { label: 'Normal Speed', click: m('speed-normal') },
       { label: 'Time-lapse…', click: m('timelapse') },
       { label: 'Auto Edit…', accelerator: 'Alt+CmdOrCtrl+E', click: m('auto-edit') },
+      { label: 'Auto Mix (dialogue, music, sound FX)…', accelerator: 'Alt+CmdOrCtrl+M', click: m('auto-mix') },
+      { label: 'Remove Auto Mix', click: m('auto-mix-remove') },
       { label: 'Make Vertical…', click: m('make-vertical') },
       { label: 'Presets (transitions, titles, elements, sounds)…', accelerator: 'Command+Alt+P', click: m('presets') },
       { type: 'separator' },
@@ -1678,6 +1758,7 @@ function buildMenu() {
       { type: 'separator' },
       { label: 'Delete Between In & Out (ripple)', accelerator: 'Command+Shift+Backspace', click: m('delete-inout') },
       { label: 'Delete Between Markers (ripple)', click: m('delete-markers') },
+      { label: 'Delete All Markers…', click: m('delete-all-markers') },
       { label: 'Close Gap on This Track', accelerator: 'Control+Alt+G', click: m('close-gap') },
       { label: 'Close Gap on All Tracks', accelerator: 'Control+Alt+Shift+G', click: m('close-gap-all') },
       { label: 'Close Every Gap on This Track', click: m('close-all-gaps') },
@@ -1705,6 +1786,9 @@ function buildMenu() {
       { label: 'Ungroup', accelerator: 'Command+Alt+Shift+G', click: m('ungroup') },
     ] },
     { label: 'Insert', submenu: [
+      { label: 'Call-out at the Playhead (Like, Subscribe, Follow…)…', click: m('callouts-browser') },
+      { label: 'Call-outs Through the Whole Video…', click: m('callouts-plan') },
+      { type: 'separator' },
       { label: 'Text', accelerator: 'Command+Shift+T', click: m('insert-text') },
       { label: 'Zoom & Pan Action', accelerator: 'Command+K', click: m('insert-action') },
       { label: 'Snapback Action', accelerator: 'Command+Shift+K', click: m('snapback') },
@@ -1734,10 +1818,13 @@ function buildMenu() {
       { type: 'separator' }, { role: 'togglefullscreen' },
     ] },
     { role: 'windowMenu' },
-    { label: 'Help', submenu: [{ label: 'How ProtoArt Reel Works', click: m('about') }] },
+    { label: 'Help', submenu: [{ label: 'Search Help…', click: m('help-search') }, { label: 'How ProtoArt Reel Works', click: m('about') }, { label: 'Troubleshooting…', click: m('troubleshoot') }] },
   ]);
   applyShortcuts(tpl);
-  Menu.setApplicationMenu(Menu.buildFromTemplate(tpl));
+  const menu = Menu.buildFromTemplate(tpl);
+  menusOpen = 0;
+  watchMenus(menu);
+  Menu.setApplicationMenu(menu);
 }
 
 // ------------------------------------------------------------------ session & window

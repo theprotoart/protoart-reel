@@ -7,7 +7,7 @@ import {
   History, timeFormat, withGroups, normalize, uid, duration, split, remove, newMediaClip, newTextClip, newCalloutClip, newShapeClip,
   freeTrack, addTrack, clipEnd, propsAt, ANIMATABLE, mediaById, fmtTime, isFree,
   setSpeed, SPEED_STEPS, SPEED_MIN, SPEED_MAX, putKey,
-  mergeOverlapTracks, removeRange, applyTrackLocks,
+  mergeOverlapTracks, removeRange, applyTrackLocks, findGaps, closeGaps, smoothCuts,
 } from './model.js';
 import { Player } from './player.js';
 import { Timeline } from './timeline.js';
@@ -27,25 +27,35 @@ import { STYLES as ZOOM_STYLES, analyse as zoomAnalyse, plan as zoomPlan, frameF
 import { LAPSE_PRESETS, plan as lapsePlan, apply as lapseApply, activityOf } from './timelapse.js';
 import { showAbout } from './about.js';
 import { openMixer } from './mixer.js';
+import { bounceClips, bounceTrack, revertClips } from './bounce.js';
+import { openWriter } from './writer.js';
+import { runStabilize } from './filters.js';
+import { openAutoMix, roleMenuItems, labelNudge, removeAutoMix, watchMixKey } from './automix.js';
+import { initKeyPanel } from './keypanel.js';
+import { describeChange, menuCase } from './lib/changes.js';
+const cap = s => s.charAt(0).toUpperCase() + s.slice(1);
+/** The REC key's face: the lamp, the word, and a small plate under it (shown when it's the big key in the panel). */
+const recKey = (word, sub) => `<span class="dot"></span><span class="rk-word">${word}</span><span class="rk-sub">${sub}</span>`;
 import { openMaster } from './master-ui.js';
 import { openSettings } from './settings.js';
 import { makeResizable } from './layout.js';
 import { loadMachine } from './capability.js';
 import { applyTheme, toggleTheme } from './theme.js';
-import { pref } from './prefs.js';
+import { pref, setPref } from './prefs.js';
 import { autoCaptions, textEditor } from './transcript.js';
 import { openPresetBrowser, autoTransitions, PACKS, speedJump } from './fxlibrary.js';
 import { openVoiceOver } from './voiceover.js';
 import { openSpectral } from './spectral.js';
 import { convertInEditor, conversionDialog } from './conform.js';
 import { convertScreenflow, placeScreenflow } from './screenflow-import.js';
-import { pluginEdited } from './fx.js';
+import { pluginEdited, shareDuplicateRenders } from './fx.js';
 import { openNewDocument, applyStarter, STARTERS, starterThumb } from './presets.js';
 import { ProxyQueue, proxyPrefs, setProxyPrefs } from './proxies.js';
 import { fitHeader } from './headerfit.js';
 import { openAutoEdit, openClipAutoEdit } from './autoedit.js';
 import { openClapFinder, clapsOnTimeline, addClapMarkers } from './clapscan.js';
 import { initToolbarGroups } from './toolbar.js';
+import { calloutsMenu, openCalloutPlanner } from './callouts.js';
 import { openTakes, initTakesButton } from './takes.js';
 import { loadShortcuts, handleShortcutKey } from './shortcuts.js';
 import { syncTrackPlugins, watchLive } from './trackplugins.js';
@@ -114,6 +124,11 @@ class App {
     this._wire();
     new ResizeObserver(() => this.player.resize()).observe($('#stage'));
     makeResizable(() => this.player.resize());
+    document.getElementById('auto-gaps')?.addEventListener('change', e => {
+      setPref('autoCloseGaps', e.target.checked);
+      toast(e.target.checked ? 'Auto close gaps on: deleting a clip also closes the space it leaves (like RIPPLE). CLOSE GAPS (⌥⌫) clears the gaps already there.' : 'Auto close gaps off: Delete leaves the space (⇧⌫ still ripples).', 5000);
+    });
+    initKeyPanel(this); watchMixKey(this); // before the top bar fits: the studio keys move into the side panel while editing
     fitHeader();
     initSimple(this);
     watchLive(this); // track plug-ins heard live while their window is open
@@ -145,7 +160,16 @@ class App {
     const grid = $('#recent');
     grid.replaceChildren();
     const recent = await api.recent().catch(() => []);
-    if (!recent.length) grid.append(el('div', { class: 'empty-note', text: 'Your projects will show up here. They’re saved in Movies › ProtoArt Reel.' }));
+    if (!recent.length) {
+      const note = el('div', { class: 'empty-note', text: 'Your projects will show up here.' });
+      grid.append(note);
+      // say where they're really saved (it can be another folder or a drive), with a way to change it
+      api.storageGet?.().then(st => {
+        if (!st?.root) return;
+        note.replaceChildren(`Your projects will show up here. They’re saved in ${st.isDefault ? 'Movies › ProtoArt Reel' : st.root}. `,
+          el('button', { class: 'mini', text: 'Change…', onclick: async () => { try { const r = await api.storageChoose(); if (r) { toast(`New projects now go in ${r}.`, 4000); this.showHome?.(); } } catch (e) { toast(String(e?.message || e).replace(/^Error invoking remote method '[^']+':\s*(Error:\s*)?/, ''), 5000); } } }));
+      }).catch(() => {});
+    }
     // several at once: ⌘-click toggles one, ⇧-click picks a run; plain click opens
     const picked = this._picked = new Set();
     let lastIdx = -1;
@@ -243,14 +267,17 @@ class App {
       if (merged) { this.setDirty(true); setTimeout(() => toast(`Moved ${merged} ScreenFlow transition${merged === 1 ? '' : 's'} off the extra overlap layers. They are now crossfades on their own track.`, 7000), 600); }
       this.applyPrefs();
       $('#snap').checked = pref('snap') !== false;
+      { const g = $('#auto-gaps'); if (g) g.checked = !!pref('autoCloseGaps'); }
       this.player.resize();
       this.renderAll();
       requestAnimationFrame(() => this.timeline.fit());
       this.player.seek(0);
       this._fixOldScreenflowColour(); // before proxies: it may replace them
       setTimeout(() => this.proxies.kick(), 1500); // after the first frames are up
+      setTimeout(() => { if (this.doc) labelNudge(this); }, 5000); // ask once to colour-label the sound tracks
+      shareDuplicateRenders(this).then(r => { if (r.files) toast(`Freed disk space: ${r.files} duplicate plug-in render${r.files === 1 ? '' : 's'} moved to the Trash (empty the Trash to get the space back).`, 8000); }).catch(() => {});
       return true;
-    } catch (e) { toast(e.message, 5000); return false; }
+    } catch (e) { toast(String(e?.message || e).replace(/^Error invoking remote method '[^']+':\s*(Error:\s*)?/, ''), 5000); return false; }
   }
 
   /**
@@ -279,7 +306,7 @@ class App {
     if (!record && !spec) return;
     if (this.doc && this.dirty) await this.save();
     const name = spec?.starter ? `${spec.starter.name} ${new Date().toLocaleDateString()}` : 'Untitled ' + new Date().toLocaleDateString();
-    const ok = await this.open(api.create(name));
+    const ok = await this.open(this._create(name));
     if (!ok) return;
     if (record) { openRecorder(this); return; }
     this.shapeNewDoc(spec);
@@ -324,7 +351,7 @@ class App {
   /** The home screen's EDIT A VIDEO: a new project, the file picker, and the video straight onto the timeline. */
   async editAVideo() {
     if (this.doc && this.dirty) await this.save();
-    const ok = await this.open(api.create('Untitled ' + new Date().toLocaleDateString()));
+    const ok = await this.open(this._create('Untitled ' + new Date().toLocaleDateString()));
     if (!ok) return;
     await this.importMedia();
     // the edit takes the video's shape (a phone video stays vertical)
@@ -340,7 +367,7 @@ class App {
     const base = f => String(f).split('/').pop();
     const sf = list.find(f => /\.screenflow\/?$/i.test(f));
     const name = sf ? base(sf.replace(/\/$/, '')).replace(/\.screenflow$/i, '') : 'Untitled ' + new Date().toLocaleDateString();
-    const ok = await this.open(api.create(name));
+    const ok = await this.open(this._create(name));
     if (!ok) return;
     await this.importDropped(list, null);
     this.player.resize(); this.renderAll();
@@ -384,13 +411,16 @@ class App {
   commit(fn, { quiet = false } = {}) {
     this.history.push(this.doc);
     fn(this.doc);
+    this._smooth();
     applyTrackLocks(this.doc); // clips on a locked track stay locked, whatever the edit
     this.changed({ quiet });
   }
   beginChange() { this.history.push(this.doc); this._inChange = true; }
-  endChange(opts = {}) { this._inChange = false; applyTrackLocks(this.doc); this.changed(opts); }
+  endChange(opts = {}) { this._inChange = false; this._smooth(); applyTrackLocks(this.doc); this.changed(opts); }
+  /** Every cut gets its short crossfade or fade (Settings › Timeline › Smooth every cut). */
+  _smooth() { const xf = Number(pref('smoothCuts') ?? 0.1); if (xf > 0 && this.doc) { try { smoothCuts(this.doc, xf); } catch (e) { console.warn('smooth cuts', e); } } }
   changed({ light = false, keepInspector = false, quiet = false, noTimeline = false } = {}) {
-    if (!light) syncTrackPlugins(this); // track plug-ins follow the edit (rendered in the background)
+    if (!light) { syncTrackPlugins(this); this._menuLabels(); } // track plug-ins follow the edit (rendered in the background)
     this.setDirty(true);
     clearTimeout(this._proxyKick); this._proxyKick = setTimeout(() => this.proxies.kick(), 1200); // new media → proxy
     if (quiet) return;
@@ -409,9 +439,36 @@ class App {
     this.showDuration(fmtTime(duration(this.doc), this.doc.canvas.fps, true));
     this.player.queueDraw();
   }
-  undo() { const d = this.history.undo(this.doc); if (d) { this.doc = d; this._afterHistory(); } }
-  redo() { const d = this.history.redo(this.doc); if (d) { this.doc = d; this._afterHistory(); } }
+  undo() {
+    const now = this.doc, d = this.history.undo(now);
+    if (!d) { toast('Nothing to undo.'); return; }
+    this.doc = d; this._afterHistory();
+    toast(`↶ Undo: ${cap(describeChange(d, now))}`, 2500); // what the undone step had done
+  }
+  redo() {
+    const now = this.doc, d = this.history.redo(now);
+    if (!d) { toast('Nothing to redo.'); return; }
+    this.doc = d; this._afterHistory();
+    toast(`↷ Redo: ${cap(describeChange(now, d))}`, 2500);
+  }
+  /** The Edit menu says what Undo and Redo will do ("Undo Move 2 Clips"); worked out shortly after each edit. */
+  _menuLabels() {
+    // Off: the menu bar can't be relabelled without rebuilding it, and a rebuild could swallow a menu click.
+    // (It also parsed the undo history after every edit.) Undo / Redo say what they did in a toast instead.
+    return;
+    // eslint-disable-next-line no-unreachable
+    clearTimeout(this._labelT);
+    this._labelT = setTimeout(() => {
+      const h = this.history; if (!h || !this.doc || !api.setUndoLabels) return;
+      const top = s => (s.length ? JSON.parse(s[s.length - 1]) : null);
+      try {
+        const u = top(h.undoStack), r = top(h.redoStack);
+        api.setUndoLabels(u ? `Undo ${menuCase(describeChange(u, this.doc))}` : 'Undo', r ? `Redo ${menuCase(describeChange(this.doc, r))}` : 'Redo');
+      } catch { /* the plain labels stay */ }
+    }, 400);
+  }
   _afterHistory() {
+    this._menuLabels();
     this.selection.clips = this.selection.clips.filter(id => this.doc.clips.some(c => c.id === id));
     this.selection.action = null;
     this.setDirty(true);
@@ -434,6 +491,94 @@ class App {
   }
   seek(t) { this.player.seek(t); }
   focusInspector() { const t = this.inspector.textArea; if (t && document.body.contains(t)) t.focus(); }
+  /** Double-click a clip: its settings on the right, the cursor in the first thing you can type (a title's
+   *  text, a call-out's words), and that section lit up for a moment so you can see where to look. */
+  editClip(c) {
+    requestAnimationFrame(() => {
+      const root = this.inspector.root;
+      if (!root) return;
+      root.querySelector('.insp-tab[data-k="all"]')?.click();
+      const t = this.inspector.textArea && document.body.contains(this.inspector.textArea) ? this.inspector.textArea
+        : root.querySelector('textarea, input[type=text]:not([readonly])');
+      const sec = (t && t.closest('.insp-section')) || root.querySelector('.insp-section');
+      if (sec) { sec.scrollIntoView({ block: 'start', behavior: 'smooth' }); sec.classList.add('insp-flash'); setTimeout(() => sec.classList.remove('insp-flash'), 1600); }
+      if (t) { t.focus(); t.select?.(); }
+      else if (c.type !== 'media') toast('Its settings are on the right.', 2500);
+    });
+  }
+
+  /**
+   * Makes a new project. If the folder for projects isn't there (an external drive that's not connected), asks where
+   * to put it instead, right here: another folder, or Movies › ProtoArt Reel. Then tries again.
+   */
+  async _create(name) {
+    try { return await api.create(name); }
+    catch (e) {
+      const m = /STORAGE_MISSING\|(.+)$/.exec(String(e?.message || e));
+      if (!m) throw e;
+      const where = m[1].trim();
+      const drive = /^\/Volumes\/([^/]+)/.exec(where)?.[1];
+      const choice = await new Promise(resolve => {
+        modal('Where should this project go?', el('div', {},
+          el('p', { text: drive ? `New projects are set to go on the drive “${drive}”, but it isn’t connected.` : `New projects are set to go in a folder that isn’t there any more.` }),
+          el('p', { class: 'note', text: where }),
+          el('p', { class: 'note', text: drive ? 'Connect the drive and try again, or choose somewhere else (the setting changes for the next projects too; you can change it back in Settings › Media & Storage).' : 'Choose somewhere else (the setting changes for the next projects too).' })), [
+          { label: 'Cancel', onClick: c => { resolve(null); c(); } },
+          { label: 'Use Movies › ProtoArt Reel', onClick: c => { resolve('default'); c(); } },
+          { label: 'Choose another folder…', cls: 'hw amber', onClick: c => { resolve('choose'); c(); } },
+        ], { onClose: () => resolve(null) });
+      });
+      if (!choice) throw new Error('No project made.');
+      const root = choice === 'default' ? await api.storageReset() : await api.storageChoose();
+      if (!root) throw new Error('No project made.');
+      toast(`New projects now go in ${root}.`, 4000);
+      return api.create(name);
+    }
+  }
+
+  /** Opens the clip's settings on one section (by its title) and lights it up. */
+  revealSection(title) {
+    requestAnimationFrame(() => requestAnimationFrame(() => {
+      const root = this.inspector.root; if (!root) return;
+      root.querySelector('.insp-tab[data-k="all"]')?.click();
+      const sec = [...root.querySelectorAll('.insp-section')].find(x => x.querySelector('.engr')?.textContent.trim().toLowerCase() === title.toLowerCase());
+      if (sec) { sec.scrollIntoView({ block: 'start', behavior: 'smooth' }); sec.classList.add('insp-flash'); setTimeout(() => sec.classList.remove('insp-flash'), 1600); }
+    }));
+  }
+  /** The selected clip with a picture (video or image), or a hint to select one. */
+  _visualClip(what) {
+    const c = this.doc.clips.find(x => this.selection.clips.includes(x.id) && x.type === 'media' && !x.audioOnly && ['video', 'image'].includes(mediaById(this.doc, x.media)?.kind));
+    if (!c) toast(`Select a video or picture clip first, then ${what}.`, 4000);
+    return c;
+  }
+  /** Green screen: a colour key on the selected clip (added once), its controls opened. */
+  greenScreen() {
+    const c = this._visualClip('choose Green screen'); if (!c) return;
+    if (!(c.filters || []).some(f => f.type === 'chroma')) this.commit(() => { c.filters ||= []; c.filters.push({ id: uid('f'), type: 'chroma', color: '#00d000', tolerance: 0.12, softness: 0.08, spill: 0.6 }); });
+    this.revealSection('Filters');
+    toast('Green screen on. Pick the screen’s colour (blue screens too) and adjust Tolerance and Softness on the right. Put the new background on the track below.', 6000);
+  }
+  /** Background removal (no green screen needed): opens its controls on the selected video clip. */
+  removeBackground() {
+    const c = this._visualClip('choose Remove background'); if (!c) return;
+    if (mediaById(this.doc, c.media)?.kind !== 'video') { toast('Remove background works on video clips. For a still picture, use Green screen.', 5000); return; }
+    this.revealSection('Background removal');
+  }
+  /** Picture in picture: the selected clip small in a corner, rounded with a shadow; again moves it round the corners. */
+  pictureInPicture(corner) {
+    const c = this._visualClip('choose Picture in picture'); if (!c) return;
+    const CORNERS = { br: [0.85, 0.8], bl: [0.15, 0.8], tr: [0.85, 0.2], tl: [0.15, 0.2] };
+    const order = ['br', 'bl', 'tl', 'tr'];
+    const now = order.find(k => Math.abs((c.props?.x ?? 0.5) - CORNERS[k][0]) < 0.02 && Math.abs((c.props?.y ?? 0.5) - CORNERS[k][1]) < 0.02);
+    const next = corner || (now ? order[(order.indexOf(now) + 1) % 4] : 'br');
+    this.commit(() => {
+      c.props ||= {};
+      Object.assign(c.props, { x: CORNERS[next][0], y: CORNERS[next][1], scale: c.props.scale && c.props.scale < 0.5 ? c.props.scale : 0.26 });
+      c.props.radius = Math.max(c.props.radius || 0, 24); c.props.shadow = Math.max(c.props.shadow || 0, 30);
+    });
+    // the picture-in-picture should be on top: move it up if a full-frame clip is above it
+    toast(`Picture in picture: ${{ br: 'bottom right', bl: 'bottom left', tl: 'top left', tr: 'top right' }[next]}. Choose it again to move it to the next corner; drag it in the preview to place it exactly. It shows over the tracks below it.`, 6000);
+  }
 
   // ---------------------------------------------------------------- media & clips
   /**
@@ -540,7 +685,7 @@ class App {
         : [el('p', { class: 'note', text: 'None of your own yet. Open a project with the intro, lower thirds, music bed and layout you reuse, then File › Save as Template.' })]));
       const use = async st => {
         dlg.close(); if (this.doc && this.dirty) await this.save();
-        if (await this.open(api.create(`${st.name} ${new Date().toLocaleDateString()}`))) this.shapeNewDoc({ starter: st });
+        if (await this.open(this._create(`${st.name} ${new Date().toLocaleDateString()}`))) this.shapeNewDoc({ starter: st });
       };
       rows.prepend(el('div', { class: 'engr', text: 'Built in' }), el('div', { class: 'tpl-grid' }, ...STARTERS.map(st => el('button', { class: 'tpl-card', type: 'button', title: `New ${st.name} project: Titles, B-roll, Main video, Voice, Music and Sound FX tracks, a title card and an end card that fades out`, onclick: () => use(st) },
         el('span', { class: 'tpl-pic' }, starterThumb(st, 130)), el('b', { text: st.name }), el('small', { text: st.sub })))), el('div', { class: 'engr', text: 'Yours' }));
@@ -736,6 +881,11 @@ class App {
       null,
       fx.length ? [fx.every(f => f.off) ? 'Turn all effects on' : 'Bypass all effects', () => this.commit(() => { const off = !fx.every(f => f.off); for (const f of fx) f.off = off; })] : null,
       [this.autoLevelOn(tr) ? '✓ Auto Level (on): even out the volume' : 'Auto Level: even out the volume', () => this.toggleAutoLevel(tr)],
+      ...roleMenuItems(this, tr),
+      ['⚖ Auto Mix…', () => openAutoMix(this)],
+      n ? ['⤓ Bounce track to a new track (render all its effects)', () => bounceTrack(this, tr)] : null,
+      tr.bounceOf || doc.clips.some(c => c.track === tr.id && c.bounced) ? ['↩ Back to the original sound (remove this track’s rendered copies)', () => revertClips(this, doc.clips.filter(c => c.track === tr.id).map(c => c.id))] : null,
+      doc.autoMix ? ['Remove Auto Mix (back to your own levels)', () => removeAutoMix(this)] : null,
       fx.length ? [`Remove all effects (${fx.length})`, () => this.commit(() => { tr.fx = []; tr.fxOpen = false; })] : null,
       tr.auto && Object.keys(tr.auto).length ? ['Remove volume and pan automation', () => this.commit(() => { delete tr.auto; })] : null,
       (tr.volume ?? 1) !== 1 || (tr.pan || 0) !== 0 ? ['Reset volume and pan', () => this.commit(() => { tr.volume = 1; tr.pan = 0; })] : null,
@@ -743,6 +893,16 @@ class App {
       null,
       doc.tracks.length > 1 ? [n ? `Delete track and its ${n} clip${n === 1 ? '' : 's'}…` : 'Delete track', () => this.removeTrack(tr)] : null,
     ]);
+  }
+  /** Delete all markers ('all') or just the clap / mark ones ('takes'). Asks first; ⌘Z brings them back. */
+  async deleteMarkers(which = 'all') {
+    const doc = this.doc; if (!doc) return;
+    const hit = m => which === 'all' || m.claps || m.mark;
+    const n = (doc.markers || []).filter(hit).length;
+    if (!n) { toast(which === 'all' ? 'There are no markers.' : 'There are no clap or mark markers.'); return; }
+    if (!(await ask(which === 'all' ? `Delete all ${n} markers?` : `Delete ${n} clap / mark markers?`, which === 'all' ? 'Every marker on the timeline goes (chapters, claps, marks). ⌘Z brings them back.' : 'The ✂ Clap and ◆ Mark markers go, and with them the takes in ✂ TAKES. Your other markers stay. ⌘Z brings them back.', 'Delete'))) return;
+    this.commit(d => { d.markers = (d.markers || []).filter(m => !hit(m)); });
+    toast(`Deleted ${n} marker${n === 1 ? '' : 's'}. ⌘Z brings them back.`);
   }
   /** Lock / unlock a whole track: its clips can't be moved, trimmed, cut or deleted, ripple edits leave it alone,
    *  and nothing new lands on it. */
@@ -760,20 +920,20 @@ class App {
 
   setRecordingPaused(p) {
     document.body.classList.toggle('rec-paused', !!p);
-    $('#btn-record').innerHTML = p ? '<span class="dot"></span>STOP (PAUSED)' : '<span class="dot"></span>STOP';
+    $('#btn-record').innerHTML = recKey(p ? 'STOP' : 'STOP', p ? 'PAUSED · PRESS TO SAVE' : 'RECORDING · PRESS TO STOP');
   }
   setRecording(on) {
     document.body.classList.toggle('recording', on);
     if (!on) document.body.classList.remove('rec-paused');
     this.setLamp('rec', on);
-    $('#btn-record').innerHTML = on ? '<span class="dot"></span>STOP' : '<span class="dot"></span>REC';
+    $('#btn-record').innerHTML = on ? recKey('STOP', 'RECORDING · PRESS TO STOP') : recKey('REC', 'SCREEN · CAMERA · MIC');
   }
   showWindowAfterFailure() { /* the main process shows the window when recording ends */ }
 
   // ---------------------------------------------------------------- commands
   cmd(name) {
     const doc = this.doc, t = this.player.time, sel = this.selection.clips;
-    const needDoc = !['new', 'open', 'templates', 'home', 'about', 'settings', 'stop-recording', 'pause-recording', 'record', 'sound', 'toggle-smpte', 'explain', 'track-small', 'track-regular', 'track-large', 'toggle-scrub'].includes(name);
+    const needDoc = !['new', 'open', 'templates', 'home', 'about', 'settings', 'stop-recording', 'pause-recording', 'discard-recording', 'record', 'sound', 'toggle-smpte', 'explain', 'track-small', 'track-regular', 'track-large', 'toggle-scrub'].includes(name);
     if (needDoc && !doc) return;
     if (name.startsWith('label-')) return ops.setLabel(this, name.slice(6) === 'none' ? '' : name.slice(6));
     if (name.startsWith('remove-section:')) return ops.removeSection(this, name.slice(15));
@@ -791,12 +951,17 @@ class App {
       case 'record': if (this.onStopRecording) return this.onStopRecording(); return doc ? openRecorder(this) : this.newProject(true);
       case 'stop-recording': if (this.onStopRecording) this.onStopRecording(); return;
       case 'pause-recording': if (this.onPauseRecording) this.onPauseRecording(); return;
+      case 'discard-recording': if (this.onDiscardRecording) this.onDiscardRecording(); return;
       case 'thumbnail': return openThumbnailStudio(this);
       case 'aiimage': return openImageGenerator(this);
       case 'export': return openExport(this);
       case 'about': return showAbout();
+      case 'help-search': return showAbout('');
+      case 'troubleshoot': return showAbout('', 'fix');
       case 'explain': return this.explain.toggle();
-      case 'sound': return openMixer(this);
+      case 'sound': { const r = openMixer(this); setTimeout(() => labelNudge(this), 600); return r; }
+      case 'auto-mix': return openAutoMix(this);
+      case 'auto-mix-remove': return removeAutoMix(this);
       case 'undo': return this.undo();
       case 'redo': return this.redo();
       case 'play': return this.player.toggle();
@@ -806,6 +971,8 @@ class App {
       case 'zoom-max': return this.timeline.zoomMax();
       case 'settings': return openSettings(this);
       case 'voice-over': return openVoiceOver(this);
+      case 'bounce': return bounceClips(this);
+      case 'bounce-revert': return revertClips(this);
       case 'punch-in': return openVoiceOver(this, { punch: true });
       case 'spectral': return openSpectral(this);
       case 'toggle-scrub': { const s = $('#scrub'); s.checked = !s.checked; s.dispatchEvent(new Event('change')); toast(s.checked ? 'Scrub audio on.' : 'Scrub audio off.'); return; }
@@ -839,6 +1006,9 @@ class App {
       case 'auto-edit': return openAutoEdit(this);
       case 'transitions': return openTransitions(this);
       case 'presets': return openPresetBrowser(this);
+      case 'callouts': return calloutsMenu(this);
+      case 'callouts-plan': return openCalloutPlanner(this);
+      case 'callouts-browser': return openPresetBrowser(this, 'element');
       case 'toggle-theme': return toggleTheme();
       case 'text-edit': return textEditor(this);
       case 'speed-up': case 'speed-down': case 'speed-normal': return this.changeSpeed(name.slice(6));
@@ -869,6 +1039,20 @@ class App {
       }
       case 'clear-sections': return ops.clearSections(this);
       case 'copy-style': return ops.copyStyle(this);
+      case 'writer': return openWriter(this);
+      case 'stabilize': {
+        const c = this._visualClip('choose Stabilize'); if (!c) return;
+        const m = mediaById(this.doc, c.media);
+        if (m?.kind !== 'video') { toast('Stabilize works on video clips.'); return; }
+        this.revealSection('Stabilize');
+        if (!c.stab) runStabilize(this, c, m);
+        return;
+      }
+      case 'green-screen': return this.greenScreen();
+      case 'remove-background': return this.removeBackground();
+      case 'pip': return this.pictureInPicture();
+      case 'copy-effects': return ops.copyEffects(this);
+      case 'paste-effects': return ops.pasteEffects(this);
       case 'paste-style': return ops.pasteStyle(this, false);
       case 'paste-properties': return ops.pasteStyle(this, true);
       case 'save-frame': return ops.saveFrame(this);
@@ -880,6 +1064,7 @@ class App {
       case 'insert-gap': return ops.insertGap(this, 1);
       case 'delete-inout': return ops.deleteRange(this, 'inout');
       case 'delete-markers': return ops.deleteRange(this, 'markers');
+      case 'delete-all-markers': return this.deleteMarkers('all');
       case 'clip-marker': return ops.addClipMarker(this);
       case 'rename-clip': return ops.renameClip(this);
       case 'toggle-smpte': this.setPref('smpte', !timeFormat.smpte); return;
@@ -906,9 +1091,17 @@ class App {
           this.selection.action = null; this.inspector.render(); return;
         }
         if (!sel.length) return;
-        this.commit(d => remove(d, sel, name === 'ripple-delete'));
+        this.commit(d => remove(d, sel, name === 'ripple-delete' || !!pref('autoCloseGaps')));
         this.select([], null);
         return;
+      case 'close-gaps': {
+        let r = { closed: 0 };
+        const gaps = findGaps(doc).length;
+        if (!gaps) { toast('No gaps: there’s no empty space in the edit.'); return; }
+        this.commit(d => { r = closeGaps(d); });
+        toast(r.closed ? `Closed ${r.closed} gap${r.closed === 1 ? '' : 's'}: ${r.seconds.toFixed(1)} s of empty space removed, every track kept in sync.${r.skipped ? ` ${r.skipped} left because a locked track has clips after ${r.skipped === 1 ? 'it' : 'them'}.` : ''}` : 'Those gaps are before clips on a locked track, so they were left (unlock the track to close them).', 5000);
+        return;
+      }
       case 'duplicate': {
         if (!sel.length) return;
         const ids = [], regroup = new Map(); // copies of a group are grouped together, apart from the originals
@@ -1131,6 +1324,29 @@ class App {
   }
 
   /** SELECT's hold menu: the Select tool, select all, or all clips of one kind, then move them together. */
+  /** Hold SELECT: pick the select tool. → one item at a time, or ⇉ everything to the right on every track. */
+  selectToolPop(btn) {
+    document.querySelector('.seltool-pop')?.remove();
+    const pick = (tool, icon, name, hint) => {
+      const k = el('button', { type: 'button', class: 'seltool' + (this.timeline.tool === tool ? ' on' : ''), title: hint },
+        el('span', { class: 'seltool-icon', text: icon }), el('b', { text: name }), el('small', { text: hint }));
+      k.addEventListener('click', () => {
+        this.timeline.setTool(tool); pop.remove();
+        if (tool === 'forward') toast('Select forward: click on the timeline and everything to the right is selected, on every track (video, audio, text). Drag to move it all. Press A for the normal select tool.', 6000);
+      });
+      return k;
+    };
+    const pop = el('div', { class: 'seltool-pop' },
+      pick('select', '→', 'SELECT', 'One item at a time (⌘-click adds more)'),
+      pick('forward', '⇉', 'SELECT FORWARD', 'Everything to the right of where you click, on every track'),
+      el('button', { type: 'button', class: 'seltool-more', text: 'MORE SELECTIONS ▸', title: 'Select all, all video, all audio, everything on one track…', onclick: () => { pop.remove(); this.selectMenu(btn); } }));
+    document.body.append(pop);
+    const r = btn.getBoundingClientRect(), pr = pop.getBoundingClientRect();
+    pop.style.left = Math.max(8, Math.min(innerWidth - pr.width - 8, r.left)) + 'px';
+    pop.style.top = (r.bottom + 6 + pr.height < innerHeight ? r.bottom + 6 : r.top - pr.height - 6) + 'px';
+    const away = e => { if (!pop.contains(e.target) && e.target !== btn) { pop.remove(); document.removeEventListener('pointerdown', away, true); } };
+    setTimeout(() => document.addEventListener('pointerdown', away, true), 0);
+  }
   selectMenu(btn) {
     const doc = this.doc;
     if (!doc) return;
@@ -1537,6 +1753,14 @@ class App {
     $('#btn-aiimage').addEventListener('click', () => this.cmd('aiimage'));
     $('#btn-export').addEventListener('click', () => this.cmd('export'));
     $('#btn-help').addEventListener('click', () => this.cmd('about'));
+    // the search box next to HELP: start typing and the help opens with what you typed, searching as you go
+    const hq = $('#help-q');
+    if (hq) {
+      let t = 0;
+      const go = () => { clearTimeout(t); const v = hq.value; if (!v.trim()) return; hq.value = ''; hq.blur(); showAbout(v); };
+      hq.addEventListener('input', () => { clearTimeout(t); t = setTimeout(go, 900); }); // opens when you pause typing
+      hq.addEventListener('keydown', e => { e.stopPropagation(); if (e.key === 'Enter') { e.preventDefault(); go(); } if (e.key === 'Escape') { hq.value = ''; hq.blur(); } });
+    }
     $('#btn-close-project').addEventListener('click', () => this.cmd('home'));
     $('#btn-save-project').addEventListener('click', () => this.cmd('save'));
     this.explain = new Explain(this);
@@ -1561,7 +1785,7 @@ class App {
     { // press and hold SELECT (or right-click it): select all, or everything of one kind
       const b = $('#toolstrip [data-tool=select]');
       let timer = null;
-      const open = () => { b._held = true; this.timeline.setTool('select'); this.selectMenu(b); };
+      const open = () => { b._held = true; this.selectToolPop(b); };
       b.addEventListener('pointerdown', e => { if (e.button !== 0) return; clearTimeout(timer); timer = setTimeout(open, 380); });
       for (const ev of ['pointerup', 'pointerleave', 'pointercancel']) b.addEventListener(ev, () => clearTimeout(timer));
       b.addEventListener('contextmenu', e => { e.preventDefault(); clearTimeout(timer); this.timeline.setTool('select'); this.selectMenu(b); });
@@ -1658,13 +1882,13 @@ class App {
       case ' ': e.preventDefault(); if (e.repeat) break; if (this.shuttle) { this.stopShuttle(); this.player.pause(); } else this.player.toggle(); break;
       case 'ArrowLeft': e.preventDefault(); if (e.altKey) this.nudge(-1, e.shiftKey); else this.seek(this.player.time - (e.shiftKey ? 1 : 1 / fps)); break;
       case 'ArrowRight': e.preventDefault(); if (e.altKey) this.nudge(1, e.shiftKey); else this.seek(this.player.time + (e.shiftKey ? 1 : 1 / fps)); break;
-      case 'a': case 'A': if (e.metaKey) { e.preventDefault(); this.cmd(e.shiftKey ? 'select-after' : 'select-all'); } else if (!e.ctrlKey && !e.altKey) this.timeline.setTool('select'); break;
+      case 'a': case 'A': if (e.metaKey) { e.preventDefault(); this.cmd(e.shiftKey ? 'select-after' : 'select-all'); } else if (!e.ctrlKey && !e.altKey) this.timeline.setTool(e.shiftKey ? 'forward' : 'select'); break;
       case 't': case 'T': if (!e.metaKey && !e.ctrlKey && !e.altKey) this.timeline.setTool(this.timeline.tool === 'blade' ? 'select' : 'blade'); break;
       case 'Home': this.seek(0); break;
       case 'End': this.seek(duration(this.doc)); break;
       case 's': case 'S': if (!e.metaKey) this.cmd('split'); break;
       case 'm': case 'M': if (!e.metaKey) this.cmd(e.shiftKey ? 'clip-marker' : 'marker'); break;
-      case 'Backspace': case 'Delete': this.cmd(e.shiftKey ? 'ripple-delete' : 'delete'); break;
+      case 'Backspace': case 'Delete': this.cmd(e.altKey ? 'close-gaps' : e.shiftKey ? 'ripple-delete' : 'delete'); break;
       case 'Escape': if (this.timeline.marking) { this.timeline.setMarking(false); break; } this.select([], null); break;
       case 'i': case 'I': if (!e.metaKey) this.cmd('mark-in'); break;
       case 'o': case 'O': if (!e.metaKey) this.cmd('mark-out'); break;

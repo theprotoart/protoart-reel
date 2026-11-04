@@ -1,7 +1,9 @@
 // A track's effect rack: numbered slots under the track header (like a DAW's track inserts). Each slot has a
 // power switch, the effect's name (click to open its controls) and a menu (presets, move, remove). An empty
 // slot adds an effect. The same chain plays live and is used by the export (lib/trackfx.js).
-import { el, popMenu, toast } from './ui.js';
+import { el, popMenu, toast, promptText } from './ui.js';
+import { allChains, chainOfTrack, saveChain, deleteChain, applyChain, loadChains } from './lib/chainpresets.js';
+import { captureOpenPlugins } from './fx.js';
 import { FX_TYPES, FX_PARAMS, FX_PRESETS } from './lib/trackfx.js';
 import { uid } from './model.js';
 import { addTrackPlugin, editTrackPlugin, renderPending, bakeTrack } from './trackplugins.js';
@@ -83,6 +85,7 @@ export function fxRack(app, tr, h) {
   return el('div', { class: 'tl-fxhead', style: { height: h + 'px' } },
     el('div', { class: 'fx-top' },
       el('span', { class: 'engr', text: 'ƒx  EFFECTS' }),
+      el('button', { class: 'th-btn', text: 'PRESETS ▾', title: 'Put a saved chain of effects on this track, or save this rack as a preset', onclick: e => chainMenu(app, tr, e.clientX, e.clientY) }),
       list.length ? el('button', { class: 'th-btn' + (allOff ? '' : ' on'), text: allOff ? 'ALL OFF' : 'ALL ON', title: 'Bypass or restore the whole rack', onclick: () => app.commit(() => { for (const f of list) f.off = !allOff; }) }) : null,
       el('button', { class: 'th-btn', text: '▴', title: 'Close the rack', onclick: () => app.commit(() => { tr.fxOpen = false; }) })),
     ...rows);
@@ -136,4 +139,30 @@ export function openFxEditor(app, tr, f) {
     window.addEventListener('pointermove', mv); window.addEventListener('pointerup', up);
   });
   if (!app.player.playing) toast('Press Space to play and hear the effect.', 2500);
+}
+
+/** PRESETS ▾ on a rack: whole chains of effects (built-in, or ones you saved), and saving this rack as one. */
+export function chainMenu(app, tr, x, y) {
+  const list = allChains(), mine = loadChains();
+  const put = (c, replace) => {
+    app.commit(() => { applyChain(tr, c.chain, () => uid('fx'), { replace }); tr.fxOpen = true; }, { keepInspector: true });
+    toast(`${c.name} is on ${tr.name || 'the track'}${replace ? '' : ' (your other effects stay after it)'}. ⌘Z takes it off.`, 3500);
+  };
+  const has = (tr.fx || []).length;
+  popMenu(x, y, [
+    ['Built in', null],
+    ...list.filter(c => c.builtin).map(c => [`${c.name} — ${c.hint}`, () => put(c, false)]),
+    mine.length ? null : undefined,
+    mine.length ? ['Yours', null] : undefined,
+    ...mine.map(c => [`★ ${c.name} (${c.chain.length} effect${c.chain.length === 1 ? '' : 's'})`, () => put(c, true)]),
+    null,
+    has ? ['Save this rack as a preset…', async () => {
+      await captureOpenPlugins(app); // your plug-ins' settings as they are in their open windows
+      const name = await promptText('Save effects preset', `Saves the ${has} effect${has === 1 ? '' : 's'} on “${tr.name || 'this track'}” (with your plug-ins’ settings) so you can put them on any track, or have Auto Edit use them for the voice.`, tr.name ? `${tr.name} chain` : 'My voice chain', 'SAVE');
+      if (!name) return;
+      const p = saveChain(name, chainOfTrack(tr));
+      toast(p ? `Saved “${p.name}”. It’s in PRESETS ▾ on every track and in Auto Edit › Voice.` : 'Couldn’t save the preset.', 4000);
+    }] : ['Add effects first, then save them as a preset', null],
+    mine.length ? ['Delete a preset…', () => popMenu(x, y, mine.map(c => [`Delete “${c.name}”`, () => { deleteChain(c.id); toast(`Deleted “${c.name}”.`); }]))] : undefined,
+  ]);
 }

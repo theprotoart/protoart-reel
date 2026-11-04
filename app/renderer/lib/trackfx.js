@@ -12,6 +12,7 @@ export const FX_TYPES = {
   limiter: { name: 'Limiter', defaults: { ceiling: -1, release: 80 } },
   level: { name: 'Auto Level', defaults: { target: -20, boost: 12, cut: 12, speed: 1500, gate: -50 } },
   gain: { name: 'Gain', defaults: { db: 0, invert: false, mono: false } },
+  declick: { name: 'De-click', defaults: { sensitivity: 5, length: 0.6 } },
 };
 export const FX_PARAMS = {
   eq: [['hpf', 'High-pass', 20, 400, 'Hz', true], ['lf', 'Low', -15, 15, 'dB'], ['lmf', 'Low-mid', -15, 15, 'dB'], ['lmfF', 'Low-mid freq', 100, 2000, 'Hz', true],
@@ -24,6 +25,7 @@ export const FX_PARAMS = {
   limiter: [['ceiling', 'Ceiling', -12, 0, 'dB'], ['release', 'Release', 10, 500, 'ms', true]],
   level: [['target', 'Target level', -32, -10, 'dB'], ['boost', 'Most it turns up', 0, 24, 'dB'], ['cut', 'Most it turns down', 0, 24, 'dB'], ['speed', 'Speed (slower = smoother)', 200, 5000, 'ms', true], ['gate', 'Ignore below', -70, -30, 'dB']],
   gain: [['db', 'Gain', -24, 24, 'dB']],
+  declick: [['sensitivity', 'Sensitivity', 1, 10, ''], ['length', 'Longest click', 0.2, 0.8, 'ms']],
 };
 // presets per effect, for the slot menu
 export const FX_PRESETS = {
@@ -31,6 +33,7 @@ export const FX_PRESETS = {
   comp: { 'Voice — gentle': { threshold: -20, ratio: 2.5, attack: 12, release: 150, makeup: 3 }, 'Voice — podcast': { threshold: -24, ratio: 4, attack: 5, release: 100, makeup: 6 }, 'Music glue': { threshold: -14, ratio: 2, attack: 30, release: 200, makeup: 2 } },
   reverb: { 'Small room': { size: 0.35, damp: 0.5, mix: 0.12 }, 'Hall': { size: 0.85, damp: 0.3, mix: 0.25 }, 'Plate': { size: 0.6, damp: 0.15, mix: 0.2 } },
   level: { 'Voice — even': { target: -20, boost: 12, cut: 12, speed: 1500 }, 'Podcast — tight': { target: -18, boost: 15, cut: 12, speed: 700 }, 'Music — gentle': { target: -22, boost: 6, cut: 8, speed: 3000 } },
+  declick: { 'Mouth clicks (voice)': { sensitivity: 5, length: 0.5 }, 'Pops & crackle': { sensitivity: 7, length: 0.8 }, 'Gentle': { sensitivity: 3, length: 0.4 } },
   delay: { 'Slapback': { time: 110, feedback: 0.1, mix: 0.18 }, 'Echo': { time: 380, feedback: 0.35, mix: 0.22 } },
 };
 
@@ -214,7 +217,53 @@ class Gain {
   process(L, R) { for (let i = 0; i < L.length; i++) { if (this.mono) { const m = (L[i] + R[i]) / 2; L[i] = m; R[i] = m; } L[i] *= this.g; R[i] *= this.g; } }
 }
 
-const CLASSES = { eq: EQ, comp: Comp, deess: DeEss, gate: Gate, reverb: Reverb, delay: Delay, limiter: Limiter, gain: Gain, level: Leveler };
+/**
+ * De-click: finds clicks and pops (mouth clicks, plug-pops, crackle) as sudden spikes in how sharply the sound bends,
+ * far above its recent average, and draws the sound smoothly across them. It listens about 1.3 ms ahead, so the
+ * track is that much late: far less than a video frame.
+ */
+class DeClick {
+  constructor(rate) {
+    this.rate = rate; this.D = 64; this.N = 4096;
+    this.bL = new Float32Array(this.N); this.bR = new Float32Array(this.N);
+    this.w = 0; this.env = 1e-4; this.x1 = 0; this.x2 = 0; this.regions = [];
+  }
+  update(p) {
+    const sens = Math.max(1, Math.min(10, p.sensitivity ?? 5));
+    this.thr = 4 + (10 - sens) * 1.6;
+    this.len = Math.max(4, Math.min(40, Math.round(((p.length ?? 0.6) / 1000) * this.rate)));
+  }
+  process(L, R) {
+    const N = this.N, M = N - 1, D = this.D, bL = this.bL, bR = this.bR;
+    for (let i = 0; i < L.length; i++) {
+      const w = this.w;
+      bL[w & M] = L[i]; bR[w & M] = R[i];
+      const x = (L[i] + R[i]) * 0.5, d = Math.abs(x - 2 * this.x1 + this.x2);
+      this.x2 = this.x1; this.x1 = x;
+      if (d > this.thr * this.env && d > 2e-3) {
+        const s = w - 3, e = w + this.len, last = this.regions[this.regions.length - 1];
+        if (last && s <= last.e + 2) last.e = Math.min(Math.max(last.e, e), last.s + 50); else this.regions.push({ s, e });
+      }
+      // the average follows the sound but isn't dragged up by the clicks themselves
+      this.env = this.env * 0.998 + Math.min(d, this.thr * this.env + 1e-4) * 0.002;
+      this.w = w + 1;
+      // out: the sample from D ago, repaired if it's inside a click
+      const o = w - D;
+      if (o < 0) { L[i] = 0; R[i] = 0; continue; }
+      while (this.regions.length && this.regions[0].e < o) this.regions.shift();
+      const r = this.regions[0];
+      if (r && o >= r.s) {
+        const a = r.s - 1, b = Math.min(r.e + 1, w);
+        const t = b > a ? (o - a) / (b - a) : 0;
+        L[i] = bL[a & M] * (1 - t) + bL[b & M] * t; R[i] = bR[a & M] * (1 - t) + bR[b & M] * t;
+        // the repaired value is what comes "before" the next one
+        bL[o & M] = L[i]; bR[o & M] = R[i];
+      } else { L[i] = bL[o & M]; R[i] = bR[o & M]; }
+    }
+  }
+}
+
+const CLASSES = { eq: EQ, comp: Comp, deess: DeEss, gate: Gate, reverb: Reverb, delay: Delay, limiter: Limiter, gain: Gain, level: Leveler, declick: DeClick };
 
 /** A track's effect chain. setup(list) keeps the state of effects that stay; process(L, R) in place. */
 export class FxChain {

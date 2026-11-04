@@ -2,7 +2,7 @@
 // with the same compositor as the preview, encodes H.264/HEVC + AAC with Apple's hardware
 // encoders (through Chromium), and muxes an MP4. Bytes are streamed to the main thread.
 import { Muxer } from './lib/mp4.js';
-import { openVideo, openAudio } from './lib/sources.js';
+import { openVideo, openAudio, forgetVideos } from './lib/sources.js';
 import { drawFrame } from './compositor.js';
 import { FxChain } from './lib/trackfx.js';
 import { mediaById, sourceTime, duration as docDuration, gainAt, panAt, panGains, clipEnd, activeClips, spanStart, spanEnd } from './model.js';
@@ -29,6 +29,17 @@ self.onmessage = async e => {
   }
 };
 
+/** A plain PCM WAV header (44 bytes) for `bytes` of interleaved little-endian samples. */
+export function wavHeader(bytes, rate, channels, bits) {
+  const h = new Uint8Array(44), v = new DataView(h.buffer), str = (o, s) => { for (let i = 0; i < 4; i++) h[o + i] = s.charCodeAt(i); };
+  const block = channels * bits / 8;
+  str(0, 'RIFF'); v.setUint32(4, Math.min(0xffffffff, 36 + bytes), true); str(8, 'WAVE');
+  str(12, 'fmt '); v.setUint32(16, 16, true); v.setUint16(20, 1, true); v.setUint16(22, channels, true);
+  v.setUint32(24, rate, true); v.setUint32(28, rate * block, true); v.setUint16(32, block, true); v.setUint16(34, bits, true);
+  str(36, 'data'); v.setUint32(40, Math.min(0xffffffff, bytes), true);
+  return h;
+}
+
 const urlFor = (token, file) => `app://reel/m/${token}/${encodeURIComponent(file)}`;
 
 async function pickVideoCodec(kind, width, height, fps, bitrate, hardware = true) {
@@ -51,12 +62,22 @@ async function run({ doc, token, opts }) {
   const end = Math.min(docDuration(doc), opts.to || Infinity);
   if (!(end > start)) throw new Error('Nothing to export: the timeline is empty');
   const frames = Math.max(1, Math.round((end - start) * fps));
-  const withVideo = opts.kind !== 'm4a' && opts.mode !== 'mix';
+  const wav = opts.kind === 'wav'; // sound only, uncompressed 24-bit 48 kHz stereo (Broadcast WAV-compatible PCM)
+  const withVideo = opts.kind !== 'm4a' && !wav && opts.mode !== 'mix';
   const anim = opts.kind === 'gif' || opts.kind === 'apng'; // silent animated picture: no sound, no MP4
 
   // ---------------- sources
   const used = doc.clips.filter(c => c.type === 'media' && !c.disabled && spanStart(c) < end && spanEnd(c) > start);
   const video = new Map(), images = new Map(), audio = new Map(), cursors = new Map(), mattes = new Map(), luts = new Map();
+  // pictures placed in elements (an end screen's boxes)
+  if (withVideo) for (const c of doc.clips) {
+    if (c.type !== 'element' || c.disabled || !(spanStart(c) < end && spanEnd(c) > start)) continue;
+    for (const [k, v] of Object.entries(c.element || {})) {
+      if (!/^img\d$/.test(k) || !v || images.has(v)) continue;
+      const m = mediaById(doc, v);
+      if (m && m.kind === 'image') { try { images.set(m.id, await createImageBitmap(await (await fetch(urlFor(token, m.file))).blob())); } catch { /* drawn without it */ } }
+    }
+  }
   for (const c of used) {
     const m = mediaById(doc, c.media);
     if (!m) continue;
@@ -81,7 +102,7 @@ async function run({ doc, token, opts }) {
   // ---------------- encoders + muxer
   let vcfg = null;
   const vTrack = withVideo ? { codec: '', width: W, height: H, description: null } : null;
-  const aTrack = anim ? null : audio.size || !withVideo || opts.masterFile || used.some(c => c.cursor?.clickSound > 0) ? { codec: 'mp4a.40.2', sampleRate: RATE, channels: 2, description: null, bitrate: opts.audioBitrate || 192000 } : null;
+  const aTrack = anim || wav ? null : audio.size || !withVideo || opts.masterFile || used.some(c => c.cursor?.clickSound > 0) ? { codec: 'mp4a.40.2', sampleRate: RATE, channels: 2, description: null, bitrate: opts.audioBitrate || 192000 } : null;
   const mux = new Muxer({ video: vTrack, audio: aTrack });
   let pending = [], pendingBytes = 0, written = 0;
   const flush = (force) => {
@@ -273,8 +294,10 @@ async function run({ doc, token, opts }) {
   }
 
   let audioPos = 0; // output frames written
+  const tA = performance.now();
+  let wavBytes = 0;
   const mixUntil = async (t) => {
-    if (!aenc) return;
+    if (!aenc && !wav) return;
     const target = Math.floor((t - start) * RATE);
     while (audioPos + BLOCK <= target || (t >= end && audioPos < target)) {
       const n = BLOCK;
@@ -288,12 +311,35 @@ async function run({ doc, token, opts }) {
         [L, R] = await mixBlock(start + audioPos / RATE, n);
         softClip(L, R);
       }
-      const planar = new Float32Array(n * 2); planar.set(L, 0); planar.set(R, n);
-      const ad = new AudioData({ format: 'f32-planar', sampleRate: RATE, numberOfFrames: n, numberOfChannels: 2, timestamp: Math.round((audioPos / RATE) * 1e6), data: planar });
-      aenc.encode(ad); ad.close();
+      if (wav) {
+        // the last block stops exactly at the end
+        const k = Math.min(n, Math.max(0, Math.floor((end - start) * RATE) - audioPos));
+        const out = new Uint8Array(k * 6);
+        for (let i = 0, o = 0; i < k; i++) {
+          for (const v of [L[i], R[i]]) {
+            const x = Math.max(-8388608, Math.min(8388607, Math.round(Math.max(-1, Math.min(1, v)) * 8388607)));
+            out[o++] = x & 255; out[o++] = (x >> 8) & 255; out[o++] = (x >> 16) & 255;
+          }
+        }
+        wavBytes += out.length; emit(out);
+      } else {
+        const planar = new Float32Array(n * 2); planar.set(L, 0); planar.set(R, n);
+        const ad = new AudioData({ format: 'f32-planar', sampleRate: RATE, numberOfFrames: n, numberOfChannels: 2, timestamp: Math.round((audioPos / RATE) * 1e6), data: planar });
+        aenc.encode(ad); ad.close();
+      }
       audioPos += n;
-      while (aenc.encodeQueueSize > 8) await new Promise(r => setTimeout(r, 1));
+      for (const t0w = performance.now(); aenc && aenc.encodeQueueSize > 8;) {
+        if (performance.now() - t0w > 20000) throw new Error('The AAC sound encoder stopped responding. Try Sound only · WAV instead.');
+        await new Promise(r => setTimeout(r, 1));
+      }
       if (encErr) throw encErr;
+      // sound only: there are no frames to count, so report the sound itself (it used to sit on "Starting…")
+      if (!withVideo && (audioPos / BLOCK) % 47 === 0) {
+        if (cancelled) throw new Error('Cancelled');
+        const el = (performance.now() - tA) / 1000, secs = audioPos / RATE;
+        self.postMessage({ type: 'progress', sound: true, secs, totalSecs: end - start, done: secs, total: end - start, fps: secs / Math.max(0.001, el) });
+        await new Promise(r => setTimeout(r, 0)); // let the cancel message in
+      }
     }
   };
 
@@ -305,6 +351,7 @@ async function run({ doc, token, opts }) {
   const current = new Map(); // clip id -> source for this frame
   const sources = {
     frame: (c) => current.get(c.id) || null,
+    image: id => images.get(id) || null,
     cursor: (c, st) => { const m = mediaById(doc, c.media); const data = m && cursors.get(m.id); return data ? cursorAt(data, m.cursorOffset || 0, st, c.cursor?.smooth || 0) : null; },
     input: c => { const m = mediaById(doc, c.media); return (m && cursors.get(m.id)) || null; },
     fx: () => { if (gl === undefined) { try { gl = new GlFx(); } catch (err) { gl = null; self.postMessage({ type: 'warn', message: `Filters skipped: ${err.message}` }); } } return gl; },
@@ -316,7 +363,12 @@ async function run({ doc, token, opts }) {
   /** Loads every source frame showing at time t. */
   const gather = async t => {
     current.clear(); currentMatte.clear();
-    for (const c of activeClips(doc, t)) {
+    const now = activeClips(doc, t), here = new Set(now.map(c => c.id));
+    // close the decoders of clips that aren't showing: macOS has only a few hardware decoders, and a long edit
+    // with dozens of clips ran out of them part-way ("Video decoding failed: Decoding error")
+    for (const [id, v] of video) if (v && !here.has(id)) v.release();
+    for (const [id, v] of mattes) if (v && !here.has(id)) v.release();
+    for (const c of now) {
       if (c.type !== 'media') continue;
       const m = mediaById(doc, c.media);
       if (!m) continue;
@@ -367,9 +419,10 @@ async function run({ doc, token, opts }) {
   }
   await mixUntil(end);
   if (venc) await venc.flush();
-  if (aenc) await aenc.flush();
+  if (aenc) await Promise.race([aenc.flush(), new Promise((_, no) => setTimeout(() => no(new Error('The AAC sound encoder stopped responding. Try Sound only · WAV instead.')), 30000))]);
   if (encErr) throw encErr;
   for (const v of video.values()) v && v.close();
+  forgetVideos();
   for (const v of mattes.values()) v && v.close();
   for (const a of audio.values()) a.close();
   if (master) master.close();
@@ -380,6 +433,7 @@ async function run({ doc, token, opts }) {
     return { head, bytes: written + head.length, frames, codec: opts.kind };
   }
   flush(true);
+  if (wav) { const head = wavHeader(wavBytes, RATE, 2, 24); return { head, bytes: written + head.length, frames, codec: 'wav' }; }
   if (vTrack && !vTrack.description) throw new Error('The video encoder produced no output');
   const head = mux.finish();
   return { head, bytes: written, frames, codec: vTrack ? vTrack.codec : 'aac' };

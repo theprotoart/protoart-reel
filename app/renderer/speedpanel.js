@@ -4,10 +4,10 @@
 import { el } from './ui.js';
 import { setSpeed, mediaById } from './model.js';
 
-const MIN = 0.1, MAX = 8;
+const MIN = 0.1, MAX = 100;
 const toPos = v => Math.log(v / MIN) / Math.log(MAX / MIN);
 const fromPos = p => MIN * (MAX / MIN) ** p;
-const PRESETS = [0.25, 0.5, 0.75, 1, 1.25, 1.5, 2, 4, 8];
+const PRESETS = [0.25, 0.5, 0.75, 1, 1.25, 1.5, 2, 4, 8, 16, 32, 64];
 
 export function openSpeedPanel(app, clipId, x, y) {
   document.querySelector('.speed-pop')?.remove();
@@ -18,7 +18,7 @@ export function openSpeedPanel(app, clipId, x, y) {
 
   const dur = el('input', { type: 'text', class: 'sp-dur', title: 'Type a length in seconds: the speed follows' });
   const slider = el('input', { type: 'range', min: 0, max: 1, step: 0.001 });
-  const pct = el('input', { type: 'number', min: 10, max: 800, step: 1, class: 'sp-pct', title: 'Speed in % (100 = normal)' });
+  const pct = el('input', { type: 'number', min: 10, max: 10000, step: 1, class: 'sp-pct', title: 'Speed in % (100 = normal)' });
   const chips = el('div', { class: 'sp-chips' }, ...PRESETS.map(v => el('button', { type: 'button', 'data-v': v, text: v === 1 ? '1×' : `${v}×`, title: `${Math.round(v * 100)}%` })));
   const sw = (label, title) => { const b = el('button', { type: 'button', class: 'sp-switch', title }, el('i'), el('span', { text: label })); return b; };
   const pitch = sw('KEEP PITCH WHEN SPED UP OR SLOWED', 'On: voices keep their pitch at any speed. Off: pitch follows speed, like tape');

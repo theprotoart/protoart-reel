@@ -6,19 +6,23 @@
 // puts the project back exactly as it was.
 import { el, modal, toast } from './ui.js';
 import { mediaById, removeRange, insertTime, uid, duration as docDuration, split, clipEnd, withGroups } from './model.js';
-import { buildCaptions, fillerRanges, pauseRanges, cutRanges } from './lib/words.js';
+import { buildCaptions, fillerRanges, pauseRanges, cutRanges, withoutSpans } from './lib/words.js';
 import { pickHighlights, chapters, sentences } from './lib/highlight.js';
 import { FORMATS } from './lib/reframe.js';
 import { analyse } from './autozoom.js';
 import { timelineWords, LANGS } from './transcript.js';
 import { masterOf } from './master-ui.js';
 import { PACKS, autoTransitions } from './fxlibrary.js';
+import { planCallouts, placeCallouts } from './callouts.js';
+import { clapsOnTimeline } from './clapscan.js';
+import { writerReady, nameChapters } from './writer.js';
+import { allChains, chainById, applyChain } from './lib/chainpresets.js';
 
 export const RECIPES = {
   tiktok: {
     name: 'TikTok · Reels', icon: '9:16', hint: 'The best moment of your video as a vertical short: a strong opening line, punchy zooms and transitions, big captions.',
     lengths: [[15, '15 s'], [30, '30 s'], [45, '45 s'], [60, '60 s']], length: 30,
-    format: 'vertical', fit: 'follow', zoom: ['punchy', 1.5], pack: 'punchy', sounds: true, captions: 'big', loud: 'spotify', clean: 'tight', highlights: 1,
+    format: 'vertical', fit: 'follow', zoom: ['punchy', 1.5], pack: 'social', sounds: true, captions: 'big', loud: 'spotify', clean: 'tight', highlights: 1,
   },
   shorts: {
     name: 'YouTube Shorts', icon: '9:16', hint: 'Like TikTok, up to 60 seconds, mixed for YouTube.',
@@ -35,9 +39,15 @@ export const RECIPES = {
     lengths: [[30, '30 s'], [60, '60 s'], [90, '90 s']], length: 60,
     format: 'vertical', fit: 'blur', zoom: ['follow', 0.55], pack: 'clean', sounds: false, captions: 'big', loud: 'podcast', clean: 'tight', highlights: 1,
   },
+  tutorial: {
+    name: 'Tutorial', icon: '16:9', hint: 'A screen tutorial, tidied: clap signals cut out (your takes stay in ✂ TAKES), mouth clicks removed, the voice evened out, ums and long pauses cut, gentle zooms that follow your work, chapters.',
+    lengths: null, format: null, zoom: ['kenburns', 0.8], pack: null, sounds: false, captions: 'file', loud: 'youtube', clean: 'gentle', chapters: true, highlights: 0,
+    claps: 'cut', voice: 'tutorial',
+  },
   youtube: {
     name: 'YouTube video', icon: '16:9', hint: 'The whole video, tidied: ums and long pauses cut, medium zooms, smooth transitions, chapters, YouTube loudness.',
-    lengths: null, format: null, zoom: ['follow', 1], pack: 'smooth', sounds: false, captions: 'file', loud: 'youtube', clean: 'gentle', chapters: true, highlights: 0,
+    lengths: null, format: null, zoom: ['kenburns', 1], pack: 'smooth', sounds: false, captions: 'file', loud: 'youtube', clean: 'gentle', chapters: true, highlights: 0,
+    claps: 'markers', voice: 'light',
   },
 };
 
@@ -55,15 +65,25 @@ export const CLEAN_LEVELS = { off: ['Off'], gentle: ['Gentle'], tight: ['Tight']
 /** Sound effects with the transitions (whooshes, hits…): off, or how loud (the Sound FX track's level). */
 /** Volume: even out the speech with an Auto Level on each track with sound. */
 export const VOLUME_LEVELS = { off: ['Leave it'], even: ['Even it out'] };
+/** Call-outs: none, a reminder now and then (Like · Subscribe · Bell, or Follow on a short), or that plus an end screen. */
+/** Clap signals (clap, clap, clap before a retake): leave them, mark them, or cut them out. */
+export const CLAP_LEVELS = { off: ['Leave them'], markers: ['Mark them'], cut: ['Cut them out'] };
+export const CTA_LEVELS = { off: ['Off'], remind: ['Reminders'], end: ['Reminders + end screen'] };
 export const SFX_LEVELS = { off: ['Off', 0], quiet: ['Quiet', 0.4], normal: ['Normal', 1], loud: ['Loud', 1.6] };
 /** How a wide video fills a tall frame. */
 export const FIT_LEVELS = { follow: ['Crop, follow the action'], blur: ['Blurred copy'], zoom: ['Zoomed copy'], bars: ['Black bars'] };
 /** Seconds between transitions for each amount (shorts are faster-paced than long videos). */
 export const transGap = (level, short) => ({ few: short ? 10 : 45, some: short ? 5 : 20, lots: short ? 2 : 8 }[level] ?? Infinity);
 const zoomLevelOf = r => (r.zoom[1] >= 1.3 ? 'heavy' : r.zoom[1] >= 0.9 ? 'medium' : 'subtle');
+/** How the zooms move: the recipe's own, or one picked in the dialog. */
+export const MOTION_STYLES = { punchy: ['Punchy: quick push-ins and push-outs'], follow: ['Follow the action'], kenburns: ['Ken Burns: slow, steady drifts'] };
 const recipeDefaults = r => ({
   zoom: zoomLevelOf(r), trans: r.pack ? (r.highlights ? 'some' : 'few') : 'off', pack: r.pack || 'clean', sfx: r.sounds ? 'normal' : 'off', volume: 'even',
   captions: r.captions === 'big' ? 'big' : 'file', clean: r.clean || 'gentle', fit: r.fit || 'follow',
+  cta: r.highlights ? 'remind' : 'end',
+  keepSped: true,
+  motion: r.zoom[0] in MOTION_STYLES ? r.zoom[0] : 'follow',
+  claps: r.claps || 'off', voice: r.voice || 'none',
 });
 /**
  * The parts to work on: the sections added with X (each an In–Out), plus the current In–Out if it isn't one of
@@ -105,6 +125,14 @@ export function openAutoEdit(app) {
   const packSel = el('select', { title: 'The style of transition (the same packs as Presets and Smart Zoom)' }, ...Object.entries(PACKS).map(([k, pk]) => el('option', { value: k, text: `${pk.name} — ${pk.hint}` })));
   packSel.addEventListener('change', () => { o.pack = packSel.value; draw(); });
   const sfxNote = el('span', { class: 'note ae-sfx-note' });
+  // cutting dead air leaves sped-up clips (time-lapses) alone: they're meant to be in the edit
+  const keepSpedCb = el('input', { type: 'checkbox' });
+  keepSpedCb.addEventListener('change', () => { o.keepSped = keepSpedCb.checked; draw(); });
+  const keepSpedBox = el('label', { class: 'ae-check', title: 'Clips with a speed change (time-lapses, fast-forwards) are usually quiet on purpose. With this on, cutting dead air never cuts into them.' }, keepSpedCb, el('span', { text: 'Keep sped-up clips whole when cutting dead air' }));
+  // the voice: any effects preset (built in, or one you saved from a track's PRESETS ▾), on the speech tracks
+  const voiceSel = el('select', { title: 'Effects put on the speech tracks. Save your own from a track’s ƒx rack: PRESETS ▾ › Save this rack as a preset' },
+    el('option', { value: 'none', text: 'Leave the voice as it is' }), ...allChains().map(c => el('option', { value: c.id, text: c.builtin ? `${c.name} — ${c.hint}` : `★ ${c.name} (yours)` })));
+  voiceSel.addEventListener('change', () => { o.voice = voiceSel.value; draw(); });
   // the parts of the video to use: sections (X) and the current In–Out
   const regionRow = el('div', { class: 'ae-parts' });
   const drawParts = () => {
@@ -141,6 +169,9 @@ export function openAutoEdit(app) {
     for (const [k, box] of Object.entries(segs)) for (const b of box.children) b.classList.toggle('on', b.dataset.v === o[k]);
     fitRow.style.display = r.format ? '' : 'none';
     packSel.value = o.pack; packSel.disabled = o.trans === 'off';
+    keepSpedCb.checked = o.keepSped !== false; keepSpedBox.style.opacity = o.clean === 'off' ? 0.45 : 1; keepSpedCb.disabled = o.clean === 'off';
+    if (!chainById(o.voice)) o.voice = 'none';
+    voiceSel.value = o.voice;
     segs.sfx.classList.toggle('dim', o.trans === 'off');
     sfxNote.textContent = o.trans === 'off' ? 'They play with transitions: turn Transitions on to hear them.' : '';
     detail.textContent = r.hint;
@@ -148,15 +179,18 @@ export function openAutoEdit(app) {
     const many = useRegion && parts.length > 1, within = useRegion && parts.length ? (many ? ' from each part' : ' in that part') : '';
     steps.replaceChildren(...[
       useRegion && parts.length ? `Work only on ${parts.map(q => `${fmt(q.t0)}–${fmt(q.t1)}`).join(', ')}; the rest is set aside` : null,
+      o.claps === 'cut' ? 'Find clap signals and cut them out (each leaves a take marker)' : o.claps === 'markers' ? 'Find clap signals and mark them' : null,
       'Listen to the speech (on this Mac)',
       r.highlights ? (many && r.highlights === 1 ? `Pick the best moments${within}, about ${len} s in all, and join them in order` : `Pick the best ${many && r.highlights > 1 ? 'moment from each part (a short each)' : r.highlights > 1 ? `${r.highlights} moments` : 'moment'} of about ${len} s${many ? '' : within}, starting on a strong line`) : (many ? 'Join the parts in order' : null),
-      o.clean !== 'off' ? (o.clean === 'tight' ? 'Cut ums and dead air (tight)' : 'Cut ums and tighten long pauses') : null,
+      o.clean !== 'off' ? (o.clean === 'tight' ? 'Cut ums and dead air (tight)' : 'Cut ums and tighten long pauses') + (o.keepSped !== false ? ', leaving sped-up clips whole' : '') : null,
       f ? `Reframe to ${f.w} × ${f.h}${{ blur: ' (whole picture on a blurred copy)', zoom: ' (whole picture on a zoomed copy)', bars: ' (whole picture, black bars)' }[o.fit] || ', cropped, following the action'}` : null,
-      o.zoom !== 'off' ? `Smart Zoom, ${ZOOM_LEVELS[o.zoom][0].toLowerCase()}` : null,
+      o.zoom !== 'off' ? `Smart Zoom, ${ZOOM_LEVELS[o.zoom][0].toLowerCase()}: ${{ punchy: 'quick push-ins and push-outs', follow: 'following the action', kenburns: 'slow Ken Burns drifts' }[o.motion || 'follow']}` : null,
       o.trans !== 'off' ? `${PACKS[o.pack].name} transitions, ${TRANS_LEVELS[o.trans][0].toLowerCase()} (about one every ${transGap(o.trans, !!r.highlights)} s at most)` : null,
       o.trans !== 'off' ? (o.sfx === 'off' ? 'No sound effects' : `Sound effects with the transitions (${SFX_LEVELS[o.sfx][0].toLowerCase()}), on their own Sound FX track`) : null,
       o.captions !== 'off' ? { file: 'Captions as a subtitle file (.srt) beside the export', burned: 'Captions in the video', big: 'Big, bold captions in the video' }[o.captions] : null,
+      chainById(o.voice) ? `Voice: ${chainById(o.voice).name} (${chainById(o.voice).chain.map(f => f.type === 'au' ? f.name : ({ declick: 'De-click', deess: 'De-ess', level: 'Auto Level', eq: 'EQ', comp: 'Compressor', gate: 'Noise gate', limiter: 'Limiter', reverb: 'Reverb', delay: 'Delay', gain: 'Gain' })[f.type] || f.type).join(' → ')}) on the speech tracks` : null,
       o.volume === 'even' ? 'Even out the volume: an Auto Level on each track with sound (quiet parts up, loud parts down)' : null,
+      (o.cta || 'off') !== 'off' ? (r.format ? 'A Follow call-out near the end' : `Like · Subscribe · Bell and comment call-outs between sentences${o.cta === 'end' ? ', and an end screen' : ''}`) : null,
       r.chapters ? 'Chapters as markers (they go in the export notes)' : null,
       `Loudness set for ${r.loud === 'spotify' ? 'TikTok / Reels' : r.loud === 'podcast' ? 'podcasts' : 'YouTube'}`,
     ].filter(Boolean).map(t => el('li', { text: t })));
@@ -177,12 +211,17 @@ export function openAutoEdit(app) {
         row('Length', lenRow),
         fitRow,
         row('Zooms', seg('zoom', ZOOM_LEVELS)),
+        row('Motion', seg('motion', MOTION_STYLES)),
         row('Transitions', seg('trans', TRANS_LEVELS)),
         row('Style', packSel),
         row('Sound effects', seg('sfx', SFX_LEVELS), sfxNote),
         row('Captions', seg('captions', CAPTION_LEVELS)),
         row('Clean up', seg('clean', CLEAN_LEVELS)),
+        row('', keepSpedBox),
+        row('Claps', seg('claps', CLAP_LEVELS)),
+        row('Voice', voiceSel),
         row('Volume', seg('volume', VOLUME_LEVELS)),
+        row('Call-outs', seg('cta', CTA_LEVELS)),
         row('Language', lang),
         el('button', { class: 'mini ae-reset', text: 'Back to this recipe’s settings', onclick: () => { o = recipeDefaults(RECIPES[id]); draw(); } })),
       el('div', {}, el('div', { class: 'engr', text: 'Reel will' }), steps)));
@@ -242,6 +281,33 @@ export async function runAutoEdit(app, recipeId, o) {
       report.push(rs.length > 1 ? `${rs.length} parts` : `from ${fmt(rs[0].t0)} – ${fmt(rs[0].t1)}`);
     }
     let joins = parts ? parts.slice(1).map(([a]) => a) : [];
+    // ½ · clap signals: before anything listens to the words, so the claps don't count as speech
+    if ((o.claps || 'off') !== 'off') {
+      step('Listening for clap signals');
+      const d0 = app.doc;
+      const sound = d0.clips.filter(c => { const m = c.type === 'media' && !c.disabled && mediaById(d0, c.media); return m && (m.kind === 'audio' || m.hasAudio); });
+      const mics = sound.filter(c => mediaById(d0, c.media).role === 'mic');
+      let sigs = [];
+      try { sigs = await clapsOnTimeline(app, mics.length ? mics : sound, v => progress(v * 0.02)); }
+      catch (e) { note(`Couldn’t listen for claps (${e.message}).`); }
+      if (!alive()) return;
+      if (!sigs.length) note('No clap signals found');
+      else if (o.claps === 'cut') {
+        app.commit(d => {
+          for (const x of [...sigs].reverse()) removeRange(d, x.t0, x.t1);
+          let shift = 0;
+          for (const x of sigs) { d.markers.push({ id: uid('k'), t: x.t0 - shift, label: '✂ Clap', claps: true }); shift += x.t1 - x.t0; }
+          d.markers.sort((a, b) => a.t - b.t);
+        });
+        // the parts' times move up by what was cut before them
+        if (parts) parts = parts.map(([a, b]) => { const before = q => sigs.filter(x => x.t1 <= q).reduce((n, x) => n + x.t1 - x.t0, 0); return [a - before(a), b - before(b)]; });
+        report.push(`${sigs.length} clap signal${sigs.length === 1 ? '' : 's'} cut out (takes in ✂ TAKES)`);
+      } else {
+        app.commit(d => { for (const x of sigs) if (!(d.markers || []).some(k => Math.abs(k.t - x.t0) < 0.3)) d.markers.push({ id: uid('k'), t: x.t0, end: x.t1, label: '✂ Clap', claps: true }); d.markers.sort((a, b) => a.t - b.t); });
+        report.push(`${sigs.length} clap marker${sigs.length === 1 ? '' : 's'}`);
+      }
+      joins = parts ? parts.slice(1).map(([a]) => a) : [];
+    }
     // 1 · speech
     step('Listening to the speech'); progress(0.02);
     let words = [];
@@ -320,7 +386,7 @@ export async function runAutoEdit(app, recipeId, o) {
     if (zoomOn) {
       step('Adding zooms');
       const zids = app.doc.clips.filter(c => isVideo(app.doc, c) && !bgTrack(c.track)).map(c => c.id);
-      const made = await app.smartZoom(zids, { style: r.zoom[0], strength: ZOOM_LEVELS[o.zoom][1], quiet: true, fallback: true });
+      const made = await app.smartZoom(zids, { style: o.motion || r.zoom[0], strength: ZOOM_LEVELS[o.zoom][1], quiet: true, fallback: true });
       report.push(made ? `${made} zoom${made === 1 ? '' : 's'}` : 'no zooms (the picture barely moves)');
       progress(0.5);
     }
@@ -329,7 +395,13 @@ export async function runAutoEdit(app, recipeId, o) {
     // 3 · ums and dead air
     if (o.clean !== 'off' && words.length) {
       step('Cutting ums and dead air');
-      const ranges = [...fillerRanges(words), ...pauseRanges(words, o.clean === 'tight' ? { longer: 0.45, keep: 0.2 } : { longer: 0.9, keep: 0.35 })];
+      let ranges = [...fillerRanges(words), ...pauseRanges(words, o.clean === 'tight' ? { longer: 0.45, keep: 0.2 } : { longer: 0.9, keep: 0.35 })];
+      // sped-up clips (time-lapses, fast-forwards) are quiet on purpose: they stay whole
+      if (o.keepSped !== false) {
+        const sped = app.doc.clips.filter(c => c.type === 'media' && !c.disabled && (c.speed || 1) !== 1).map(c => [c.start, c.start + c.duration]);
+        const before = ranges.length;
+        if (sped.length) { ranges = withoutSpans(ranges, sped); if (ranges.length < before || sped.length) report.push(`${sped.length} sped-up clip${sped.length === 1 ? '' : 's'} kept whole`); }
+      }
       let cut = 0;
       if (ranges.length) app.commit(d => { cut = cutRanges(d, ranges, removeRange); });
       // words after the cuts: listen again (the transcript is cached, so it's quick)
@@ -394,15 +466,37 @@ export async function runAutoEdit(app, recipeId, o) {
     }
 
     // 7 · chapters
+    // 7¼ · call-outs: reminders between sentences (and an end screen), on their own track
+    if ((o.cta || 'off') !== 'off' && !only) {
+      step('Adding call-outs');
+      const total = docDuration(app.doc), tall = app.doc.canvas.height > app.doc.canvas.width;
+      const breaks = sentences(words).map(s => Math.max(0, s.t - 0.1));
+      const plan = planCallouts(total, tall
+        ? { kinds: ['follow'], every: Math.max(15, total * 0.6), startAfter: Math.max(3, total * 0.6), endScreen: false, tall }
+        : { kinds: ['likeSubscribe', 'commentPrompt'], every: total > 900 ? 300 : 180, startAfter: Math.min(60, Math.max(15, total * 0.12)), endScreen: o.cta === 'end', tall }, breaks);
+      const n = placeCallouts(app, plan, { tall });
+      if (n) report.push(`${n} call-out${n === 1 ? '' : 's'}`);
+    }
     if (r.chapters && words.length && !only) {
-      const ch = chapters(words, docDuration(app.doc));
+      let ch = chapters(words, docDuration(app.doc));
       if (ch.length >= 3) {
         step('Marking chapters');
+        // with a writer model (Qwen) on this Mac, the chapters get proper names from what's said in each
+        if (await writerReady(app)) { what.textContent = 'Naming the chapters (Qwen, on this Mac)…'; ch = await nameChapters(app, words, ch); }
         app.commit(d => { d.markers = [...(d.markers || []).filter(m => !m.autoChapter), ...ch.map(c => ({ id: uid('k'), t: c.t, label: c.label, autoChapter: true }))].sort((a, b) => a.t - b.t); });
         report.push(`${ch.length} chapters`);
       }
     }
 
+    // 7¼ · the voice: the chosen effects preset on each track with speech (microphone, or video with its sound)
+    const chosen = chainById(o.voice);
+    if (chosen && !only) {
+      const d0 = app.doc, isSfx = t => /sound ?fx|sfx|^background$/i.test(t.name || '') || t.role === 'music' || t.role === 'effects';
+      const speech = new Set(d0.clips.filter(c => { const m = c.type === 'media' && !c.disabled && !c.audio?.mute && mediaById(d0, c.media); return m && (m.role === 'mic' || (m.kind === 'video' && m.hasAudio && !c.audio?.mute)); }).map(c => c.track));
+      let n = 0;
+      app.commit(d => { for (const t of d.tracks) if (speech.has(t.id) && !isSfx(t)) { applyChain(t, chosen.chain, () => uid('fx'), { tag: 'autoEdit' }); n++; } });
+      if (n) { step(`Voice: ${chosen.name}`); report.push(chosen.name.toLowerCase()); }
+    }
     // 7½ · even volume: an Auto Level first in each track that has speech or music (not sound effects)
     if ((o.volume || 'even') === 'even' && !only) { // tracks are shared with the rest of the project
       const isSfx = t => /sound ?fx|sfx|^background$/i.test(t.name || '');

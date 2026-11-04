@@ -36,13 +36,15 @@ export function openTransitions(app, cut = null) {
   let ids = cut ? [cut[0].id, cut[1].id] : null;
   const get = () => (ids ? ids.map(id => app.doc.clips.find(c => c.id === id)) : null);
   const cur = () => { const p = get(); return p && p[0] && p[1] ? p[1].transIn?.type || 'none' : null; };
+  // where a click goes: THIS CUT (the one picked) or EVERY CUT. Shown as a switch so it's never a surprise.
+  let scope = ids ? 'one' : 'all', allType = null;
   let dur = (() => { const p = get(); const d = p?.[1]?.transIn?.dur; return d && p[1].transIn.type !== 'none' ? d * 2 : pref('transDur') || 0.5; })();
 
   const where = el('p', { class: 'tp-where' });
   const durVal = el('span', { class: 'val' });
   const durIn = el('input', { type: 'range', min: 0.2, max: 2, step: 0.05, value: dur });
   durIn.addEventListener('input', () => { dur = Number(durIn.value); durVal.textContent = dur.toFixed(2) + ' s'; });
-  durIn.addEventListener('change', () => { const c = cur(); if (c && c !== 'none') apply(c); });
+  durIn.addEventListener('change', () => { const c = scope === 'all' ? allType : cur(); if (c && c !== 'none') apply(c); });
   const grid = el('div', { class: 'tp-grid' });
   const none = el('div', { class: 'pl-tile tp-none', title: 'No transition: a straight cut' }, el('div', { class: 'tp-none-in', text: 'NONE' }), el('div', { class: 'pl-name', text: 'Cut' }));
   none.addEventListener('click', () => apply('none'));
@@ -52,17 +54,27 @@ export function openTransitions(app, cut = null) {
     const p = get();
     if (p && p[0] && p[1]) where.textContent = `Between “${p[0].name || mediaById(app.doc, p[0].media)?.name || 'clip'}” and “${p[1].name || mediaById(app.doc, p[1].media)?.name || 'clip'}” at ${fmt(clipEnd(p[0]))}. Click a transition to put it there; hover to preview it.`;
     else where.textContent = allCuts(app.doc).length ? 'No cut picked: click a transition to put it on every cut (or click a ⧓ on the timeline to pick one cut).' : 'Transitions go between two clips. Split a clip where you want one (put the playhead there and press SPLICE / S), then click the ⧓ that appears on the cut.';
-    const c = cur();
+    const n = allCuts(app.doc).length;
+    if (scope === 'all') where.textContent = n ? `Every cut in the edit (${n}): click a transition to put it on all of them, or NONE (Cut) to take every transition off.` : where.textContent;
+    oneBtn.disabled = !(p && p[0] && p[1]);
+    oneBtn.classList.toggle('on', scope === 'one'); allBtn.classList.toggle('on', scope === 'all');
+    allBtn.textContent = `EVERY CUT (${n})`;
+    const c = scope === 'all' ? allType : cur();
     for (const t of grid.children) t.classList.toggle('on', (t.dataset.id || 'none') === c || (t === none && c === 'none'));
     durVal.textContent = dur.toFixed(2) + ' s';
   };
+  const oneBtn = el('button', { type: 'button', text: 'THIS CUT', title: 'A click puts the transition only on the cut you picked (click a ⧓ on the timeline to pick another)' });
+  const allBtn = el('button', { type: 'button', text: 'EVERY CUT', title: 'A click puts the transition on every cut in the edit (NONE takes them all off)' });
+  oneBtn.addEventListener('click', () => { scope = 'one'; drawWhere(); });
+  allBtn.addEventListener('click', () => { scope = 'all'; drawWhere(); });
+  const scopeRow = el('div', { class: 'row tp-scope' }, el('label', { text: 'Apply to' }), el('div', { class: 'seg tp-scope-seg' }, oneBtn, allBtn));
   const apply = type => {
     const p = get();
-    if (p && p[0] && p[1]) {
+    if (scope === 'one' && p && p[0] && p[1]) {
       app.commit(d => {
         const a = d.clips.find(c => c.id === ids[0]), b = d.clips.find(c => c.id === ids[1]);
-        if (type === 'none') { a.transOut = { type: 'none', dur: a.transOut?.dur || 0.5 }; b.transIn = { type: 'none', dur: b.transIn?.dur || 0.5 }; }
-        else applyCut(a, b, type, dur);
+        if (type === 'none') straight(a, b);
+        else { applyCut(a, b, type, dur); delete b.hardCut; }
       });
       toast(type === 'none' ? 'Transition removed: a straight cut.' : `${NAME[type] || type} on that cut.`, 2000);
     } else applyAll(type);
@@ -71,7 +83,8 @@ export function openTransitions(app, cut = null) {
   const applyAll = type => {
     const n = allCuts(app.doc).length;
     if (!n) { toast('There are no cuts yet: split a clip (S) or put two clips next to each other.', 4000); return; }
-    app.commit(d => { for (const [a, b] of allCuts(d)) { if (type === 'none') { a.transOut = { type: 'none', dur: 0.5 }; b.transIn = { type: 'none', dur: 0.5 }; } else applyCut(a, b, type, dur); } });
+    allType = type;
+    app.commit(d => { for (const [a, b] of allCuts(d)) { if (type === 'none') straight(a, b); else applyCut(a, b, type, dur); } });
     toast(type === 'none' ? `Removed the transitions from all ${n} cuts.` : `${NAME[type] || type} on all ${n} cuts.`, 2500);
   };
 
@@ -110,8 +123,8 @@ export function openTransitions(app, cut = null) {
   const box = el('div', { class: 'fx-editor tp-panel' }, head,
     el('div', { class: 'fx-ed-body' },
       where,
-      el('div', { class: 'row tp-durrow' }, el('label', { text: 'Length' }), durIn, durVal,
-        b('APPLY TO EVERY CUT', 'Put the highlighted transition on every cut in the edit', () => { const c = cur(); applyAll(c && c !== 'none' ? c : CUT_CHOICES[0][0]); drawWhere(); }, 'hw role-auto')),
+      scopeRow,
+      el('div', { class: 'row tp-durrow' }, el('label', { text: 'Length' }), durIn, durVal),
       grid,
       el('div', { class: 'engr', text: 'Fades' }), fades));
   document.body.append(box);
@@ -131,8 +144,14 @@ export function openTransitions(app, cut = null) {
     window.addEventListener('pointermove', mv); window.addEventListener('pointerup', up);
   });
   // follows the cut you click on the timeline while it's open
-  box._setCut = c => { ids = c ? [c[0].id, c[1].id] : null; drawWhere(); };
+  box._setCut = c => { ids = c ? [c[0].id, c[1].id] : null; scope = ids ? 'one' : 'all'; drawWhere(); };
   drawWhere();
   return box;
+}
+/** A straight cut: no transition and no crossfade between a and b. */
+function straight(a, b) {
+  a.transOut = { type: 'none', dur: a.transOut?.dur || 0.5 }; b.transIn = { type: 'none', dur: b.transIn?.dur || 0.5 };
+  delete a.xfadeOut; delete b.xfadeIn; delete a.xfAuto; delete b.xfAuto;
+  b.hardCut = true; // Smooth cuts leaves this one as a straight cut
 }
 const fmt = t => `${Math.floor(t / 60)}:${String(Math.floor(t % 60)).padStart(2, '0')}.${Math.floor((t % 1) * 10)}`;

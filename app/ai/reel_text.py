@@ -1,7 +1,9 @@
 """ProtoArt Reel prompt writer: a small local language model (Qwen2.5, from Protoart Studio's
 prompt enhancer) turns a video's title and description into an image prompt for a thumbnail.
 JSON lines: {"cmd": "suggest", "model": <snapshot folder>, "title", "description", "style", "mode"}
--> {"type": "done", "prompt": ...}."""
+-> {"type": "done", "prompt": ...}.
+{"cmd": "write", "model": <snapshot folder>, "system", "prompt", "max_tokens", "temperature"}
+-> {"type": "done", "text": ...}  (titles, descriptions, chapter names for the editor; the caller checks the result)."""
 import json
 import re
 import sys
@@ -71,6 +73,25 @@ class Writer:
         return clean(result)
 
 
+    def write(self, a):
+        """General writing for the editor: one system message and one request, plain text back."""
+        import torch
+        self.load(a["model"])
+        system = str(a.get("system") or "You are a helpful video editing assistant.")[:4000]
+        prompt = str(a.get("prompt") or "")[:24000]
+        msgs = [{"role": "system", "content": system}, {"role": "user", "content": prompt}]
+        text = self.tok.apply_chat_template(msgs, tokenize=False, add_generation_prompt=True)
+        inputs = self.tok(text, return_tensors="pt").to(self.device)
+        start = inputs["input_ids"].shape[1]
+        send({"type": "status", "msg": "Writing…"})
+        temp = float(a.get("temperature") or 0.6)
+        with torch.no_grad():
+            out = self.model.generate(**inputs, max_new_tokens=max(16, min(1200, int(a.get("max_tokens") or 400))),
+                                      do_sample=temp > 0, temperature=max(0.05, temp), top_p=0.9,
+                                      repetition_penalty=1.08, pad_token_id=self.tok.eos_token_id)
+        return self.tok.decode(out[0][start:], skip_special_tokens=True).strip()
+
+
 def clean(t):
     t = "".join(ch for ch in t if ord(ch) < 0x250 or 0x2000 <= ord(ch) <= 0x206F)
     t = " ".join(t.replace("\n", " ").split())
@@ -90,6 +111,8 @@ def main():
         try:
             if msg.get("cmd") == "suggest":
                 send({"type": "done", "prompt": w.suggest(msg)})
+            elif msg.get("cmd") == "write":
+                send({"type": "done", "text": w.write(msg)})
         except Exception as e:
             traceback.print_exc()
             send({"type": "error", "msg": f"{type(e).__name__}: {e}"})

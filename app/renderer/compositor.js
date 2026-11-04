@@ -4,7 +4,8 @@
 import { activeClips, propsAt, sourceTime, mediaById, clamp, TEXT_DEFAULTS, animated, captionAt, CAPTION_STYLE } from './model.js';
 import { keysAt } from './cursor.js';
 import { filterParams, needsGl } from './lib/glfx.js';
-import { drawElement } from './lib/elements.js';
+import { stabilizeAt } from './lib/stabilize.js';
+import { drawElement, isBackgroundElement } from './lib/elements.js';
 
 /**
  * ctx: CanvasRenderingContext2D or OffscreenCanvasRenderingContext2D sized to the output.
@@ -23,7 +24,11 @@ export function drawFrame(ctx, doc, t, sources, opts = {}) {
   ctx.filter = 'none';
   ctx.fillStyle = doc.canvas.background || '#000';
   ctx.fillRect(0, 0, W, H);
-  for (const k of activeClips(doc, t)) {
+  // pictures first (bottom track to top), then everything drawn on top of them: titles, call-outs, elements, shapes
+  // and drawings stay visible even on a track below a full-frame video (they used to vanish under it)
+  const overlay = k => k.type !== 'media' && !(k.type === 'element' && isBackgroundElement(k.element));
+  const here = activeClips(doc, t);
+  for (const k of [...here.filter(k => !overlay(k)), ...here.filter(overlay)]) {
     const local = t - k.start;
     const c = animated(k, local); // keyframed values at this moment
     const p = propsAt(c, local);
@@ -36,11 +41,20 @@ export function drawFrame(ctx, doc, t, sources, opts = {}) {
       else if (c.type === 'callout') drawCallout(ctx, c, p, W, H, local);
       else if (c.type === 'shape') drawShape(ctx, c, p, local, W, H, sx);
       else if (c.type === 'draw') drawAnnotation(ctx, c, p, local, W, H, sx);
-      else if (c.type === 'element') drawElement(ctx, c.element, p, local, c.duration, W, H);
+      else if (c.type === 'element') drawElement(ctx, c.element, p, local, c.duration, W, H, sources.image ? id => (id ? sources.image(id) : null) : null);
     } catch (e) { if (opts.onError) opts.onError(c, e); }
     if (masked) ctx.restore();
     if (p.glitch > 0.05) glitchBars(ctx, p.glitch, W, H, t);
     if (p.leak > 0.01) lightLeak(ctx, p.leak, W, H, t, p.burn);
+    // cinematic overlays: film grain, a lens flare streak, letterbox bars (from transitions or the clip's filters)
+    {
+      const fl = (c.filters || []).filter(f => !f.off);
+      const grain = Math.max(p.grain || 0, ...fl.filter(f => f.type === 'grain').map(f => f.amount ?? 0.35));
+      if (grain > 0.02 && c.type === 'media') filmGrain(ctx, grain, W, H, t);
+      if (p.flare && p.flare.amt > 0.02) lensFlare(ctx, p.flare, W, H);
+      const lb = fl.find(f => f.type === 'letterbox');
+      if ((p.bars || 0) > 0.001 || lb) letterbox(ctx, W, H, lb?.ratio || 2.39, lb ? 1 : 0, p.bars || 0);
+    }
     if (p.dip && p.dip.amount > 0) {
       ctx.save(); ctx.globalAlpha = clamp(p.dip.amount, 0, 1); ctx.fillStyle = p.dip.color; ctx.fillRect(0, 0, W, H); ctx.restore();
     }
@@ -117,6 +131,80 @@ function lightLeak(ctx, amt, W, H, t, burn) {
   if (burn && amt > 0.6) { ctx.globalCompositeOperation = 'source-over'; ctx.globalAlpha = (amt - 0.6) * 2; ctx.fillStyle = '#fff4e0'; ctx.fillRect(0, 0, W, H); }
   ctx.restore();
 }
+/**
+ * A device or window around a picture of w × h (centred on the origin): a browser, a Mac window, a phone or a
+ * laptop. Drawn before the picture, so the picture sits in its screen. Our own simple drawings, not product art.
+ */
+function drawDeviceFrame(ctx, f, w, h, sx) {
+  const dark = f.color !== 'light';
+  const body = dark ? '#1d1e21' : '#e9e9ec', edge = dark ? '#3a3b40' : '#c4c4ca';
+  ctx.save();
+  ctx.shadowColor = 'rgba(0,0,0,0.5)'; ctx.shadowBlur = 40 * sx; ctx.shadowOffsetY = 14 * sx;
+  if (f.type === 'browser' || f.type === 'window') {
+    const bar = Math.max(18 * sx, h * 0.06), rad = Math.min(14 * sx, bar * 0.5);
+    ctx.fillStyle = body; roundRectPath(ctx, -w / 2, -h / 2 - bar, w, h + bar, rad); ctx.fill();
+    ctx.shadowColor = 'transparent';
+    const dot = bar * 0.22, cy = -h / 2 - bar / 2;
+    ['#ff5f57', '#febc2e', '#28c840'].forEach((col, i) => { ctx.fillStyle = col; ctx.beginPath(); ctx.arc(-w / 2 + bar * 0.6 + i * dot * 3, cy, dot, 0, Math.PI * 2); ctx.fill(); });
+    if (f.type === 'browser') {
+      ctx.fillStyle = dark ? '#2c2d31' : '#ffffff';
+      roundRectPath(ctx, -w * 0.28, cy - bar * 0.3, w * 0.56, bar * 0.6, bar * 0.3); ctx.fill();
+      if (f.url) { ctx.fillStyle = dark ? 'rgba(255,255,255,0.7)' : 'rgba(0,0,0,0.6)'; ctx.font = `${Math.round(bar * 0.34)}px -apple-system, "Helvetica Neue", Arial, sans-serif`; ctx.textAlign = 'center'; ctx.textBaseline = 'middle'; ctx.fillText(String(f.url).slice(0, 80), 0, cy); }
+    } else if (f.title) {
+      ctx.fillStyle = dark ? 'rgba(255,255,255,0.75)' : 'rgba(0,0,0,0.65)'; ctx.font = `600 ${Math.round(bar * 0.36)}px -apple-system, "Helvetica Neue", Arial, sans-serif`; ctx.textAlign = 'center'; ctx.textBaseline = 'middle'; ctx.fillText(String(f.title).slice(0, 80), 0, cy);
+    }
+  } else if (f.type === 'phone') {
+    const b = Math.min(w, h) * 0.045, rad = Math.min(w, h) * 0.16;
+    ctx.fillStyle = body; roundRectPath(ctx, -w / 2 - b, -h / 2 - b, w + b * 2, h + b * 2, rad + b); ctx.fill();
+    ctx.shadowColor = 'transparent';
+    ctx.strokeStyle = edge; ctx.lineWidth = 2 * sx; roundRectPath(ctx, -w / 2 - b, -h / 2 - b, w + b * 2, h + b * 2, rad + b); ctx.stroke();
+  } else if (f.type === 'laptop') {
+    const b = Math.min(w, h) * 0.035, base = h * 0.06;
+    ctx.fillStyle = body; roundRectPath(ctx, -w / 2 - b, -h / 2 - b, w + b * 2, h + b * 2.4, b * 1.2); ctx.fill();
+    ctx.shadowColor = 'transparent';
+    ctx.fillStyle = dark ? '#8f9096' : '#cfd0d4';
+    ctx.beginPath(); ctx.moveTo(-w * 0.62, h / 2 + b * 1.4); ctx.lineTo(w * 0.62, h / 2 + b * 1.4); ctx.lineTo(w * 0.58, h / 2 + b * 1.4 + base); ctx.lineTo(-w * 0.58, h / 2 + b * 1.4 + base); ctx.closePath(); ctx.fill();
+    ctx.fillStyle = 'rgba(0,0,0,0.25)'; ctx.fillRect(-w * 0.08, h / 2 + b * 1.4, w * 0.16, base * 0.25);
+  }
+  ctx.restore();
+}
+/** Film grain: a cached noise tile, shifted every frame. */
+let grainTile = null;
+function filmGrain(ctx, amt, W, H, t) {
+  if (!grainTile) {
+    grainTile = (typeof OffscreenCanvas !== 'undefined') ? new OffscreenCanvas(256, 256) : Object.assign(document.createElement('canvas'), { width: 256, height: 256 });
+    const g = grainTile.getContext('2d'), img = g.createImageData(256, 256);
+    let seed = 7; const rnd = () => ((seed = (seed * 16807) % 2147483647) / 2147483647);
+    for (let i = 0; i < img.data.length; i += 4) { const v = 128 + (rnd() - 0.5) * 255; img.data[i] = img.data[i + 1] = img.data[i + 2] = v; img.data[i + 3] = 255; }
+    g.putImageData(img, 0, 0);
+  }
+  ctx.save();
+  ctx.globalCompositeOperation = 'overlay'; ctx.globalAlpha = Math.min(0.5, 0.12 + amt * 0.3);
+  const ox = Math.floor((Math.sin(t * 91.7) * 0.5 + 0.5) * 256), oy = Math.floor((Math.cos(t * 73.1) * 0.5 + 0.5) * 256);
+  const pat = ctx.createPattern(grainTile, 'repeat');
+  ctx.translate(-ox, -oy); ctx.fillStyle = pat; ctx.fillRect(ox, oy, W, H);
+  ctx.restore();
+}
+/** A horizontal lens-flare streak sweeping across (the Lens flare sweep transition). */
+function lensFlare(ctx, f, W, H) {
+  const x = f.k * W * 1.4 - W * 0.2, y = H * 0.42, a = Math.min(1, f.amt * 1.6);
+  ctx.save(); ctx.globalCompositeOperation = 'screen';
+  const g = ctx.createRadialGradient(x, y, 0, x, y, H * 0.5);
+  g.addColorStop(0, `rgba(255,245,225,${0.9 * a})`); g.addColorStop(0.15, `rgba(255,190,120,${0.45 * a})`); g.addColorStop(1, 'rgba(255,140,60,0)');
+  ctx.fillStyle = g; ctx.fillRect(0, 0, W, H);
+  const s = ctx.createLinearGradient(0, y, W, y);
+  s.addColorStop(0, 'rgba(120,180,255,0)'); s.addColorStop(Math.max(0, Math.min(1, x / W)), `rgba(200,225,255,${0.7 * a})`); s.addColorStop(1, 'rgba(120,180,255,0)');
+  ctx.fillStyle = s; ctx.fillRect(0, y - H * 0.012, W, H * 0.024);
+  ctx.restore();
+}
+/** Cinematic bars: `on` = the clip's Letterbox filter (bars for `ratio`); `close` 0…1 = bars closing to black (transition). */
+function letterbox(ctx, W, H, ratio, on, close) {
+  const base = on ? Math.max(0, (H - W / ratio) / 2) : 0;
+  const h = base + (H / 2 - base) * Math.min(1, close);
+  if (h <= 0.5) return;
+  ctx.save(); ctx.globalAlpha = 1; ctx.globalCompositeOperation = 'source-over'; ctx.fillStyle = '#000';
+  ctx.fillRect(0, 0, W, h); ctx.fillRect(0, H - h, W, h); ctx.restore();
+}
 /** Digital-glitch bars over the frame (the Glitch transition). */
 function glitchBars(ctx, amt, W, H, t) {
   ctx.save();
@@ -151,8 +239,9 @@ function drawMedia(ctx, doc, c, p, local, sources, W, H, sx) {
   // video levels (the clip's own, plus a fix for early ScreenFlow imports whose range came out stretched)
   const legacy = m.convertedFrom === 'screenflow' && m.kind === 'video' && !m.rangeOk;
   const lv = c.levels || legacy ? { ...(legacy ? { outBlack: 16 / 255, outWhite: 235 / 255 } : {}), ...(c.levels || {}) } : null;
-  if ((c.filters && c.filters.length) || matteOn || lv) {
+  if ((c.filters && c.filters.length) || matteOn || lv || p.split > 0.02) {
     const u = filterParams(c.filters, lv);
+    if (p.split > 0.02) u.aberr += p.split * 1.6; // the Chromatic split transition
     fblur = u.blur;
     const gl = needsGl(u, matteOn) && sources.fx ? sources.fx() : null;
     if (gl) {
@@ -180,7 +269,14 @@ function drawMedia(ctx, doc, c, p, local, sources, W, H, sx) {
   }
   ctx.save();
   ctx.globalAlpha = clamp(p.opacity, 0, 1);
-  if (p.blur || fblur) ctx.filter = `blur(${((p.blur || 0) + fblur) * sx}px)`;
+  {
+    // blur, plus the cinematic transitions' exposure and colour (brightness, saturation)
+    const f = [];
+    if (p.blur || fblur) f.push(`blur(${((p.blur || 0) + fblur) * sx}px)`);
+    if (p.bright != null && Math.abs(p.bright - 1) > 0.005) f.push(`brightness(${p.bright.toFixed(3)})`);
+    if (p.sat != null && Math.abs(p.sat - 1) > 0.005) f.push(`saturate(${Math.max(0, p.sat).toFixed(3)})`);
+    if (f.length) ctx.filter = f.join(' ');
+  }
   ctx.translate(r.cx, r.cy);
   if (p.rotation) ctx.rotate((p.rotation * Math.PI) / 180);
   const radius = (p.radius || 0) * sx;
@@ -192,7 +288,12 @@ function drawMedia(ctx, doc, c, p, local, sources, W, H, sx) {
     ctx.fill();
     ctx.restore();
   }
-  if (radius > 0 || p.border > 0) { roundRectPath(ctx, -r.w / 2, -r.h / 2, r.w, r.h, radius); ctx.save(); ctx.clip(); }
+  if (c.frame && c.frame.type && c.frame.type !== 'none') drawDeviceFrame(ctx, c.frame, r.w, r.h, sx);
+  // stabilization: the picture moves against the camera's shake, zoomed in so its edges stay inside the frame
+  const stab = c.stab && m.kind === 'video' ? stabilizeAt(c.stab, st) : null;
+  const clipped = radius > 0 || p.border > 0 || !!stab;
+  if (clipped) { roundRectPath(ctx, -r.w / 2, -r.h / 2, r.w, r.h, radius); ctx.save(); ctx.clip(); }
+  if (stab) { ctx.save(); ctx.scale(stab.zoom, stab.zoom); ctx.translate(stab.x * r.w, stab.y * r.h); ctx.rotate(stab.rot); }
   // crop in display orientation, then map back into the (possibly rotated) source
   const cl = p.crop[0] * dispW, ct = p.crop[1] * dispH, cw = dispW * (1 - p.crop[0] - p.crop[2]), chh = dispH * (1 - p.crop[1] - p.crop[3]);
   if (rot) {
@@ -207,8 +308,22 @@ function drawMedia(ctx, doc, c, p, local, sources, W, H, sx) {
     const k = src.scaled || 1;
     ctx.drawImage(src.img, cl * k, ct * k, cw * k, chh * k, -r.w / 2, -r.h / 2, r.w, r.h);
   }
-  if (sources.cursor && ((c.cursor && c.cursor.show !== false) || m.pointerSeparate)) drawCursorFx(ctx, c, m, sources.cursor(c, st), r, cl / dispW, ct / dispH, cw / dispW, chh / dispH, sx);
-  if (radius > 0 || p.border > 0) ctx.restore();
+  // cinematic filters on the picture itself: halation (a warm glow round the highlights) and colour fringing
+  // halation: a warm glow round the highlights (colour fringing is in the GPU filter pass)
+  const glow = Math.max(0, ...(c.filters || []).filter(f => !f.off && f.type === 'halation').map(f => f.amount ?? 0.4));
+  if (!rot && glow > 0.02) {
+    const k = src.scaled || 1;
+    ctx.save();
+    ctx.globalCompositeOperation = 'screen';
+    // only the bright parts glow: a high-contrast, darkened, blurred copy keeps the shadows untouched
+    ctx.filter = `blur(${(10 + glow * 30) * sx}px) contrast(2.2) brightness(${0.45 + glow * 0.25}) sepia(0.5) saturate(1.8)`;
+    ctx.globalAlpha = 0.35 + glow * 0.4;
+    ctx.drawImage(src.img, cl * k, ct * k, cw * k, chh * k, -r.w / 2, -r.h / 2, r.w, r.h);
+    ctx.restore();
+  }
+  if (sources.cursor && ((c.cursor && c.cursor.show !== false) || m.pointerSeparate)) drawCursorFx(ctx, c, m, sources.cursor(c, st), r, cl / dispW, ct / dispH, cw / dispW, chh / dispH, sx, rot ? null : { img: src.img, k: src.scaled || 1, w: dispW, h: dispH });
+  if (stab) ctx.restore();
+  if (clipped) ctx.restore();
   if (p.border > 0) {
     ctx.lineWidth = p.border * sx; ctx.strokeStyle = p.borderColor || '#fff';
     roundRectPath(ctx, -r.w / 2, -r.h / 2, r.w, r.h, radius);
@@ -267,10 +382,31 @@ function drawPointer(ctx, x, y, style, scale, sx, pressed) {
 }
 
 /** Cursor highlight and click rings drawn over a screen recording, from the recorded cursor track. */
-function drawCursorFx(ctx, c, m, cur, r, cl, ct, cw, ch, sx) {
+function drawCursorFx(ctx, c, m, cur, r, cl, ct, cw, ch, sx, pic = null) {
   if (!cur) return;
   const fx = c.cursor || {};
   const x = -r.w / 2 + ((cur.x - cl) / cw) * r.w, y = -r.h / 2 + ((cur.y - ct) / ch) * r.h;
+  // spotlight: everything but a soft circle round the pointer is dimmed
+  if (fx.spotlight) {
+    const rad = (fx.spotSize || 220) * sx;
+    ctx.save();
+    const g = ctx.createRadialGradient(x, y, rad * 0.75, x, y, rad * 1.15);
+    g.addColorStop(0, 'rgba(0,0,0,0)'); g.addColorStop(1, `rgba(0,0,0,${fx.spotDim ?? 0.6})`);
+    ctx.fillStyle = g; ctx.fillRect(-r.w / 2, -r.h / 2, r.w, r.h);
+    ctx.restore();
+  }
+  // magnifier: a round lens following the pointer, showing what's under it larger
+  if (fx.magnify && pic) {
+    const rad = (fx.lensSize || 130) * sx, z = fx.lensZoom || 2;
+    const ux = cur.x * pic.w, uy = cur.y * pic.h, half = (rad / r.w) * cw * pic.w / z;
+    ctx.save();
+    ctx.beginPath(); ctx.arc(x, y, rad, 0, Math.PI * 2); ctx.closePath();
+    ctx.shadowColor = 'rgba(0,0,0,0.55)'; ctx.shadowBlur = 18 * sx; ctx.fillStyle = '#000'; ctx.fill(); ctx.shadowColor = 'transparent';
+    ctx.clip();
+    ctx.drawImage(pic.img, (ux - half) * pic.k, (uy - half) * pic.k, half * 2 * pic.k, half * 2 * pic.k, x - rad, y - rad, rad * 2, rad * 2);
+    ctx.restore();
+    ctx.save(); ctx.strokeStyle = 'rgba(255,255,255,0.9)'; ctx.lineWidth = 3 * sx; ctx.beginPath(); ctx.arc(x, y, rad, 0, Math.PI * 2); ctx.stroke(); ctx.restore();
+  }
   if (fx.highlight) {
     ctx.save();
     const rad = (fx.highlightSize || 60) * sx * 0.5;

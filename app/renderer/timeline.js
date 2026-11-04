@@ -4,10 +4,14 @@
 import { el, $, popMenu, toast } from './ui.js';
 import { clipEnd, isFree, snap, trim, setSpeed, SPEED_STEPS, mediaById, duration, fmtTime, keyAt, withGroups, TRACK_LANES, gainToPos, posToGain, fmtDb, fmtPan, clamp, neighbour, roll, KEY_EASES, split, tidyCrossfades, cutsOn, crossfadeOverlaps } from './model.js';
 import { peaksFor, posterFor } from './peaks.js';
+import { renderingNow } from './fx.js';
 import { openSpeedPanel } from './speedpanel.js';
+import { copyEffects, copyAction } from './clipops.js';
 import { openTransitions } from './transpicker.js';
 import { dial } from './gear.js';
 import { fxRack, fxRackH } from './fxrack.js';
+import { roleButton, tint } from './automix.js';
+import { soundTracks, ROLES } from './lib/automix.js';
 
 const LANE_H = 52;
 const CAP_H = 30;
@@ -68,6 +72,12 @@ export class Timeline {
     for (const b of document.querySelectorAll('.keep-part-btn')) b.classList.toggle('lit', this.marking);
   }
   /** Drag a kept part's edge (start / end) or the whole part (move); it never runs into its neighbours. */
+  /** Snap for parts: clip edges, markers, the playhead and the edges of the other parts (so parts meet exactly). */
+  _partSnap(t, skipId = null) {
+    if (!this.snapOn) return t;
+    const edges = (this.doc.sections || []).filter(p => p.id !== skipId).flatMap(p => [p.t0, p.t1]);
+    return snap(this.doc, t, this._tol(), [], [this.app.player.time, ...edges]);
+  }
   _partDrag(e, id, what) {
     if (e.button !== 0) return;
     e.preventDefault(); e.stopPropagation();
@@ -81,11 +91,18 @@ export class Timeline {
       if (!started) { if (Math.abs(ev.clientX - x0) < 3) return; started = true; app.beginChange(); }
       const secs = (this.doc.sections || []).slice().sort((a, b) => a.t0 - b.t0), p = secs.find(q => q.id === id);
       if (!p) return;
-      const i = secs.indexOf(p), lo = i > 0 ? secs[i - 1].t1 + 0.05 : 0, hi = i < secs.length - 1 ? secs[i + 1].t0 - 0.05 : Math.max(duration(this.doc), orig.t1);
-      const snapT = t => (this.snapOn ? snap(this.doc, t, this._tol(), [], [app.player.time]) : t);
+      // parts may touch their neighbours exactly (no gap), never overlap them
+      const i = secs.indexOf(p), lo = i > 0 ? secs[i - 1].t1 : 0, hi = i < secs.length - 1 ? secs[i + 1].t0 : Math.max(duration(this.doc), orig.t1);
+      const snapT = t => this._partSnap(t, id);
       if (what === 'start') p.t0 = Math.max(lo, Math.min(orig.t1 - 0.3, snapT(orig.t0 + dt)));
       else if (what === 'end') p.t1 = Math.min(hi, Math.max(orig.t0 + 0.3, snapT(orig.t1 + dt)));
-      else { const len = orig.t1 - orig.t0; const a = Math.max(lo, Math.min(hi - len, orig.t0 + dt)); p.t0 = a; p.t1 = a + len; }
+      else {
+        // moving a whole part: whichever edge is nearer something to snap to, snaps
+        const len = orig.t1 - orig.t0, a0 = orig.t0 + dt;
+        const sa = snapT(a0), sb = snapT(a0 + len) - len;
+        const a = Math.max(lo, Math.min(hi - len, Math.abs(sa - a0) <= Math.abs(sb - a0) ? sa : sb));
+        p.t0 = a; p.t1 = a + len;
+      }
       app.changed({ light: true, keepInspector: true });
     };
     const up = () => {
@@ -96,10 +113,22 @@ export class Timeline {
     window.addEventListener('pointermove', move); window.addEventListener('pointerup', up);
   }
   setTool(tool) {
-    this.tool = tool === 'blade' ? 'blade' : 'select';
+    this.tool = tool === 'blade' ? 'blade' : tool === 'forward' ? 'forward' : 'select';
     document.getElementById('timeline')?.classList.toggle('tool-blade', this.tool === 'blade');
-    for (const b of document.querySelectorAll('[data-tool]')) b.classList.toggle('lit', b.dataset.tool === this.tool);
+    document.getElementById('timeline')?.classList.toggle('tool-forward', this.tool === 'forward');
+    // the SELECT key shows which select tool is on: ▲ one at a time, ⇉ everything to the right
+    for (const b of document.querySelectorAll('[data-tool]')) b.classList.toggle('lit', b.dataset.tool === this.tool || (b.dataset.tool === 'select' && this.tool === 'forward'));
+    const sb = document.querySelector('[data-tool=select]');
+    if (sb) { const lab = sb.querySelector('.sel-label') || sb.insertBefore(Object.assign(document.createElement('span'), { className: 'sel-label' }), sb.firstChild); for (const n of [...sb.childNodes]) if (n.nodeType === 3) n.remove(); lab.textContent = this.tool === 'forward' ? '⇉ FORWARD ' : '▲ SELECT '; }
     if (this.tool !== 'blade') this._bladeLine.classList.add('hidden');
+  }
+  /** Select forward: everything that starts at or after t, on every track (locked tracks left out). */
+  selectForward(t) {
+    const doc = this.doc;
+    const locked = id => doc.tracks.find(x => x.id === id)?.locked;
+    const ids = doc.clips.filter(c => c.start >= t - 1e-3 && !locked(c.track)).map(c => c.id);
+    this.app.select(ids, null);
+    return ids;
   }
   /** Where the blade would cut: snaps to the playhead and clip edges when SNAP is on. */
   _bladeTime(clientX) {
@@ -161,6 +190,9 @@ export class Timeline {
       ['Fade in (½ s)', () => fade('in', Math.min(0.5, c.duration / 2))],
       ['Fade out (½ s)', () => fade('out', Math.min(0.5, c.duration / 2))],
       ['Remove fades', () => { fade('in', 0); fade('out', 0); }],
+      // bounce in place: render the effects into new audio on a track below; originals muted and greyed out
+      c.bounced || c.bounceOf ? ['↩ Back to the original sound (remove the rendered copy)', () => app.cmd('bounce-revert')]
+        : audioish && !c.audio?.mute ? ['⤓ Bounce to new track (render effects in place)', () => app.cmd('bounce')] : null,
       audioish ? (() => { const tr = this.doc.tracks.find(t => t.id === c.track), on = app.autoLevelOn(tr); return [on ? `✓ Auto Level (on “${tr?.name || 'track'}”)` : `Auto Level (even out the volume)`, () => app.toggleAutoLevel(tr)]; })() : null,
       (() => { // transitions and crossfades on every selected clip (after ⌘A: the whole edit)
         const sel = this.doc.clips.filter(x => app.selection.clips.includes(x.id));
@@ -196,6 +228,13 @@ export class Timeline {
       [c.group ? 'Ungroup' : 'Group', () => app.cmd(c.group ? 'ungroup' : 'group')],
       ['Rename…', () => app.cmd('rename-clip')],
       null,
+      m && ['video', 'image'].includes(m.kind) && !c.audioOnly ? ['▣ Picture in picture (corner; again: next corner)', () => app.cmd('pip')] : null,
+      m && ['video', 'image'].includes(m.kind) && !c.audioOnly ? ['🟩 Green screen (key out a colour)', () => app.cmd('green-screen')] : null,
+      m?.kind === 'video' && !c.audioOnly ? ['✂ Remove background (no green screen)', () => app.cmd('remove-background')] : null,
+      m?.kind === 'video' && !c.audioOnly ? [c.stab ? '🎥 Stabilize settings…' : '🎥 Stabilize (smooth a shaky camera)', () => app.cmd('stabilize')] : null,
+      null,
+      ['Copy effects (zooms, filters, sound effects)', () => app.cmd('copy-effects')],
+      app.effectsClip ? [app.effectsClip.single ? 'Paste action at playhead' : 'Paste effects', () => app.cmd('paste-effects')] : ['Paste effects', null],
       ['Copy style', () => app.cmd('copy-style')],
       ['Paste style', () => app.cmd('paste-style')],
       m ? ['Show media in Finder', () => app.api.revealMedia?.(app.token, m.file)] : null,
@@ -230,6 +269,10 @@ export class Timeline {
     popMenu(e.clientX, e.clientY, [
       ['Edit this action', () => { app.select([c.id], a.id); app.seek(c.start + a.t + a.dur); }],
       ['Jump to its start', () => app.seek(c.start + a.t)],
+      null,
+      ['Copy this action', () => copyAction(app, a)],
+      ['Copy all this clip’s effects', () => copyEffects(app, c)],
+      app.effectsClip ? ['Paste effects onto this clip', () => { app.select([c.id], null); app.cmd('paste-effects'); }] : null,
       null,
       ['Delete action', () => app.commit(() => { c.actions = c.actions.filter(x => x !== a); app.selection.action = null; })],
       ['Duplicate at playhead', () => app.commit(() => {
@@ -324,6 +367,7 @@ export class Timeline {
   render() {
     if (!this.doc) return;
     tidyCrossfades(this.doc);
+    this._soundIds = null; // which tracks have sound (for the role tags), worked out again each draw
     const doc = this.doc, sel = new Set(this.app.selection.clips);
     const W = this.contentWidth();
     this.tracksEl.style.width = W + 'px';
@@ -357,7 +401,20 @@ export class Timeline {
       }
     }
     this.heads.append(el('div', { class: 'tl-add' }, el('button', { class: 'mini', text: '+ Track', onclick: () => this.app.addTrack() })));
-    for (const m of doc.markers || []) this.tracksEl.append(el('div', { class: 'marker', style: { left: this.x(m.t) + 'px' }, title: m.label || 'Marker' }));
+    for (const m of doc.markers || []) {
+      const line = el('div', { class: 'marker', style: { left: this.x(m.t) + 'px' } });
+      // a flag to grab: click jumps there, right-click to rename or delete, ⌥-click deletes
+      const flag = el('div', { class: 'marker-flag', title: `${m.label || 'Marker'} (${fmtTime(m.t)}) · click to jump · right-click to rename or delete · ⌥-click deletes` });
+      flag.addEventListener('pointerdown', ev => {
+        ev.stopPropagation(); ev.preventDefault();
+        if (ev.button !== 0) return;
+        if (ev.altKey) { this.app.commit(d => { d.markers = d.markers.filter(x => !(Math.abs(x.t - m.t) < 1e-6 && x.label === m.label)); }); toast('Marker deleted (⌘Z brings it back).', 2500); return; }
+        this.app.seek(m.t);
+      });
+      flag.addEventListener('contextmenu', ev => { ev.preventDefault(); ev.stopPropagation(); this._markerMenu(m, ev.clientX, ev.clientY); });
+      line.append(flag);
+      this.tracksEl.append(line);
+    }
     // parts kept for Auto Edit: green outlines; everything else is greyed out
     const parts = (doc.sections || []).slice().sort((a, b) => a.t0 - b.t0);
     if (parts.length) {
@@ -511,9 +568,11 @@ export class Timeline {
     };
     const grip = el('span', { class: 'th-grip', text: '☰', title: 'Drag to move this track up or down' });
     grip.addEventListener('pointerdown', e => this._dragTrack(e, tr));
-    return el('div', { class: 'tl-head' + (tr.solo ? ' soloed' : ''), 'data-track': tr.id, style: { height: this.trackH() + 'px' }, oncontextmenu: e => { if (e.target.closest('select, input')) return; e.preventDefault(); app.trackMenu(tr, e.clientX, e.clientY); } },
+    const sound = (this._soundIds ||= new Set(soundTracks(doc).map(t => t.id))).has(tr.id) || !!tr.role;
+    const head = el('div', { class: 'tl-head' + (tr.solo ? ' soloed' : ''), 'data-track': tr.id, style: { height: this.trackH() + 'px' }, oncontextmenu: e => { if (e.target.closest('select, input')) return; e.preventDefault(); app.trackMenu(tr, e.clientX, e.clientY); } },
       el('div', { class: 'th-top' }, grip,
         el('span', { class: 'tname', text: tr.name, title: 'Drag to move the track · double-click to rename', ondblclick: () => app.renameTrack(tr), onpointerdown: e => this._dragTrack(e, tr, true) }),
+        sound ? roleButton(app, tr, { dot: true }) : null,
         btn('S', tr.solo, 'Solo: hear only soloed tracks', () => app.commit(() => { tr.solo = !tr.solo; }), 'solo'),
         btn('M', tr.muted, 'Mute this track', () => app.commit(() => { tr.muted = !tr.muted; }), 'mute'),
         btn('H', tr.hidden, 'Hide this track’s picture', () => app.commit(() => { tr.hidden = !tr.hidden; })),
@@ -524,6 +583,8 @@ export class Timeline {
       el('div', { class: 'th-bottom' }, laneSel,
         el('span', { class: 'th-k' }, el('i', { text: 'VOL' }), knob('volume')),
         el('span', { class: 'th-k' }, el('i', { text: 'PAN' }), knob('pan'))));
+    tint(head, tr);
+    return head;
   }
 
   _laneHead(tr, lane) {
@@ -644,8 +705,11 @@ export class Timeline {
     const kind = c.audioOnly ? 'audio' : c.type === 'media' ? (m ? m.kind : 'video') : c.type;
     const name = c.type === 'text' ? (c.text?.content || 'Text').split('\n')[0] : c.name || (m && m.name) || c.type;
     const tags = (c.reversed ? ' ◀◀' : '') + (c.speed && c.speed !== 1 ? `  ${Math.round(c.speed * 100)}%` : '') + (c.audio?.mute && c.detached ? '  (sound detached)' : '');
-    const e = el('div', { class: `clip ${kind}${selected ? ' selected' : ''}${c.locked ? ' locked' : ''}${c.group ? ' grouped' : ''}`, 'data-id': c.id, style: { left: this.x(c.start) + 'px', width: Math.max(4, this.x(c.duration)) + 'px' } },
+    const e = el('div', { class: `clip ${kind}${selected ? ' selected' : ''}${c.locked ? ' locked' : ''}${c.group ? ' grouped' : ''}${c.bounced ? ' bounced-src' : ''}${c.bounceOf ? ' bounced' : ''}`, 'data-id': c.id, style: { left: this.x(c.start) + 'px', width: Math.max(4, this.x(c.duration)) + 'px' } },
       el('div', { class: 'cname', text: (c.locked ? '🔒 ' : '') + name + tags }));
+    // sound clips on a labelled track take its colour: blue dialogue, orange music, green sound FX
+    const role = kind === 'audio' && this.doc.tracks.find(t => t.id === c.track)?.role;
+    if (role && ROLES[role]) { e.classList.add('role-' + role); e.style.setProperty('--role', ROLES[role].color); }
     // crossfade marks: the half of the blend on each side of the cut
     if (c.xfadeIn) e.appendChild(el('div', { class: 'xfade in', title: `Crossfade ${c.xfadeIn.toFixed(2)} s`, style: { width: Math.max(3, this.x(c.xfadeIn / 2)) + 'px' } }));
     if (c.xfadeOut) e.appendChild(el('div', { class: 'xfade out', title: `Crossfade ${c.xfadeOut.toFixed(2)} s`, style: { width: Math.max(3, this.x(c.xfadeOut / 2)) + 'px' } }));
@@ -654,7 +718,22 @@ export class Timeline {
       posterFor(this.app, m).then(url => { if (url) strip.style.backgroundImage = `url(${url})`; });
       e.append(strip);
     }
-    if (m && (m.hasAudio || m.kind === 'audio')) this._waveTiles(e, c, m);
+    // the waveform of what the clip actually plays: the processed file once its effects are rendered (AudioSuite-style)
+    const applied = c.fx && c.fx.file && !c.fx.dirty && !c.fx.bypass;
+    if (m && (m.hasAudio || m.kind === 'audio')) this._waveTiles(e, c, applied ? { ...m, file: c.fx.file } : m);
+    if (c.bounced) e.append(el('div', { class: 'bounce-tag src', text: 'RENDERED ↓', title: 'This sound was bounced to the track below (with its effects). It’s muted here and kept as the original. Right-click › Back to the original sound to use it again.' }));
+    else if (c.bounceOf) e.append(el('div', { class: 'bounce-tag', text: 'BOUNCED', title: 'Rendered audio: the original clip’s sound with all its effects. Right-click › Back to the original sound to undo.' }));
+    if (m && c.fx && c.fx.chain?.length && !c.bounced) {
+      const on = c.fx.chain.filter(x => !x.bypass);
+      const names = on.map(x => x.name).join(' → ');
+      const st = renderingNow.has(c.id) ? 'busy' : c.fx.bypass ? 'off' : applied ? 'done' : 'todo';
+      const b = el('div', { class: `fxbadge ${st}`, title: {
+        busy: `Rendering ${names}…`, off: `Effects bypassed (playing the original). ${names}`,
+        done: `Rendered: this clip plays the processed sound (${names})`, todo: `Effects not rendered yet (${names}). Select the clip and press RENDER EFFECTS` }[st] },
+      el('span', { class: 'fxb-t', text: { busy: 'FX …', off: 'FX ○', done: 'FX ✓', todo: 'FX !' }[st] }), el('i', { class: 'fxb-bar' }));
+      e.append(b);
+      if (st === 'busy') this._fxBar(b, renderingNow.get(c.id));
+    }
     if (c.transIn && !['none', 'fade'].includes(c.transIn.type)) e.append(el('div', { class: 'tr', style: { left: 0, width: this.x(c.transIn.dur) + 'px' } }));
     if (c.transOut && !['none', 'fade'].includes(c.transOut.type)) e.append(el('div', { class: 'tr out', style: { right: 0, width: this.x(c.transOut.dur) + 'px' } }));
     for (const a of c.actions || []) {
@@ -760,6 +839,19 @@ export class Timeline {
         this._waveIO.observe(tile);
       }
     });
+  }
+  _fxBar(b, f) {
+    const v = Math.round((f || 0) * 100);
+    b.querySelector('.fxb-t').textContent = `RENDERING ${v}%`;
+    b.querySelector('.fxb-bar').style.width = v + '%';
+  }
+  /** Live progress of a clip's effect render (called by fx.js); null = finished. */
+  renderProgress(id, f) {
+    const e = this.el?.querySelector?.(`.clip[data-id="${CSS.escape(id)}"]`) || document.querySelector(`.clip[data-id="${CSS.escape(id)}"]`);
+    if (f == null) { this.render(); return; }
+    let b = e && e.querySelector('.fxbadge');
+    if (e && !b) { b = el('div', { class: 'fxbadge busy' }, el('span', { class: 'fxb-t' }), el('i', { class: 'fxb-bar' })); e.append(b); }
+    if (b) { b.className = 'fxbadge busy'; this._fxBar(b, f); }
   }
   _drawWaveTile(tile, c, peaks, x0, width, w) {
     const h = 40, cv = el('canvas', { class: 'wave' });
@@ -912,12 +1004,29 @@ export class Timeline {
     window.addEventListener('pointermove', move); window.addEventListener('pointerup', up);
   }
 
+  /** Right-click a marker: rename it, delete it, or delete them all. */
+  _markerMenu(m, x, y) {
+    const app = this.app, same = a => Math.abs(a.t - m.t) < 1e-6 && a.label === m.label;
+    const n = (this.doc.markers || []).length;
+    popMenu(x, y, [
+      ['Jump here', () => app.seek(m.t)],
+      ['Rename marker…', async () => { const { promptText } = await import('./ui.js'); const v = await promptText('Rename marker', 'Name', m.label || ''); if (v != null) app.commit(d => { const k = d.markers.find(same); if (k) k.label = String(v).slice(0, 80); }); }],
+      null,
+      [`Delete this marker${m.label ? ` (“${m.label}”)` : ''}`, () => { app.commit(d => { d.markers = d.markers.filter(k => !same(k)); }); toast('Marker deleted (⌘Z brings it back).', 2500); }],
+      n > 1 ? [`Delete all ${n} markers…`, () => app.deleteMarkers('all')] : null,
+    ]);
+  }
   _rulerEvents() {
     $('#tl-ruler').addEventListener('pointerdown', e => this._scrub(e));
     $('#tl-ruler').addEventListener('contextmenu', e => {
       e.preventDefault();
       const t = this._timeAt(e.clientX), secs = this.doc?.sections || [], i = secs.findIndex(s => t >= s.t0 && t <= s.t1);
+      // a marker within a few pixels: its own menu
+      const near = (this.doc?.markers || []).filter(m => Math.abs(this.x(m.t) - this.x(t)) < 8).sort((a, b) => Math.abs(a.t - t) - Math.abs(b.t - t))[0];
+      if (near) { this._markerMenu(near, e.clientX, e.clientY); return; }
+      const nm = (this.doc?.markers || []).length;
       popMenu(e.clientX, e.clientY, [
+        nm ? [`Delete all ${nm} markers…`, () => this.app.deleteMarkers('all')] : null,
         i >= 0 ? [`Remove section ${i + 1}`, () => this.app.cmd('remove-section:' + secs[i].id)] : null,
         ['Add In–Out as a section  (X)', () => this.app.cmd('add-section')],
         secs.length ? [`Clear all ${secs.length} sections`, () => this.app.cmd('clear-sections')] : null,
@@ -931,14 +1040,14 @@ export class Timeline {
       if (!this.marking || e.button !== 0 || e.target.closest('.part-tag, .part-h')) return;
       e.preventDefault(); e.stopPropagation();
       const r = this.tracksEl.getBoundingClientRect();
-      const t0 = Math.max(0, this._timeAt(e.clientX));
+      const t0 = this._partSnap(Math.max(0, this._timeAt(e.clientX)));
       // starting inside a part that's already kept moves it (instead of making another)
       const inside = (this.doc.sections || []).find(p => t0 >= p.t0 && t0 <= p.t1);
       if (inside) { this._partDrag(e, inside.id, 'move'); return; }
       const band = el('div', { class: 'part-new', style: { left: this.x(t0) + 'px', width: '2px', height: this.totalH() + 'px' } });
       this.tracksEl.append(band);
       let t1 = t0;
-      const move = ev => { t1 = Math.max(0, this._timeAt(ev.clientX)); const a = Math.min(t0, t1), b = Math.max(t0, t1); band.style.left = this.x(a) + 'px'; band.style.width = Math.max(2, this.x(b - a)) + 'px'; };
+      const move = ev => { t1 = this._partSnap(Math.max(0, this._timeAt(ev.clientX))); const a = Math.min(t0, t1), b = Math.max(t0, t1); band.style.left = this.x(a) + 'px'; band.style.width = Math.max(2, this.x(b - a)) + 'px'; };
       const up = () => {
         window.removeEventListener('pointermove', move); window.removeEventListener('pointerup', up); band.remove();
         if (Math.abs(t1 - t0) > 0.3) this.app.keepPart(Math.min(t0, t1), Math.max(t0, t1));
@@ -950,6 +1059,11 @@ export class Timeline {
     // empty track area: click to put the playhead there, drag to select clips with a box
     this.tracksEl.addEventListener('pointerdown', e => {
       if (e.button !== 0 || !(e.target === this.tracksEl || e.target.classList.contains('tl-row'))) return;
+      if (this.tool === 'forward') { // ⇉: everything to the right of where you click
+        const t = Math.max(0, this._timeAt(e.clientX)), ids = this.selectForward(t);
+        toast(ids.length ? `${ids.length} clip${ids.length === 1 ? '' : 's'} from ${fmtTime(t)} on selected, on every track. Drag one to move them all.` : 'Nothing starts to the right of there.', 3500);
+        return;
+      }
       const r0 = this.tracksEl.getBoundingClientRect();
       const x0 = e.clientX - r0.left, y0 = e.clientY - r0.top;
       const keep = e.shiftKey || e.metaKey ? this.app.selection.clips.slice() : [];
@@ -980,6 +1094,16 @@ export class Timeline {
   _clipPointer(e, c) {
     if (e.button !== 0) return;
     e.stopPropagation();
+    // double-click to edit: the timeline redraws between the two clicks (the first one selects), so the browser's
+    // own dblclick never reaches the clip; it's timed here instead
+    const now = performance.now();
+    if (this._lastClick && this._lastClick.id === c.id && now - this._lastClick.at < 420 && Math.abs(e.clientX - this._lastClick.x) < 6) {
+      this._lastClick = null;
+      this.app.select([c.id], null);
+      this.app.editClip?.(c) ?? this.app.focusInspector();
+      return;
+    }
+    this._lastClick = { id: c.id, at: now, x: e.clientX };
     if (this.tool === 'blade' && !e.target.classList.contains('fade-h')) {
       if (c.locked) return;
       const t = this._bladeTime(e.clientX);
@@ -988,6 +1112,8 @@ export class Timeline {
       if (made.length) this.spliceMark(t);
       return;
     }
+    // ⇉ select forward: this clip and everything after it, on every track; then drag moves them all
+    if (this.tool === 'forward' && !e.target.classList.contains('edge')) this.selectForward(c.start);
     const target = e.target;
     const sel = this.app.selection.clips;
     const mine = withGroups(this.doc, [c.id]);

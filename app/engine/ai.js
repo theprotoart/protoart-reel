@@ -16,7 +16,7 @@ const path = require('path');
 const HOME = os.homedir();
 const STUDIO_HOME = process.env.PROTOART_HOME || path.join(HOME, '.protoartstudio');
 const ERNIE_REPO = 'mflux-community/ernie-image-turbo-mflux-q4';
-const QWEN_REPOS = ['Qwen/Qwen2.5-1.5B-Instruct', 'Qwen/Qwen2.5-0.5B-Instruct'];
+const QWEN_REPOS = ['Qwen/Qwen2.5-1.5B-Instruct', 'Qwen/Qwen2.5-0.5B-Instruct', 'Qwen/Qwen2.5-3B-Instruct'];
 const SCRIPTS = path.join(__dirname, '..', 'ai');
 // The 4-bit FLUX.2 [klein] conversion Protoart Studio uses (Studio's engine.py, pinned to one revision
 // so the files can't change under us). Reel reads it from the shared Hugging Face cache.
@@ -389,6 +389,76 @@ async function suggest(r, onEvent) {
   }
 }
 
+// ------------------------------------------------------------------ the writer: Qwen for titles, descriptions, chapters
+// Three sizes of Qwen's own Qwen2.5 instruct model. The bigger ones write better but need more memory: a size this Mac
+// can't run is offered greyed out with the reason. Downloaded into the shared Hugging Face cache (Studio's too).
+const WRITER_MODELS = {
+  small: { repo: 'Qwen/Qwen2.5-1.5B-Instruct', label: 'Qwen 2.5 · 1.5B (small, fast)', gb: 3.1, minRamGb: 8 },
+  medium: { repo: 'Qwen/Qwen2.5-3B-Instruct', label: 'Qwen 2.5 · 3B (better)', gb: 6.2, minRamGb: 16 },
+  large: { repo: 'Qwen/Qwen2.5-7B-Instruct', label: 'Qwen 2.5 · 7B (best)', gb: 15.3, minRamGb: 32 },
+};
+const ramGb = () => Math.round(os.totalmem() / 1024 ** 3);
+function writerStatus() {
+  const py = textPython(), ram = ramGb();
+  const models = {};
+  for (const [k, m] of Object.entries(WRITER_MODELS)) {
+    const ready = !!snapshot(m.repo), fits = ram >= m.minRamGb;
+    models[k] = { label: m.label, gb: m.gb, ready, allowed: fits,
+      reason: fits ? '' : `Needs a Mac with ${m.minRamGb} GB of memory or more (this one has ${ram} GB): it would run out of memory and stall.` };
+  }
+  return { python: !!py, reason: py ? '' : 'The writer runs in Protoart Studio’s Python. Install Protoart Studio (or open it once) to use it.', ram, models };
+}
+let writerJob = null;
+async function setupWriter(key, onEvent) {
+  const m = WRITER_MODELS[key]; if (!m) throw new Error('Unknown model');
+  const st = writerStatus();
+  if (!st.python) throw new Error(st.reason);
+  if (!st.models[key].allowed) throw new Error(st.models[key].reason);
+  if (st.models[key].ready) return { ok: true };
+  if (writerJob) throw new Error('Already downloading a writer model.');
+  const free = await fs.promises.statfs(os.homedir()).then(x => x.bavail * x.bsize).catch(() => Infinity);
+  if (free < m.gb * 1.2e9) throw new Error(`Not enough free disk space: it needs about ${m.gb} GB (${(free / 1e9).toFixed(0)} GB free now).`);
+  const repoDir = path.join(hubCache(), 'models--' + m.repo.replace('/', '--'));
+  const job = writerJob = { cancelled: false, proc: null };
+  try {
+    const env = { HOME, PATH: '/usr/bin:/bin:/usr/sbin:/sbin', LANG: 'en_US.UTF-8', PYTHONUNBUFFERED: '1', PYTHONNOUSERSITE: '1', HF_HUB_CACHE: hubCache(), HF_HUB_DISABLE_TELEMETRY: '1' };
+    await new Promise((resolve, reject) => {
+      const proc = job.proc = spawn(textPython(), ['-I', path.join(SCRIPTS, 'reel_fetch.py'), hubCache(), m.repo, 'main'], { cwd: SCRIPTS, env, stdio: ['ignore', 'pipe', 'pipe'] });
+      let out = '', err = '';
+      proc.stdout.on('data', d => { out += d; });
+      proc.stderr.on('data', d => { err = (err + d).slice(-3000); });
+      const timer = setInterval(async () => {
+        const n = await folderBytes(repoDir);
+        onEvent({ type: 'writerSetup', key, f: Math.min(0.99, n / (m.gb * 1e9)), msg: `Downloading ${m.label}… ${(n / 1e9).toFixed(1)} of ${m.gb} GB` });
+      }, 1500);
+      proc.on('exit', code => {
+        clearInterval(timer);
+        if (job.cancelled) return reject(new Error('Stopped'));
+        const last = out.trim().split('\n').pop() || '';
+        let msg = null; try { msg = JSON.parse(last); } catch { /* none */ }
+        if (code === 0 && msg && msg.type === 'fetched') return resolve();
+        reject(new Error(`Download failed: ${(msg && msg.msg) || err.split('\n').filter(Boolean).pop() || 'unknown error'}`));
+      });
+    });
+    if (!snapshot(m.repo)) throw new Error('The download finished but the model files are incomplete. Try again.');
+    onEvent({ type: 'writerSetup', key, f: 1, msg: `${m.label} is ready.` });
+    return { ok: true };
+  } finally { writerJob = null; }
+}
+function cancelWriterSetup() { if (writerJob) { writerJob.cancelled = true; try { writerJob.proc && writerJob.proc.kill('SIGTERM'); } catch { /* gone */ } } }
+/** Writes with the best writer model this Mac can run (or the size asked for). Returns { text, model }. */
+async function write(r, onEvent) {
+  const st = writerStatus();
+  if (!st.python) throw new Error(st.reason);
+  const order = r.size && WRITER_MODELS[r.size] ? [r.size, 'large', 'medium', 'small'] : ['large', 'medium', 'small'];
+  const key = order.find(k => st.models[k].ready && st.models[k].allowed);
+  if (!key) throw new Error('No writer model yet: choose a size and press GET to download it.');
+  if (!text) text = new Helper('Prompt writer', textPython(), path.join(SCRIPTS, 'reel_text.py'));
+  const ev = await text.request({ cmd: 'write', model: snapshot(WRITER_MODELS[key].repo), system: r.system, prompt: r.prompt, max_tokens: r.maxTokens, temperature: r.temperature }, onEvent, ['done']);
+  touch(text);
+  return { text: typeof ev.text === 'string' ? ev.text.slice(0, 20000) : '', model: WRITER_MODELS[key].label };
+}
+
 function stopAll() { for (const t of idleTimers.values()) clearTimeout(t); if (ernie) ernie.stop(); if (flux) flux.stop(); if (text) text.stop(); }
 
-module.exports = { listLoras, status, generate, cancel, suggest, stopAll, release, setupFlux, cancelSetup, setUserData, SMALL_MAC, simplePrompt, STYLE_WORDS };
+module.exports = { listLoras, status, generate, cancel, suggest, stopAll, release, setupFlux, cancelSetup, setUserData, SMALL_MAC, simplePrompt, STYLE_WORDS, writerStatus, setupWriter, cancelWriterSetup, write, WRITER_MODELS };

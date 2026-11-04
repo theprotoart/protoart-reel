@@ -4,8 +4,9 @@
 // bypassing, removing or undoing it, or moving a clip to another track, renders again. The strip shows the
 // plug-in like any insert; click it to open its window.
 import { toast } from './ui.js';
+import { plainError } from './fx.js';
 import { mediaById, uid } from './model.js';
-import { renderClip, pickPlugin, ensureSource, pluginEdited } from './fx.js';
+import { renderClip, pickPlugin, ensureSource, pluginEdited, captureOpenPlugins } from './fx.js';
 import { ask } from './ui.js';
 import { sourceTime, clipEnd, trackGainAt } from './model.js';
 import { pref } from './prefs.js';
@@ -34,7 +35,7 @@ export async function editTrackPlugin(app, tr, f) {
   const slot = `t${f.id}`;
   app.fxEditing.set(slot, { track: tr.id, item: f.id });
   try { await app.api.fxEdit(slot, f.plugin, f.state || '', `${f.name} — ${tr.name || 'track'}`); }
-  catch (e) { app.fxEditing.delete(slot); toast(e.message, 6000); }
+  catch (e) { app.fxEditing.delete(slot); toast(plainError(e), 7000); }
 }
 
 /** The track's plug-ins as items of a clip's effect chain (they follow the clip's own effects). */
@@ -91,10 +92,15 @@ async function run(app) {
 /** Renders track plug-ins now: before an export, or "Hear it now" for one track. onStatus(text, fraction). */
 export async function renderPending(app, { trackId = null, onStatus = null } = {}) {
   clearTimeout(timer);
+  await captureOpenPlugins(app); // use the settings in any plug-in window that's still open
   update(app);
+  // a background render may already be going: wait for it, saying so (it used to sit on "Starting…")
+  for (let waited = 0; busy; waited += 200) {
+    onStatus?.(`Waiting for the plug-in render that’s already running… ${Math.round(waited / 1000)} s`, 0);
+    await new Promise(r => setTimeout(r, 200));
+  }
   const ids = pending(app, trackId);
   if (!ids.length) return 0;
-  while (busy) await new Promise(r => setTimeout(r, 200));
   return renderList(app, ids, onStatus);
 }
 
@@ -108,7 +114,13 @@ async function renderList(app, todo, onStatus) {
       const c = app.doc?.clips.find(x => x.id === id);
       if (!c || !c.fx?.dirty) continue;
       onStatus?.(`Your plug-ins: clip ${k + 1} of ${todo.length}…`, k / todo.length);
-      try { await renderClip(app, c, f => onStatus?.(`Your plug-ins: clip ${k + 1} of ${todo.length}…`, (k + f) / todo.length)); done++; } catch (e) { failed++; console.warn('track plug-in render', e); if (failed === 1) toast(`A plug-in couldn’t render: ${e.message}`, 7000); }
+      try { await renderClip(app, c, f => onStatus?.(`Your plug-ins: clip ${k + 1} of ${todo.length}…`, (k + f) / todo.length)); done++; }
+      catch (e) {
+        failed++; console.warn('track plug-in render', e);
+        if (failed === 1) toast(`A plug-in couldn’t render: ${plainError(e)}`, 8000);
+        // the same chain would fail the same way on every clip (and a crashing plug-in would crash again): stop here
+        if (/host stopped|can’t process|didn’t respond/.test(e.message) || failed >= 3) break;
+      }
     }
   } finally {
     busy = false;

@@ -5,8 +5,9 @@ import { mediaById, fmtTime, ANIMATABLE, propsAt, paramAt, setParam, putKey, rem
 import { effectsSection, addPluginToClip } from './fx.js';
 import { TEXT_ANIMS } from './compositor.js';
 import { styleRow } from './titles.js';
+import { roleButton } from './automix.js';
 import { captionPanel, captionStylePanel, annotationPanel } from './textops.js';
-import { filtersSection, matteSection } from './filters.js';
+import { filtersSection, matteSection, stabilizeSection } from './filters.js';
 import { MOTION_PRESETS, applyMotion, clearMotion } from './motion.js';
 import { ELEMENTS } from './lib/elements.js';
 import { pref } from './prefs.js';
@@ -18,7 +19,9 @@ export const TRANSITIONS = [['none', 'None'], ['fade', 'Fade'], ['dip-black', 'D
   ['wipe-left', 'Wipe left'], ['wipe-right', 'Wipe right'], ['wipe-up', 'Wipe up'], ['wipe-down', 'Wipe down'], ['iris', 'Iris (circle)'], ['clock', 'Clock wipe'],
   ['barn', 'Barn doors'], ['blinds', 'Blinds'], ['diagonal', 'Diagonal wipe'],
   ['zoom-through', 'Zoom through (cut)'], ['spin-through', 'Spin through (cut)'], ['whip-through', 'Whip through (cut)'], ['blur-through', 'Blur through (cut)'],
-  ['light-leak', 'Light leak'], ['film-burn', 'Film burn'], ['flash-cut', 'Flash (cut)'], ['glitch-cut', 'Glitch (cut)'], ['shake-cut', 'Shake (cut)']];
+  ['light-leak', 'Light leak'], ['film-burn', 'Film burn'], ['flash-cut', 'Flash (cut)'], ['glitch-cut', 'Glitch (cut)'], ['shake-cut', 'Shake (cut)'],
+  ['cine-fade', 'Cinematic fade'], ['dip-film', 'Dip to film'], ['dreamy', 'Dreamy glow'], ['letterbox', 'Letterbox close'],
+  ['lens-defocus', 'Lens defocus (cut)'], ['exposure-burn', 'Exposure burn (cut)'], ['flare-sweep', 'Lens flare sweep (cut)'], ['punch-zoom', 'Punch zoom (cut)'], ['chroma-split', 'Chromatic split (cut)']];
 const FONTS = ['Avenir Next', 'Avenir Next Condensed', 'Futura', 'Helvetica Neue', 'SF Pro Display', 'Impact', 'Arial Black', 'Gill Sans', 'Didot', 'Georgia', 'American Typewriter', 'Marker Felt', 'Menlo', 'Rockwell', 'Poppins'];
 const CANVAS = [['1920x1080', '1920 × 1080 (HD)'], ['2560x1440', '2560 × 1440 (QHD)'], ['3840x2160', '3840 × 2160 (4K)'], ['1280x720', '1280 × 720'], ['1080x1920', '1080 × 1920 (vertical)'], ['1080x1350', '1080 × 1350 (4:5 portrait)'], ['1080x1080', '1080 × 1080 (square)'], ['1440x900', '1440 × 900 (Mac 16:10)'], ['2880x1800', '2880 × 1800 (Retina 16:10)']];
 
@@ -191,10 +194,13 @@ export class Inspector {
         colorRow('Background', doc.canvas.background, v => this.edit(() => { doc.canvas.background = v; })),
       ),
       (doc.captions || []).length ? captionStylePanel(app, this) : section('Captions', el('p', { class: 'note', text: 'Add captions at the playhead (⌃⌘C) or import an SRT / VTT file.' }), el('div', { class: 'btn-row' }, el('button', { class: 'tool', text: '+ Caption', onclick: () => app.cmd('add-caption') }), el('button', { class: 'tool', text: 'Import SRT / VTT', onclick: () => app.cmd('captions-import') }))),
-      section('Markers', ...(doc.markers.length ? doc.markers.map(m => el('div', { class: 'row' },
+      section('Markers', ...(doc.markers.length ? [el('div', { class: 'btn-row' },
+          el('button', { class: 'tool del-all', text: `🗑 DELETE ALL ${doc.markers.length}`, title: 'Delete every marker (asks first; ⌘Z brings them back)', onclick: () => app.deleteMarkers('all') }),
+          doc.markers.some(m => m.claps || m.mark) ? el('button', { class: 'tool', text: `Delete clap / mark markers (${doc.markers.filter(m => m.claps || m.mark).length})`, title: 'Only the ✂ Clap and ◆ Mark markers (your takes go with them)', onclick: () => app.deleteMarkers('takes') }) : null)] : []),
+        ...(doc.markers.length ? doc.markers.map(m => el('div', { class: 'row marker-row' },
         el('button', { class: 'mini', text: fmtTime(m.t), onclick: () => app.seek(m.t) }),
         (() => { const i = el('input', { type: 'text', value: m.label || '' }); i.addEventListener('change', () => this.edit(() => { m.label = i.value.slice(0, 80); })); return i; })(),
-        el('button', { class: 'mini', text: '×', onclick: () => this.edit(() => { doc.markers = doc.markers.filter(x => x !== m); }) }))) : [el('p', { class: 'note', text: 'Press M to add a marker at the playhead. Markers become YouTube chapters in the export notes.' })])),
+        el('button', { class: 'mini marker-x', text: '×', title: 'Delete this marker (⌘Z brings it back)', onclick: () => this.edit(() => { doc.markers = doc.markers.filter(x => x !== m); }) }))) : [el('p', { class: 'note', text: 'Press M to add a marker at the playhead. Markers become YouTube chapters in the export notes.' })])),
     );
   }
 
@@ -244,9 +250,23 @@ export class Inspector {
           ['Full', { x: 0.5, y: 0.5, scale: 1 }], ['PiP ↘', { x: 0.85, y: 0.8, scale: 0.26 }], ['PiP ↙', { x: 0.15, y: 0.8, scale: 0.26 }],
           ['PiP ↗', { x: 0.85, y: 0.2, scale: 0.26 }], ['Left ½', { x: 0.25, y: 0.5, scale: 0.5 }], ['Right ½', { x: 0.75, y: 0.5, scale: 0.5 }], ['Inset 85%', { x: 0.5, y: 0.5, scale: 0.85 }],
         ].map(([label, p]) => el('button', { class: 'tool', text: label, onclick: () => this.edit(() => { for (const [k, v] of Object.entries(p)) setP(k, v); if (label.startsWith('PiP') && !act) { c.props.radius = Math.max(c.props.radius || 0, 24); c.props.shadow = Math.max(c.props.shadow || 0, 30); } }) }))));
+        // device frames: the picture inside a browser, a Mac window, a phone or a laptop
+        {
+          const fr = c.frame || { type: 'none' };
+          pos.append(selectRow('Frame', fr.type || 'none', [['none', 'None'], ['browser', 'Browser window'], ['window', 'Mac window'], ['phone', 'Phone'], ['laptop', 'Laptop']],
+            v => this.edit(() => { if (v === 'none') delete c.frame; else { c.frame = { ...(c.frame || {}), type: v }; if ((c.props.scale ?? 1) > 0.9) c.props.scale = 0.8; } })));
+          if (c.frame && c.frame.type) {
+            pos.append(selectRow('Frame colour', c.frame.color || 'dark', [['dark', 'Dark'], ['light', 'Light']], v => this.edit(() => { c.frame.color = v; })));
+            if (c.frame.type === 'browser' || c.frame.type === 'window') {
+              const t = el('input', { type: 'text', value: (c.frame.type === 'browser' ? c.frame.url : c.frame.title) || '', placeholder: c.frame.type === 'browser' ? 'example.com' : 'Window title' });
+              t.addEventListener('change', () => this.edit(() => { c.frame[c.frame.type === 'browser' ? 'url' : 'title'] = t.value.slice(0, 80); }));
+              pos.append(el('div', { class: 'row' }, el('label', { text: c.frame.type === 'browser' ? 'Address' : 'Title' }), t));
+            }
+          }
+        }
         const crop = section('Crop');
         ['Left', 'Top', 'Right', 'Bottom'].forEach((name, i) => crop.append(this.sl(name, () => getP('crop')[i], v => { const cr = [...getP('crop')]; cr[i] = v; setP('crop', cr); }, { min: 0, max: 0.45, step: 0.001, fmt: v => (v * 100).toFixed(0) + '%' })));
-        this.root.append(pos, crop, levelsSection(this, c), filtersSection(app, this, c), ...(m && m.kind === 'video' ? [matteSection(app, this, c, m)] : []),
+        this.root.append(pos, crop, levelsSection(this, c), filtersSection(app, this, c), ...(m && m.kind === 'video' ? [stabilizeSection(app, this, c, m), matteSection(app, this, c, m)] : []),
           section('Style',
             this.sl('Corners', () => c.props.radius || 0, v => { c.props.radius = v; }, { min: 0, max: 300, step: 1, fmt: v => v.toFixed(0) }),
             this.sl('Shadow', () => c.props.shadow || 0, v => { c.props.shadow = v; }, { min: 0, max: 120, step: 1, fmt: v => v.toFixed(0) }),
@@ -322,6 +342,7 @@ export class Inspector {
       checkRow('Voice', a.voice, v => this.edit(() => { a.voice = v; })),
       this.sl('Duck under voice', () => a.duck || 0, v => { a.duck = v; }, { min: 0, max: 0.95, step: 0.01, fmt: v => (v * 100).toFixed(0) + '%' }),
       (() => { const tr = this.doc.tracks.find(t => t.id === c.track); return checkRow(`Auto Level (on track “${tr?.name || 'track'}”)`, this.app.autoLevelOn(tr), v => this.app.toggleAutoLevel(tr, v)); })(),
+      (() => { const tr = this.doc.tracks.find(t => t.id === c.track); return el('div', { class: 'row' }, el('label', { text: 'Track is' }), roleButton(this.app, tr), el('button', { class: 'tool', text: '⚖ AUTO MIX…', title: 'Set dialogue, music and sound effects against each other', onclick: () => this.app.cmd('auto-mix') })); })(),
       el('p', { class: 'note', text: 'Mark narration as Voice; music with "Duck under voice" gets quieter while someone talks.' }),
       el('div', { class: 'btn-row' }, el('button', { class: 'tool plug-btn', text: '+ PLUG-IN', title: 'Run one of your installed plug-ins on this clip (Waves, iZotope, FabFilter, CEDAR… their Audio Unit versions). It opens in its own window; the FX tab lists the clip’s effects.', onclick: async () => { const it = await addPluginToClip(this.app, c); if (it) { this.tab = 'fx'; this.render(); } } }), el('button', { class: 'tool', text: c.spectral ? `SPECTRAL… (${c.spectral.edits?.length || 0})` : 'SPECTRAL…', title: 'Spectral editor (⌥⌘S): see the sound as a spectrogram and paint out coughs, clicks, hum and noises', onclick: () => this.app.cmd('spectral') })),
     ));
@@ -346,6 +367,15 @@ export class Inspector {
         colorRow('Color', cur.highlightColor, v => this.edit(() => { cur.highlightColor = v; })),
         this.sl('Size', () => cur.highlightSize || 60, v => { cur.highlightSize = v; }, { min: 20, max: 200, step: 1, fmt: v => v.toFixed(0) }),
         this.sl('Smoothing', () => cur.smooth || 0, v => { cur.smooth = v; }, { min: 0, max: 0.8, step: 0.01, fmt: v => v.toFixed(2) + 's' }));
+      // spotlight and magnifier follow the pointer (no recorded clicks needed)
+      sec.append(...[
+        selectRow('Spotlight', cur.spotlight ? 'on' : 'off', [['off', 'Off'], ['on', 'Dim around the pointer']], v => this.edit(() => { cur.spotlight = v === 'on'; })),
+        cur.spotlight ? this.sl('Spotlight size', () => cur.spotSize || 220, v => { cur.spotSize = v; }, { min: 80, max: 600, step: 5, fmt: v => v.toFixed(0) }) : null,
+        cur.spotlight ? this.sl('Dim', () => cur.spotDim ?? 0.6, v => { cur.spotDim = v; }, { min: 0.1, max: 0.9, step: 0.01, fmt: v => Math.round(v * 100) + '%' }) : null,
+        selectRow('Magnifier', cur.magnify ? 'on' : 'off', [['off', 'Off'], ['on', 'Lens follows the pointer']], v => this.edit(() => { cur.magnify = v === 'on'; })),
+        cur.magnify ? this.sl('Lens size', () => cur.lensSize || 130, v => { cur.lensSize = v; }, { min: 50, max: 400, step: 5, fmt: v => v.toFixed(0) }) : null,
+        cur.magnify ? this.sl('Lens zoom', () => cur.lensZoom || 2, v => { cur.lensZoom = v; }, { min: 1.3, max: 4, step: 0.1, fmt: v => v.toFixed(1) + '×' }) : null,
+      ].filter(Boolean));
       if (hasClicks) sec.append(
         selectRow('Click effect', cur.clickStyle || (cur.clickRings === false ? 'none' : 'rings'), [['none', 'None'], ['rings', 'Ring'], ['ripple', 'Ripple'], ['dot', 'Dot']], v => this.edit(() => { cur.clickStyle = v; })),
         colorRow('Click color', cur.clickColor || cur.highlightColor || '#ffd60a', v => this.edit(() => { cur.clickColor = v; })),
@@ -530,14 +560,60 @@ function elementPanel(insp, c) {
   kind.addEventListener('change', () => insp.edit(() => { c.element = { kind: kind.value }; c.name = ELEMENTS[kind.value].name; }));
   const txt = (key, label) => {
     const i = el('input', { type: 'text', value: d[key] ?? '' });
-    i.addEventListener('change', () => insp.edit(() => { c.element = { ...c.element, [key]: i.value }; }));
+    // live: the picture follows each key you type (one undo step for the whole edit)
+    let typing = false;
+    i.addEventListener('input', () => {
+      if (!typing) { typing = true; insp.app.beginChange(); }
+      c.element = { ...c.element, [key]: i.value };
+      insp.app.changed({ light: true, keepInspector: true });
+    });
+    i.addEventListener('change', () => { if (typing) { typing = false; insp.app.endChange({ keepInspector: true }); } });
     return el('div', { class: 'row' }, el('label', { text: label }), i);
   };
   const usesText = 'text' in def.defaults && def.defaults.text !== '', usesSub = 'sub' in def.defaults && def.defaults.sub !== '';
+  // picture slots (an end screen's boxes): your own thumbnail in each, with its own caption
+  const app = insp.app;
+  const setSlot = (key, id) => insp.edit(() => { c.element = { ...c.element, [key]: id || '' }; });
+  const slotRow = sl => {
+    const m = e[sl.key] && mediaById(app.doc, e[sl.key]);
+    const thumb = el('div', { class: 'slot-thumb' + (m ? ' has' : ''), title: 'Drag a picture here from MEDIA, or click CHOOSE' }, m ? null : el('span', { text: 'drop a picture' }));
+    if (m) thumb.style.backgroundImage = `url("app://reel/m/${app.token}/${encodeURIComponent(m.file)}")`;
+    thumb.addEventListener('dragover', ev => { if ([...ev.dataTransfer.types].includes('application/x-reel-media')) { ev.preventDefault(); thumb.classList.add('drop'); } });
+    thumb.addEventListener('dragleave', () => thumb.classList.remove('drop'));
+    thumb.addEventListener('drop', ev => {
+      ev.preventDefault(); thumb.classList.remove('drop');
+      const mm = mediaById(app.doc, ev.dataTransfer.getData('application/x-reel-media'));
+      if (mm?.kind === 'image') setSlot(sl.key, mm.id);
+      else import('./ui.js').then(({ toast }) => toast('That isn’t a picture. For a video, put the playhead on a good frame and use File › Save Frame…, then drop that picture here.', 6000));
+    });
+    const choose = el('button', { class: 'tool', text: 'CHOOSE…', onclick: async ev => {
+      const r = ev.currentTarget.getBoundingClientRect(); // before the await: the event's target is gone after it
+      const { popMenu, toast } = await import('./ui.js');
+      const pics = app.doc.media.filter(x => x.kind === 'image' && !x.hidden).reverse();
+      popMenu(r.left, r.bottom + 4, [
+        ...pics.slice(0, 30).map(x => [x.name, () => setSlot(sl.key, x.id)]),
+        pics.length ? null : ['(no pictures in this project yet)', null],
+        null,
+        ['Add a picture from this Mac…', async () => {
+          const had = new Set(app.doc.media.map(x => x.id));
+          await app.cmd('import');
+          const nw = app.doc.media.find(x => !had.has(x.id) && x.kind === 'image');
+          if (nw) setSlot(sl.key, nw.id); else toast('Pick a picture (PNG, JPEG…) to put in the box.', 4000);
+        }],
+        ['Use a frame of the video: File › Save Frame…, then choose it here', null],
+      ]);
+    } });
+    const clear = m ? el('button', { class: 'tool', text: 'CLEAR', onclick: () => setSlot(sl.key, '') }) : null;
+    return el('div', { class: 'slot-row' },
+      el('label', { text: sl.label }),
+      el('div', { class: 'slot-body' }, thumb, el('div', { class: 'btn-row' }, choose, clear)),
+      txt(sl.cap, 'Caption'));
+  };
   return section('Element',
     el('div', { class: 'row' }, el('label', { text: 'Element' }), kind),
     usesText ? txt('text', e.kind === 'counter' ? 'Count to' : 'Text') : null,
-    usesSub ? txt('sub', 'Second line') : null,
+    usesSub ? txt('sub', def.slots ? 'Box text (no picture)' : 'Second line') : null,
+    ...(def.slots || []).map(slotRow),
     colorRow('Colour', d.color, v => insp.edit(() => { c.element = { ...c.element, color: v }; })),
     colorRow('Accent', d.accent, v => insp.edit(() => { c.element = { ...c.element, accent: v }; })),
     insp.sl('Length', () => c.duration, v => { c.duration = v; }, { min: 0.5, max: 20, step: 0.1, fmt: v => v.toFixed(1) + ' s' }));
