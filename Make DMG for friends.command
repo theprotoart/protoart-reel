@@ -53,15 +53,12 @@ FIRST RECORDING
   (or ⌥⇧⌘M, ⌥⇧⌘2 and ⇧⌘2).
 
 NEW IN THIS BUILD — PLEASE TRY
-- ✂ TAKES (top bar, next to REC): messed up a line while recording? Clap three times
-  and say it again. When you stop, Reel splits the recording into takes; the take
-  before each clap is marked DROP. Play them, switch KEEP / DROP, REMOVE DROPPED TAKES.
-- Right-click a clip › ⚡ Auto Edit this clip: tidies just that clip, not the project.
-- A recording's screen and sound trim together when you drag an edge.
-- Snapping: drag a clip into its neighbour and it lands flush in one move.
-- The tool bar is one row: EFFECTS ▾, AUDIO ▾, TEXT ▾, PARTS ▾ hold the rest.
-- VOICE OVER: ADR can use a guide track you pick; it asks once whether to mute the edit.
-- Reel remembers its window, your last recording source and new-project size.
+- 🗣 KITTEN VOICES (TEXT ▾ › Speech from text): 115 natural voices, emotions and
+  beats like <laugh> or <sigh>, made on your Mac. Press GET KITTEN VOICES once (about
+  3 GB). Clone a voice from a clip (your own) to fix a line without re-recording.
+- Home screen: drag a box across projects to pick several; ⌫ moves them to the Trash.
+- 1.5.7: cinematic transitions and filters, device frames, Stabilize, audio
+  visualizers, copy and paste effects, and the plug-in crash fix.
 
 EARLIER BUILDS
 - HEAR PLUG-INS LIVE: in the MIXER, click + effect on a track › ★ Your plug-ins, then press

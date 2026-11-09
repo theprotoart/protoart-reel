@@ -1,5 +1,6 @@
 // Captions, speech from text and annotation clips: the Stage C commands.
 import { el, modal, toast, slider, ask } from './ui.js';
+import { kittenPanel } from './kitten.js';
 import { uid, captionAt, parseCaptions, toSRT, toVTT, newDrawClip, newMediaClip, isFree, addTrack, CAPTION_STYLE } from './model.js';
 
 // ------------------------------------------------------------------ captions
@@ -114,6 +115,7 @@ export function annotationPanel(app, insp, c) {
 }
 
 // ------------------------------------------------------------------ speech from text
+// Two engines: the Mac's own voices (instant, nothing to install), or Kitten voices (natural, emotion, cloning).
 export async function openSpeech(app) {
   const voices = await app.api.ttsVoices().catch(() => []);
   const area = el('textarea', { class: 'big', placeholder: 'Type what the voice should say…', style: { minHeight: '120px' } });
@@ -123,14 +125,31 @@ export async function openSpeech(app) {
   let rate = 180;
   const rateRow = slider('Speed', rate, { min: 90, max: 320, step: 5, fmt: v => v.toFixed(0) + ' wpm', onInput: v => { rate = v; } });
   const note = el('p', { class: 'note', text: voices.length ? 'Uses the voices built into macOS, offline. Download more (including Premium and Enhanced voices) in System Settings › Accessibility › Spoken Content.' : 'macOS voices aren’t available here.' });
-  modal('Speech from text', el('div', {}, area, el('div', { class: 'row' }, el('label', { text: 'Voice' }), pick), rateRow, note), [
+  const macPanel = el('div', {}, el('div', { class: 'row' }, el('label', { text: 'Voice' }), pick), rateRow, note);
+  const kit = kittenPanel(app);
+  let engine = 'mac'; try { engine = localStorage.getItem('reel.ttsEngine') === 'kitten' ? 'kitten' : 'mac'; } catch { /* default */ }
+  const seg = el('div', { class: 'seg tts-engine' });
+  const setEngine = v => {
+    engine = v; try { localStorage.setItem('reel.ttsEngine', v); } catch { /* fine */ }
+    for (const b of seg.children) b.classList.toggle('on', b.dataset.v === v);
+    macPanel.style.display = v === 'mac' ? '' : 'none'; kit.root.style.display = v === 'kitten' ? '' : 'none';
+  };
+  for (const [v, t] of [['mac', 'Mac voices'], ['kitten', 'Kitten voices (natural)']]) seg.append(el('button', { 'data-v': v, text: t, onclick: () => setEngine(v) }));
+  setEngine(engine);
+  modal('Speech from text', el('div', {}, seg, area, macPanel, kit.root), [
     { label: 'Cancel', onClick: c => c() },
     { label: 'Add at playhead', cls: 'hw amber', onClick: async (close, btn) => {
       if (!area.value.trim()) { toast('Type something to say.'); return; }
+      if (engine === 'kitten' && !kit.ready()) { toast('Set up the Kitten voices first (GET KITTEN VOICES), or pick Mac voices.'); return; }
       btn.disabled = true; btn.textContent = 'SPEAKING…';
       try {
-        try { localStorage.setItem('reel.ttsVoice', pick.value); } catch { /* fine */ }
-        const r = await app.api.ttsMake(app.token, area.value, pick.value, rate);
+        let r;
+        if (engine === 'kitten') r = await kit.make(area.value);
+        else {
+          try { localStorage.setItem('reel.ttsVoice', pick.value); } catch { /* fine */ }
+          r = await app.api.ttsMake(app.token, area.value, pick.value, rate);
+        }
+        if (!r) { btn.disabled = false; btn.textContent = 'ADD AT PLAYHEAD'; return; }
         let id;
         app.commit(d => {
           const m = { id: uid('m'), ...r };
@@ -141,10 +160,11 @@ export async function openSpeech(app) {
           d.clips.push(c); id = c.id;
         });
         app.select([id], null);
+        app.timeline?.reveal?.([id]);
         close();
         toast('Speech added. It’s marked as voice, so music marked “duck under voice” dips under it.');
-      } catch (e) { toast(e.message, 6000); btn.disabled = false; btn.textContent = 'ADD AT PLAYHEAD'; }
+      } catch (e) { toast(String(e.message || e).replace(/^Error invoking remote method '[^']+':\s*(Error:\s*)?/, ''), 8000); btn.disabled = false; btn.textContent = 'ADD AT PLAYHEAD'; }
     } },
-  ]);
+  ], { wide: true });
   setTimeout(() => area.focus(), 50);
 }

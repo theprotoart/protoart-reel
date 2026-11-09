@@ -26,6 +26,8 @@ Mac, Reel uses the engines and models it already has:
 | FLUX.2 klein LoRA files in Protoart Studio's “FLUX.2” LoRA folder | Set by each LoRA's author | Optional styles you choose |
 | Audio Unit plug-ins installed on your Mac (e.g. CEDAR, Waves) | Their own licences | Hosted only when you add them; nothing of theirs is copied or bundled |
 | Qwen2.5-0.5B/1.5B-Instruct (Alibaba) via Transformers | Apache-2.0 | Prompt suggestions |
+| KittenTTS 2 (KittenML), with MLX, PyTorch and their dependencies | Apache-2.0 (KittenTTS) / their own licences | Kitten voices; installed by GET KITTEN VOICES into Reel's own folder (pinned commit), never shipped with Reel |
+| S3Gen decoder from Chatterbox Turbo (Resemble AI), as used by KittenTTS 2 | MIT | Turns Kitten's speech tokens into sound; downloaded with the model |
 
 The app uses fonts installed with macOS; no fonts are bundled. The app icon and all artwork are
 original to this project. ProtoArt Reel was designed after studying how ScreenFlow is put together

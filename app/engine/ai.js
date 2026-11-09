@@ -459,6 +459,9 @@ async function write(r, onEvent) {
   return { text: typeof ev.text === 'string' ? ev.text.slice(0, 20000) : '', model: WRITER_MODELS[key].label };
 }
 
-function stopAll() { for (const t of idleTimers.values()) clearTimeout(t); if (ernie) ernie.stop(); if (flux) flux.stop(); if (text) text.stop(); }
+// other engines (the Kitten voices) stop with these, so recording and export get the memory back too
+const stoppers = new Set();
+function onStop(fn) { stoppers.add(fn); }
+function stopAll() { for (const t of idleTimers.values()) clearTimeout(t); if (ernie) ernie.stop(); if (flux) flux.stop(); if (text) text.stop(); for (const f of stoppers) { try { f(); } catch { /* fine */ } } }
 
-module.exports = { listLoras, status, generate, cancel, suggest, stopAll, release, setupFlux, cancelSetup, setUserData, SMALL_MAC, simplePrompt, STYLE_WORDS, writerStatus, setupWriter, cancelWriterSetup, write, WRITER_MODELS };
+module.exports = { Helper, hubCache, textPython, mlxPython, folderBytes, onStop, listLoras, status, generate, cancel, suggest, stopAll, release, setupFlux, cancelSetup, setUserData, SMALL_MAC, simplePrompt, STYLE_WORDS, writerStatus, setupWriter, cancelWriterSetup, write, WRITER_MODELS };

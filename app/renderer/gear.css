@@ -1806,3 +1806,13 @@ body.rec-paused #keypanel #btn-record .dot { animation: rk-blink 2s steps(2, sta
 
 /* drag-to-select box on the home screen's projects */
 .marquee { position: fixed; z-index: 3000; pointer-events: none; border: 1px solid var(--amber); background: rgba(var(--glow-a), .12); border-radius: 3px; }
+
+/* Speech from text: engine switch and the Kitten voices panel */
+.tts-engine { display: flex; margin-bottom: 10px; }
+.tts-engine button { flex: 1; }
+.kit { margin-top: 8px; }
+.kit .row select { flex: 1; min-width: 0; }
+.kit-pitch { margin: 6px 0 10px; line-height: 1.4; }
+.kit-beats { display: flex; flex-wrap: wrap; gap: 4px; flex: 1; }
+.kit-beats .mini { font-family: ui-monospace, Menlo, monospace; font-size: 11px; }
+.kit .progress { margin: 8px 0; }

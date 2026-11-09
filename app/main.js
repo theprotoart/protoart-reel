@@ -14,6 +14,7 @@ const { pathToFileURL } = require('url');
 const validate = require('./validate');
 const store = require('./store');
 const ai = require('./engine/ai');
+const kitten = require('./engine/kitten');
 const audio = require('./engine/audio');
 const fx = require('./engine/fx');
 
@@ -1441,6 +1442,31 @@ handle('tts:make', async (token, text, voice, rate) => {
   } finally { await fs.promises.rm(tmp, { recursive: true, force: true }).catch(() => {}); }
 });
 
+// Kitten voices (KittenTTS 2 on this Mac): natural speech, emotion, and voices cloned from the person's recordings
+const kittenEvent = ev => { if (win && !win.isDestroyed()) win.webContents.send('ai-event', ev); };
+handle('kitten:status', async () => ({ ...kitten.status(), mine: await kitten.myVoices() }));
+handle('kitten:setup', async () => kitten.setup(kittenEvent));
+handle('kitten:setupCancel', async () => kitten.cancelSetup());
+handle('kitten:remove', async () => kitten.remove());
+handle('kitten:saveVoice', async (name, samples, rate, text) => kitten.saveVoice(name, samples, rate, text));
+handle('kitten:deleteVoice', async id => kitten.deleteVoice(id, f => shell.trashItem(f).catch(() => fs.promises.rm(f, { force: true }))));
+handle('kitten:say', async (token, req) => {
+  const p = projectOf(token);
+  const r = req && typeof req === 'object' ? req : {};
+  const text = typeof r.text === 'string' ? r.text.trim() : '';
+  if (!text || text.length > 20000) throw new Error('Write some text first (up to 20,000 characters).');
+  let mine = null;
+  if (typeof r.mine === 'string' && r.mine) { mine = await kitten.myVoice(r.mine); if (!mine) throw new Error('That saved voice is gone.'); }
+  const voice = typeof r.voice === 'string' ? r.voice.slice(0, 60) : '';
+  const name = await freeMediaName(p, `speech-${validate.fileStem(text.replace(/^\s*\[[a-z]+\]\s*/i, '').slice(0, 30)).replace(/\s+/g, '-') || 'clip'}.wav`);
+  const out = path.join(mediaDir(p), name);
+  try {
+    await kitten.speak({ text, voice, mine, preset: r.preset === 'expressive' ? 'expressive' : 'stable', normalize: r.normalize !== false, out }, kittenEvent);
+  } catch (e) { await fs.promises.rm(out, { force: true }).catch(() => {}); throw e; }
+  const who = mine ? mine.name : voice || 'Kitten';
+  return { file: name, name: `Speech (${who}): ${text.replace(/^\s*\[[a-z]+\]\s*/i, '').slice(0, 40)}`, role: 'speech', ...(await probeMedia(out)) };
+});
+
 // AI helpers (ERNIE thumbnails, prompt suggestions)
 handle('ai:status', async () => ai.status());
 handle('ai:generate', async (token, job) => {
@@ -1920,6 +1946,7 @@ app.whenReady().then(() => {
   protocol.handle('app', serve);
   audio.loadRules(path.join(app.getPath('userData'), 'audio-rules.json'));
   ai.setUserData(app.getPath('userData'));
+  kitten.setUserData(app.getPath('userData'));
   lockDownSession();
   buildMenu();
   createWindow();
