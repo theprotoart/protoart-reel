@@ -209,6 +209,7 @@ class App {
       ]);
       const more = el('button', { class: 'rmore', text: '⋯', title: 'More: show in Finder, move to Trash…' });
       const card = el('div', { class: 'recent', onclick: e => {
+        if (performance.now() - (this._marqueeEnd || -1e9) < 250) return;
         if (e.metaKey || e.ctrlKey || pickMode || e.target.classList.contains('pick')) { picked.has(r.key) ? picked.delete(r.key) : picked.add(r.key); lastIdx = idx; syncPicks(); return; }
         if (e.shiftKey) { const a0 = lastIdx < 0 ? idx : lastIdx; for (let i = Math.min(a0, idx); i <= Math.max(a0, idx); i++) picked.add(recent[i].key); lastIdx = idx; syncPicks(); return; }
         if (picked.size) { picked.clear(); syncPicks(); }
@@ -222,6 +223,34 @@ class App {
       grid.append(card);
       cards.push({ card, r });
     });
+    // drag a box across the projects (from a card or the empty space round them) to pick every one it touches;
+    // with ⇧ or ⌘ held, the box adds to what's already picked. A click on empty space clears the picks.
+    $('#home').onmousedown = e => {
+      if (e.button !== 0 || !recent.length || e.target.closest('.home-hero, .projects-head, button, input, a, .pop-menu')) return;
+      e.preventDefault(); // no text selection while dragging
+      const x0 = e.clientX, y0 = e.clientY, add = e.shiftKey || e.metaKey || e.ctrlKey, before = new Set(picked);
+      let box = null;
+      const move = ev => {
+        if (!box) { if (Math.hypot(ev.clientX - x0, ev.clientY - y0) < 6) return; box = el('div', { class: 'marquee' }); document.body.append(box); }
+        const l = Math.min(x0, ev.clientX), t = Math.min(y0, ev.clientY), w = Math.abs(ev.clientX - x0), h = Math.abs(ev.clientY - y0);
+        Object.assign(box.style, { left: `${l}px`, top: `${t}px`, width: `${w}px`, height: `${h}px` });
+        picked.clear(); if (add) before.forEach(k => picked.add(k));
+        cards.forEach(({ card, r }) => { const b = card.getBoundingClientRect(); if (b.left < l + w && b.right > l && b.top < t + h && b.bottom > t) picked.add(r.key); });
+        syncPicks();
+      };
+      const up = () => {
+        removeEventListener('mousemove', move); removeEventListener('mouseup', up);
+        if (box) { box.remove(); this._marqueeEnd = performance.now(); } // the click that ends a drag doesn't open a project
+        else if (!e.target.closest('.recent') && !add && picked.size) { picked.clear(); pickMode = false; syncPicks(); }
+      };
+      addEventListener('mousemove', move); addEventListener('mouseup', up);
+    };
+    // on the home screen: ⌫ moves the picked projects to the Trash (it asks first), ⌘A picks all, Esc clears
+    this._homeKey = e => {
+      if (e.key === 'Backspace' || e.key === 'Delete') { if (picked.size) { e.preventDefault(); this.trashProjects(recent.filter(r => picked.has(r.key))); } }
+      else if ((e.key === 'a' || e.key === 'A') && (e.metaKey || e.ctrlKey)) { e.preventDefault(); recent.forEach(r => picked.add(r.key)); syncPicks(); }
+      else if (e.key === 'Escape' && (picked.size || pickMode)) { picked.clear(); pickMode = false; syncPicks(); }
+    };
     syncPicks();
   }
 
@@ -1875,7 +1904,8 @@ class App {
     const tag = (e.target.tagName || '').toLowerCase();
     const NOT_TEXT = ['range', 'checkbox', 'radio', 'button', 'color', 'submit'];
     if ((tag === 'input' && !NOT_TEXT.includes(e.target.type)) || tag === 'textarea' || tag === 'select' || e.target.isContentEditable) return;
-    if (!this.doc || document.querySelector('#modal-root .backdrop')) return;
+    if (document.querySelector('#modal-root .backdrop')) return;
+    if (!this.doc) { if (!$('#home').classList.contains('hidden')) this._homeKey?.(e); return; }
     if (handleShortcutKey(this, e)) return; // your own shortcuts (Settings › Keyboard Shortcuts) come first
     const fps = this.doc.canvas.fps || 30;
     switch (e.key) {

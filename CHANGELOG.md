@@ -1,5 +1,11 @@
 # Changelog
 
+## 1.5.8 — Pick several projects by dragging
+
+- **Drag a box across the projects on the home screen** to pick every one it touches (start on a project or the
+  empty space beside them; hold ⇧ or ⌘ to add to what's picked). Press **⌫** to move them all to the Trash (Reel
+  asks first), **⌘A** picks every project, and **Esc** or a click on empty space clears the picks.
+
 ## 1.5.7 — Cinematic transitions, device frames, visualizers, and a plug-in crash fixed
 
 - **Fix: “The plug-in host stopped (a plug-in may have crashed)”.** A plug-in that only takes stereo (like the stereo

@@ -1803,3 +1803,6 @@ body.rec-paused #keypanel #btn-record .dot { animation: rk-blink 2s steps(2, sta
 .wr-title { display: flex; gap: 6px; align-items: center; padding: 4px 0; }
 .wr-title span { flex: 1; }
 .wr-out textarea.big { width: 100%; min-height: 90px; }
+
+/* drag-to-select box on the home screen's projects */
+.marquee { position: fixed; z-index: 3000; pointer-events: none; border: 1px solid var(--amber); background: rgba(var(--glow-a), .12); border-radius: 3px; }

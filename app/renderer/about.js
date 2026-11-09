@@ -127,6 +127,9 @@ export const TOPICS = [
   ['Saving, settings and where things are', 'save saved autosave settings preferences storage folder where projects movies proxy remember', [
     '**SAVE** (`⌘S`) saves now; the SAVED lamp lights when everything is saved. Reel also saves automatically (Settings › General).',
     'Projects live in Movies › ProtoArt Reel (change it in Settings › Media & Storage), one .reel folder per project with its media inside. **⚙ ▾ › Proxy** plays smaller copies of big videos so editing stays smooth; export always uses the originals.'], 'how'],
+  ['Delete several projects at once', 'delete remove trash several many multiple projects select drag box marquee lasso home clean up', [
+    'On the home screen, **drag a box across the projects** (start on a project or the empty space beside them): every project it touches is picked. Hold **⇧** or **⌘** while dragging to add to what’s picked; **⌘-click** picks one, **⇧-click** picks a run, **⌘A** picks them all.',
+    'Then press **⌫** (or **MOVE TO TRASH…**, or right-click a picked project). Reel asks first, and the projects go to the Trash with their recordings, so you can put them back until you empty it. **Esc** or a click on empty space clears the picks.'], 'how'],
 
   // ------------------------------------------------------------------ troubleshooting
   ['A menu does nothing when I click it', 'menu menus unresponsive nothing happens dead broken click settings file edit not working stuck', [
