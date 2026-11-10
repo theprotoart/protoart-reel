@@ -1918,3 +1918,8 @@ body.rec-paused #keypanel #btn-record .dot { animation: rk-blink 2s steps(2, sta
 /* QA: a long menu (a clip's right-click menu, INSERT) never runs off the window: it scrolls inside instead */
 .pop-menu { max-height: calc(100vh - 16px); overflow-y: auto; overscroll-behavior: contain; }
 .pop-menu > * { flex: none; }
+
+/* 🎵 REMIX on: the whole right end of a music clip is the ♪ (drag it to re-fit the song) */
+.clip .mf-handle.mf-edge { right: 0; top: 0; bottom: 0; transform: none; height: auto; width: 14px; border-radius: 0 4px 4px 0; border-width: 0 0 0 1px; background: linear-gradient(90deg, rgba(20,20,22,.55), rgba(20,20,22,.9)); }
+.clip .mf-handle.mf-edge:hover, .clip.mf-dragging .mf-handle.mf-edge { background: var(--amber); color: #111; }
+.remix-toggle input:checked + span { color: var(--amber); }

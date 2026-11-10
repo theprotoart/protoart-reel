@@ -5,6 +5,8 @@
 Brings together the two versions that were both called 1.5.9: the one with Kitten voices (released as 1.5.9 and
 1.5.10, below) and the one with clap notes, colour match, retime and fit music (these notes). Plus:
 
+- **🎵 REMIX switch** next to SNAP (like Audition's Remix): on, the right end of any music or sound clip is the ♪,
+  so dragging it makes the song longer or shorter seamlessly; off, the end trims the clip as normal. Remembered.
 - **The panel on the right opens on the tab for what you select**: AUDIO for a sound clip, VIDEO for a video or a
   picture (ALL for a mix). A tab you pick by hand stays while the same clips are selected.
 - **Fix: renaming a project** from its title now renames its folder too (when you close it or quit), so the

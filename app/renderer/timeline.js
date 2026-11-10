@@ -5,7 +5,7 @@ import { el, $, popMenu, toast } from './ui.js';
 import { clipEnd, isFree, snap, trim, setSpeed, SPEED_STEPS, mediaById, duration, fmtTime, keyAt, withGroups, TRACK_LANES, gainToPos, posToGain, fmtDb, fmtPan, clamp, neighbour, roll, KEY_EASES, split, tidyCrossfades, cutsOn, crossfadeOverlaps } from './model.js';
 import { peaksFor, posterFor } from './peaks.js';
 import { mapAt, addPoint, movePoint, removePoint, linearRetime } from './lib/retime.js';
-import { musicLike, fitSource, refitTo } from './musicfit.js';
+import { musicLike, fitSource, refitTo, canFit } from './musicfit.js';
 import { renderingNow } from './fx.js';
 import { openSpeedPanel } from './speedpanel.js';
 import { copyEffects, copyAction } from './clipops.js';
@@ -293,6 +293,10 @@ export class Timeline {
   }
   get doc() { return this.app.doc; }
   get snapOn() { return $('#snap').checked; }
+  /** REMIX switch (by SNAP): the end of a music clip re-fits the song seamlessly instead of trimming. */
+  get remixOn() { const r = $('#remix'); return !!(r && r.checked); }
+  /** Does this clip's end re-fit the song (REMIX on, a sound clip, the last section of a fitted song)? */
+  remixable(c) { return this.remixOn && (c.musicFit ? musicLike(this.doc, c) : canFit(this.doc, c)); }
   get scrubAudio() { return $('#scrub')?.checked; }
   x(t) { return t * this.pps; }
   t(x) { return x / this.pps; }
@@ -772,7 +776,8 @@ export class Timeline {
       e.append(mk);
     }
     if (c.elastic || c.retime) this._elasticMarks(e, c);
-    if (musicLike(this.doc, c)) this._musicHandle(e, c);
+    const remix = this.remixable(c);
+    if (remix) this._musicHandle(e, c);
     if (selected) {
       // ⚙ on the selected clip: the clip menu without hunting for a right-click (ScreenFlow's gear)
       const gear = el('button', { class: 'clip-gear', title: 'Clip menu (or right-click the clip)', text: '⚙' });
@@ -780,7 +785,9 @@ export class Timeline {
       gear.addEventListener('click', ev => { ev.stopPropagation(); const r = gear.getBoundingClientRect(); this._clipMenu({ clientX: r.left, clientY: r.bottom + 2, preventDefault() {}, stopPropagation() {} }, c); });
       e.append(gear);
     }
-    e.append(el('div', { class: 'edge l', title: 'Drag to trim · ⌘-drag to change speed · ⌥-drag where two clips touch for a rolling edit' }), el('div', { class: 'edge r', title: 'Drag to trim · ⌘-drag to change speed · ⌥-drag where two clips touch for a rolling edit' }));
+    // with REMIX on, a music clip's right end is the ♪ (re-fits the song) instead of a trim edge
+    e.append(el('div', { class: 'edge l', title: 'Drag to trim · ⌘-drag to change speed · ⌥-drag where two clips touch for a rolling edit' }),
+      ...(remix ? [] : [el('div', { class: 'edge r', title: 'Drag to trim · ⌘-drag to change speed · ⌥-drag where two clips touch for a rolling edit' })]));
     // fade handles at the top corners (as in Audition): drag inward to fade in / out
     const fIn = this._fadeLen(c, 'in'), fOut = this._fadeLen(c, 'out');
     if (fIn > 0) e.append(this._fadeShade(c, 'in', fIn));
@@ -834,7 +841,7 @@ export class Timeline {
    * Snaps to the end of the video, markers and other clips' edges.
    */
   _musicHandle(e, c) {
-    const h = el('div', { class: 'mf-handle', title: 'Drag to make the music longer or shorter: it re-fits seamlessly, keeping its real ending' }, el('span', { text: '♪' }));
+    const h = el('div', { class: 'mf-handle mf-edge', title: 'REMIX: drag to make the music longer or shorter; it re-fits seamlessly, keeping its real ending. (Turn 🎵 REMIX off, next to SNAP, to trim normally.)' }, el('span', { text: '♪' }));
     h.addEventListener('pointerdown', ev => {
       if (ev.button !== 0) return;
       ev.stopPropagation(); ev.preventDefault();

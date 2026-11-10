@@ -126,6 +126,12 @@ class App {
     this._wire();
     new ResizeObserver(() => this.player.resize()).observe($('#stage'));
     makeResizable(() => this.player.resize());
+    // 🎵 REMIX (next to SNAP): a music clip's end re-fits the song seamlessly, or trims as normal when off
+    document.getElementById('remix')?.addEventListener('change', e => {
+      setPref('remix', e.target.checked);
+      this.timeline?.render();
+      toast(e.target.checked ? '🎵 REMIX on: drag the ♪ end of a music clip to make the song longer or shorter, seamlessly.' : 'REMIX off: the end of a music clip trims it as normal.', 3500);
+    });
     document.getElementById('auto-gaps')?.addEventListener('change', e => {
       setPref('autoCloseGaps', e.target.checked);
       toast(e.target.checked ? 'Auto close gaps on: deleting a clip also closes the space it leaves (like RIPPLE). CLOSE GAPS (⌥⌫) clears the gaps already there.' : 'Auto close gaps off: Delete leaves the space (⇧⌫ still ripples).', 5000);
@@ -299,6 +305,7 @@ class App {
       if (merged) { this.setDirty(true); setTimeout(() => toast(`Moved ${merged} ScreenFlow transition${merged === 1 ? '' : 's'} off the extra overlap layers. They are now crossfades on their own track.`, 7000), 600); }
       this.applyPrefs();
       $('#snap').checked = pref('snap') !== false;
+      { const r = $('#remix'); if (r) r.checked = pref('remix') !== false; }
       { const g = $('#auto-gaps'); if (g) g.checked = !!pref('autoCloseGaps'); }
       this.player.resize();
       this.renderAll();

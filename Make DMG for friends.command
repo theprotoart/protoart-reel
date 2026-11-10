@@ -53,8 +53,8 @@ FIRST RECORDING
   (or ⌥⇧⌘M, ⌥⇧⌘2 and ⇧⌘2).
 
 NEW IN THIS BUILD — PLEASE TRY (1.6.0: both 1.5.9 lines together)
-- 🎵 Fit music: select a music clip › MUSIC tab › FIT TO THE VIDEO, or drag the ♪
-  on its end; sections repeat or skip where the song repeats, real ending kept.
+- 🎵 REMIX (next to SNAP): drag the ♪ end of any music clip to make the song longer or
+  shorter seamlessly (off: trim as normal). Or MUSIC tab › FIT TO THE VIDEO.
 - 📝 Clap notes: clap, then say what should appear on screen (AUTO EDIT › Claps).
 - 🎨 Match colour and ◐ colour wheels; ⤳ Retime curve; 〰 Elastic Wave.
 - Text reveal transition; thumbnails from a frame; DaVinci-style picture handles.

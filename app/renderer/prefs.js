@@ -41,6 +41,7 @@ export const PREFS = {
   // ---------------------------------------------------------------- Timeline & Editing
   trackH: { page: 'timeline', label: 'Track height', type: 'select', get: () => readJSON('reel.trackH', 'regular'), set: v => writeJSON('reel.trackH', v), options: [['small', 'Compact'], ['regular', 'Regular'], ['large', 'Tall']], apply: 'prefs' },
   snap: { page: 'timeline', label: 'Snapping on when a project opens', type: 'check', ...own('snap', true) },
+  remix: { page: 'timeline', label: 'REMIX on: dragging the end of a music clip extends or shortens the song seamlessly (off: plain trimming)', type: 'check', ...own('remix', true) },
   smoothCuts: { page: 'timeline', label: 'Smooth every cut (a short crossfade where clips meet, a short fade by a gap)', type: 'select', ...own('smoothCuts', 0.1), options: [[0, 'Off'], [0.1, 'Short (0.1 s)'], [0.25, 'Medium (0.25 s)'], [0.5, 'Long (0.5 s)']] },
   autoCloseGaps: { page: 'timeline', label: 'Delete closes the gap (like RIPPLE), so no empty space is left', type: 'check', ...own('autoCloseGaps', false) },
   transDur: { page: 'timeline', label: 'Default transition length', type: 'select', ...own('transDur', 0.5), options: [[0.25, '0.25 s'], [0.5, '0.5 s'], [0.75, '0.75 s'], [1, '1 s'], [1.5, '1.5 s'], [2, '2 s']] },
