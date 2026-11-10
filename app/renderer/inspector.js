@@ -28,6 +28,8 @@ const FONTS = ['Avenir Next', 'Avenir Next Condensed', 'Futura', 'Helvetica Neue
 const CANVAS = [['1920x1080', '1920 × 1080 (HD)'], ['2560x1440', '2560 × 1440 (QHD)'], ['3840x2160', '3840 × 2160 (4K)'], ['1280x720', '1280 × 720'], ['1080x1920', '1080 × 1920 (vertical)'], ['1080x1350', '1080 × 1350 (4:5 portrait)'], ['1080x1080', '1080 × 1080 (square)'], ['1440x900', '1440 × 900 (Mac 16:10)'], ['2880x1800', '2880 × 1800 (Retina 16:10)']];
 
 /** The inspector tab that suits these clips: 'audio' for sound only, 'video' for video and pictures, else ALL. */
+const curveName = v => (Math.abs(v) < 0.03 ? 'Straight' : v > 0 ? `Fast ${Math.round(v * 100)}%` : `Slow ${Math.round(-v * 100)}%`);
+
 export function defaultTab(doc, ids) {
   const kinds = new Set();
   for (const id of ids) {
@@ -380,6 +382,9 @@ export class Inspector {
       this.ksl(c, 'audio.pan', 'Pan', { min: -1, max: 1, step: 0.01, fmt: v => (Math.abs(v) < 0.01 ? 'C' : (v < 0 ? 'L' : 'R') + Math.round(Math.abs(v) * 100)) }),
       this.sl('Fade in', () => a.fadeIn, v => { a.fadeIn = v; }, { min: 0, max: Math.min(10, c.duration / 2), step: 0.05, fmt: v => v.toFixed(2) + 's' }),
       this.sl('Fade out', () => a.fadeOut, v => { a.fadeOut = v; }, { min: 0, max: Math.min(10, c.duration / 2), step: 0.05, fmt: v => v.toFixed(2) + 's' }),
+      ...(a.fadeIn > 0 || a.fadeOut > 0 ? [
+        this.sl('Fade in curve', () => a.fadeInCurve || 0, v => { a.fadeInCurve = v; }, { min: -1, max: 1, step: 0.05, fmt: curveName }),
+        this.sl('Fade out curve', () => a.fadeOutCurve || 0, v => { a.fadeOutCurve = v; }, { min: -1, max: 1, step: 0.05, fmt: curveName })] : []),
       checkRow('Mute', a.mute, v => this.edit(() => { a.mute = v; })),
       checkRow('Voice', a.voice, v => this.edit(() => { a.voice = v; })),
       this.sl('Duck under voice', () => a.duck || 0, v => { a.duck = v; }, { min: 0, max: 0.95, step: 0.01, fmt: v => (v * 100).toFixed(0) + '%' }),

@@ -163,6 +163,18 @@ function applyTransition(p, tr, k, dir) {
   }
 }
 
+/**
+ * A fade's shape, as in Audition: x is how far through the fade (0 silent … 1 full), k the curve from −1 to 1.
+ * 0 is a straight line; above 0 rises fast then levels off (logarithmic, sounds smooth on music); below 0 starts
+ * slowly and rises late (exponential, a gentle start).
+ */
+export function fadeShape(x, k = 0) {
+  x = clamp(x, 0, 1);
+  if (!k) return x;
+  const p = k > 0 ? 1 / (1 + 3 * clamp(k, 0, 1)) : 1 + 3 * clamp(-k, 0, 1);
+  return Math.pow(x, p);
+}
+
 /** Audio gain of a clip at local time (volume, fades, mute). */
 export function gainAt(doc, c, local) {
   const a = (c.keys ? animated(c, local) : c).audio || {};
@@ -171,8 +183,8 @@ export function gainAt(doc, c, local) {
   if (tr && !tr.solo && doc.tracks.some(t => t.solo)) return 0;
   let g = (a.volume ?? 1) * (tr ? trackGainAt(tr, c.start + local) : 1);
   const lc = clamp(local, 0, c.duration); // fades work on the clip itself, not its crossfade handles
-  if (a.fadeIn > 0 && lc < a.fadeIn) g *= lc / a.fadeIn;
-  if (a.fadeOut > 0 && lc > c.duration - a.fadeOut) g *= Math.max(0, (c.duration - lc) / a.fadeOut);
+  if (a.fadeIn > 0 && lc < a.fadeIn) g *= fadeShape(lc / a.fadeIn, a.fadeInCurve || 0);
+  if (a.fadeOut > 0 && lc > c.duration - a.fadeOut) g *= fadeShape((c.duration - lc) / a.fadeOut, a.fadeOutCurve || 0);
   // crossfades: equal-power, so the sound doesn't dip in the middle
   const xi = c.xfadeIn || 0, xo = c.xfadeOut || 0;
   if (xi > 0 && local < xi / 2) g *= Math.sin(clamp((local + xi / 2) / xi, 0, 1) * Math.PI / 2);

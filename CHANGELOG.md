@@ -5,6 +5,10 @@
 Brings together the two versions that were both called 1.5.9: the one with Kitten voices (released as 1.5.9 and
 1.5.10, below) and the one with clap notes, colour match, retime and fit music (these notes). Plus:
 
+- **Fade curves, like Audition**: drag a clip's fade handle (top corner) sideways for its length and up or down to
+  curve it: from a fast start (rises early, smooth on music) through straight to a slow start. The shape is drawn
+  on the clip and heard the same in playback and export; double-click the handle for a straight fade again. Also
+  Fade in / out curve sliders in the AUDIO tab.
 - **🎵 REMIX switch** next to SNAP (like Audition's Remix): on, the right end of any music or sound clip is the ♪,
   so dragging it makes the song longer or shorter seamlessly; off, the end trims the clip as normal. Remembered.
 - **The panel on the right opens on the tab for what you select**: AUDIO for a sound clip, VIDEO for a video or a

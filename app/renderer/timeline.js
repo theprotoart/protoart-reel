@@ -2,7 +2,7 @@
 // clips with their keyframes, automation lanes, markers and the playhead. Move, trim, snap, drop,
 // marquee-select, scrub (also while playing) and zoom from a single frame out to the whole project.
 import { el, $, popMenu, toast } from './ui.js';
-import { clipEnd, isFree, snap, trim, setSpeed, SPEED_STEPS, mediaById, duration, fmtTime, keyAt, withGroups, TRACK_LANES, gainToPos, posToGain, fmtDb, fmtPan, clamp, neighbour, roll, KEY_EASES, split, tidyCrossfades, cutsOn, crossfadeOverlaps } from './model.js';
+import { clipEnd, isFree, snap, trim, setSpeed, SPEED_STEPS, mediaById, duration, fmtTime, keyAt, withGroups, TRACK_LANES, gainToPos, posToGain, fmtDb, fmtPan, clamp, neighbour, roll, KEY_EASES, split, tidyCrossfades, cutsOn, crossfadeOverlaps, fadeShape } from './model.js';
 import { peaksFor, posterFor } from './peaks.js';
 import { mapAt, addPoint, movePoint, removePoint, linearRetime } from './lib/retime.js';
 import { musicLike, fitSource, refitTo, canFit } from './musicfit.js';
@@ -795,7 +795,7 @@ export class Timeline {
     if (!c.locked && c.type !== 'caption') {
       for (const side of ['in', 'out']) {
         const len = side === 'in' ? fIn : fOut;
-        const fh = el('div', { class: `fade-h ${side}`, title: `Drag to fade ${side} (${len.toFixed(2)} s)`, style: side === 'in' ? { left: Math.max(0, this.x(len) - 5) + 'px' } : { right: Math.max(0, this.x(len) - 5) + 'px' } });
+        const fh = el('div', { class: `fade-h ${side}`, title: `Fade ${side} (${len.toFixed(2)} s): drag sideways for its length, up or down to curve it (sound); double-click for a straight fade`, style: side === 'in' ? { left: Math.max(0, this.x(len) - 5) + 'px' } : { right: Math.max(0, this.x(len) - 5) + 'px' } });
         fh.addEventListener('pointerdown', ev => this._fadeDrag(ev, c, side));
         e.append(fh);
       }
@@ -1046,28 +1046,45 @@ export class Timeline {
     const NS = 'http://www.w3.org/2000/svg', svg = document.createElementNS(NS, 'svg');
     svg.setAttribute('class', `fade-shade ${side}`); svg.setAttribute('preserveAspectRatio', 'none'); svg.setAttribute('viewBox', '0 0 100 100');
     svg.style.width = w + 'px';
-    svg.innerHTML = side === 'in' ? '<path d="M0 0 L100 0 L0 100 Z"/><line x1="0" y1="100" x2="100" y2="0"/>' : '<path d="M0 0 L100 0 L100 100 Z"/><line x1="0" y1="0" x2="100" y2="100"/>';
+    // the fade's real shape (its curve), shaded above the line
+    const k = (side === 'in' ? c.audio?.fadeInCurve : c.audio?.fadeOutCurve) || 0, pts = [];
+    for (let i = 0; i <= 24; i++) {
+      const x = i / 24 * 100, through = side === 'in' ? i / 24 : 1 - i / 24;
+      pts.push(`${x.toFixed(1)} ${(100 - fadeShape(through, k) * 100).toFixed(1)}`);
+    }
+    svg.innerHTML = `<path d="M0 0 L100 0 L${pts.reverse().join(' L')} Z"/><polyline points="${pts.reverse().join(' ')}"/>`;
     return svg;
   }
   _fadeDrag(e, c, side) {
     if (e.button !== 0) return;
     e.stopPropagation(); e.preventDefault();
+    // double-click the handle: a straight fade again
+    if (e.detail === 2) {
+      if (c.audio && (c.audio[side === 'in' ? 'fadeInCurve' : 'fadeOutCurve'])) this.app.commit(() => { c.audio[side === 'in' ? 'fadeInCurve' : 'fadeOutCurve'] = 0; }, { keepInspector: true });
+      return;
+    }
     const app = this.app, m = c.type === 'media' ? mediaById(this.doc, c.media) : null;
     const audioish = c.type === 'media' && (c.audioOnly || m?.kind === 'audio' || m?.hasAudio);
     const visual = !(c.audioOnly || m?.kind === 'audio');
-    const x0 = e.clientX, len0 = this._fadeLen(c, side);
-    let moved = false;
+    const x0 = e.clientX, y0 = e.clientY, len0 = this._fadeLen(c, side);
+    const ck = side === 'in' ? 'fadeInCurve' : 'fadeOutCurve', k0 = (audioish && c.audio?.[ck]) || 0;
+    const tip = el('div', { class: 'fade-tip' }); let moved = false;
     const move = ev => {
-      const dx = (ev.clientX - x0) * (side === 'in' ? 1 : -1);
-      if (!moved && Math.abs(dx) < 2) return;
-      if (!moved) { moved = true; app.beginChange(); }
+      const dx = (ev.clientX - x0) * (side === 'in' ? 1 : -1), dy = ev.clientY - y0;
+      if (!moved && Math.abs(dx) < 2 && Math.abs(dy) < 2) return;
+      if (!moved) { moved = true; app.beginChange(); document.body.append(tip); }
+      // sideways: how long the fade is; up or down (sound clips): its curve, like Audition's fade handles
       const len = clamp(len0 + this.t(dx), 0, c.duration / 2);
       const v = len < 0.03 ? 0 : Math.round(len * 100) / 100;
+      if (audioish && c.audio) c.audio[ck] = Math.round(clamp(k0 - dy / 70, -1, 1) * 100) / 100;
+      const k = audioish ? c.audio?.[ck] || 0 : 0;
+      tip.textContent = `Fade ${side} ${v.toFixed(2)} s${audioish ? ` · ${Math.abs(k) < 0.02 ? 'straight' : k > 0 ? `fast start ${Math.round(k * 100)}%` : `slow start ${Math.round(-k * 100)}%`}` : ''}`;
+      Object.assign(tip.style, { left: ev.clientX + 14 + 'px', top: ev.clientY - 30 + 'px' });
       if (audioish) c.audio[side === 'in' ? 'fadeIn' : 'fadeOut'] = v;
       if (visual) c[side === 'in' ? 'transIn' : 'transOut'] = v ? { ...(c[side === 'in' ? 'transIn' : 'transOut'] || {}), type: 'fade', dur: v } : { type: 'none', dur: 0.5 };
       app.changed({ light: true, keepInspector: true });
     };
-    const up = () => { window.removeEventListener('pointermove', move); window.removeEventListener('pointerup', up); if (moved) app.endChange({ keepInspector: true }); };
+    const up = () => { tip.remove(); window.removeEventListener('pointermove', move); window.removeEventListener('pointerup', up); if (moved) app.endChange({ keepInspector: true }); };
     window.addEventListener('pointermove', move); window.addEventListener('pointerup', up);
   }
 

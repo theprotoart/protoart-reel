@@ -721,7 +721,7 @@ input.switch:focus-visible, .row > input[type=checkbox]:focus-visible { outline:
 .clip .fade-shade { position: absolute; top: 0; bottom: 0; height: 100%; z-index: 4; pointer-events: none; }
 .clip .fade-shade.in { left: 0; } .clip .fade-shade.out { right: 0; }
 .clip .fade-shade path { fill: rgba(0,0,0,.42); }
-.clip .fade-shade line { stroke: var(--lit-hi2); stroke-width: 1.5; vector-effect: non-scaling-stroke; }
+.clip .fade-shade line, .clip .fade-shade polyline { stroke: var(--lit-hi2); stroke-width: 1.5; fill: none; vector-effect: non-scaling-stroke; }
 .tool-pair { display: inline-flex; gap: 0; }
 .tool-pair .tool + .tool { margin-left: 2px; }
 .tool-pair .tool.lit { color: #2a1404; background: linear-gradient(var(--lit-hi2), #e9a02c); box-shadow: inset 0 1px 2px rgba(0,0,0,.35), 0 0 8px rgba(var(--glow-a),.45); }
@@ -1922,4 +1922,6 @@ body.rec-paused #keypanel #btn-record .dot { animation: rk-blink 2s steps(2, sta
 /* 🎵 REMIX on: the whole right end of a music clip is the ♪ (drag it to re-fit the song) */
 .clip .mf-handle.mf-edge { right: 0; top: 0; bottom: 0; transform: none; height: auto; width: 14px; border-radius: 0 4px 4px 0; border-width: 0 0 0 1px; background: linear-gradient(90deg, rgba(20,20,22,.55), rgba(20,20,22,.9)); }
 .clip .mf-handle.mf-edge:hover, .clip.mf-dragging .mf-handle.mf-edge { background: var(--amber); color: #111; }
-.remix-toggle input:checked + span { color: var(--amber); }
+
+/* fade handle drag: length and curve, shown by the pointer */
+.fade-tip { position: fixed; z-index: 5000; pointer-events: none; padding: 4px 8px; border-radius: 4px; background: rgba(15,15,18,.92); color: #fff; font: 600 11px/1.2 var(--font-engrave, system-ui); letter-spacing: .04em; box-shadow: 0 2px 8px rgba(0,0,0,.5); white-space: nowrap; }
