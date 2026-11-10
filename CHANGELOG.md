@@ -1,7 +1,9 @@
 # Changelog
 
-## 1.5.10 — Tidier pop-ups and clearer voice progress
+## 1.5.11 — Seamless music length, the right tab for what you pick
 
+- **The panel on the right opens on the tab for what you select**: AUDIO for a sound clip, VIDEO for a video or a
+  picture (ALL for a mix). A tab you pick by hand stays while the same clips are selected.
 - **Extend or shorten music to fit, seamlessly**: select a music clip and open the new **MUSIC** tab in the panel on
   the right: **🎵 FIT TO THE VIDEO**, or **Other length…** (also right-click › Extend or shorten music). Reel finds
   the parts of the song that repeat and joins them on the beat with tiny crossfades, repeating a part (longer) or
@@ -9,6 +11,9 @@
 - **Fix: renaming a project** from its title now renames its folder too (when you close it or quit), so the
   Projects screen shows the new name.
 - **Right-click menus** no longer show runs of empty divider lines.
+
+## 1.5.10 — Tidier pop-ups and clearer voice progress
+
 - **Pop-up windows stay clear of the Mac's window buttons** (red, yellow, green): the Mixer, Voices, Auto Edit and
   the rest no longer slide under them at the top-left corner.
 - **Kitten voices show what they're doing**: "Loading the voice model…" then "Speaking…", with a seconds count,

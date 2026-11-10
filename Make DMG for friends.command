@@ -53,12 +53,11 @@ FIRST RECORDING
   (or ⌥⇧⌘M, ⌥⇧⌘2 and ⇧⌘2).
 
 NEW IN THIS BUILD — PLEASE TRY
-- Pop-up windows (Mixer, Voices, Auto Edit…) no longer slide under the Mac's red,
-  yellow and green window buttons.
-- 🗣 VOICES shows what it's doing while it speaks (loading, seconds), and Cancel stops it.
-- From 1.5.9: 🗣 VOICES and 🎙 CLONE MY VOICE in the panel on the right (natural
-  Kitten voices on your Mac, your own voice from a short reading), and the deck's
-  reels show the tape winding from one reel to the other as you play.
+- 🎵 MUSIC tab (select a music clip): FIT TO THE VIDEO makes the song last to the
+  end of your edit with seamless joins, keeping its real ending. Other length… too.
+- The panel on the right opens on AUDIO when you pick a sound clip, VIDEO for video.
+- Renaming a project now shows on the Projects screen; tidier right-click menus.
+- From 1.5.10: pop-ups clear of the window buttons; VOICES shows its progress.
 
 EARLIER BUILDS
 - HEAR PLUG-INS LIVE: in the MIXER, click + effect on a track › ★ Your plug-ins, then press

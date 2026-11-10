@@ -26,6 +26,18 @@ export const TRANSITIONS = [['none', 'None'], ['fade', 'Fade'], ['dip-black', 'D
 const FONTS = ['Avenir Next', 'Avenir Next Condensed', 'Futura', 'Helvetica Neue', 'SF Pro Display', 'Impact', 'Arial Black', 'Gill Sans', 'Didot', 'Georgia', 'American Typewriter', 'Marker Felt', 'Menlo', 'Rockwell', 'Poppins'];
 const CANVAS = [['1920x1080', '1920 × 1080 (HD)'], ['2560x1440', '2560 × 1440 (QHD)'], ['3840x2160', '3840 × 2160 (4K)'], ['1280x720', '1280 × 720'], ['1080x1920', '1080 × 1920 (vertical)'], ['1080x1350', '1080 × 1350 (4:5 portrait)'], ['1080x1080', '1080 × 1080 (square)'], ['1440x900', '1440 × 900 (Mac 16:10)'], ['2880x1800', '2880 × 1800 (Retina 16:10)']];
 
+/** The inspector tab that suits these clips: 'audio' for sound only, 'video' for video and pictures, else ALL. */
+export function defaultTab(doc, ids) {
+  const kinds = new Set();
+  for (const id of ids) {
+    const c = doc.clips.find(x => x.id === id);
+    if (!c) continue;
+    const m = c.type === 'media' ? mediaById(doc, c.media) : null;
+    kinds.add(!m ? 'other' : m.kind === 'audio' || c.audioOnly ? 'audio' : m.kind === 'video' || m.kind === 'image' ? 'video' : 'other');
+  }
+  return kinds.size === 1 && !kinds.has('other') ? [...kinds][0] : null;
+}
+
 export class Inspector {
   constructor(app) { this.app = app; this.root = document.getElementById('inspector'); }
   get doc() { return this.app.doc; }
@@ -36,6 +48,10 @@ export class Inspector {
     this.keyed = [];
     const ids = app.selection.clips;
     const scroll = this.root.scrollTop;
+    // a new selection opens on the tab for what it is: AUDIO for a sound clip, VIDEO for a video or picture
+    // (a tab picked by hand stays while the same clips are selected)
+    const selKey = ids.join(',');
+    if (selKey !== this._tabSel) { this._tabSel = selKey; this.tab = defaultTab(doc, ids); }
     this.root.replaceChildren();
     if (app.selection.caption) {
       const cap = (doc.captions || []).find(x => x.id === app.selection.caption);
