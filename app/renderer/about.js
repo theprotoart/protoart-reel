@@ -24,7 +24,8 @@ export const TOPICS = [
     'Drag media from the left onto the timeline. Upper tracks draw on top. `S` splices at the playhead, `T` is the blade, `⌫` deletes, `⇧⌫` deletes and closes the gap, `M` adds a marker, `Space` plays.',
     'Drag a clip’s edges to trim it; a group (screen + its sound) trims together. `⌥` while trimming moves only that clip, or rolls a cut between two touching clips. **SNAP** makes clips land flush against each other, markers and the playhead.',
     '**Hold SELECT** for two tools: **→ SELECT** (one item at a time) and **⇉ SELECT FORWARD**: click anywhere and everything to the right of it, on every track, is selected, ready to drag. `A` is the normal select tool, `⇧A` select forward. The other selections (all video, all audio…) are under MORE SELECTIONS.',
-    'The tool bar: SELECT ▾ · BLADE · SPLICE · DELETE · **GAPS ▾** · + INSERT ▾ · EFFECTS ▾ · AUDIO ▾ · TEXT ▾ · PARTS ▾ · SNAP · ⚙ ▾.'], 'how'],
+    'The tool bar: SELECT ▾ · BLADE · SPLICE · DELETE · **GAPS ▾** · + INSERT ▾ · ▣ PIP · EFFECTS ▾ · AUDIO ▾ · TEXT ▾ · PARTS ▾ · SNAP · **🎵 REMIX** · ⚙ ▾.',
+    'Drag the top corners of a clip to **fade** it, sideways for the length and up or down to **curve** it (see Fade curves).'], 'how'],
   ['Gaps, ripple and closing empty space', 'gap gaps ripple close empty space auto delete hole silence black', [
     '**GAPS ▾ › CLOSE GAPS** (`⌥⌫`) removes every empty stretch of the edit (where nothing plays on any track) and slides everything after it up, so all the tracks stay in sync. Markers, captions and parts move with it; locked tracks are never moved.',
     'Turn on **AUTO** in GAPS ▾ and Delete closes the gap it leaves, like RIPPLE.'], 'how'],
@@ -155,6 +156,17 @@ export const TOPICS = [
     'Select a clip and drag it on the preview. The **corner and edge handles** resize it (from the centre), the handle on the stem above it **rotates** it (hold ⇧ for 15° steps; straight and square are sticky), and the dot in the middle moves it.',
     'Double-click the rotation handle to straighten it, or the centre dot to centre it in the frame. Hold ⌥ Option and drag a handle to crop. Right-click for Fit, Fill and resets.'], 'how'],
 
+  ['🎵 REMIX: drag the end of a song to extend it seamlessly (like Audition’s Remix)', 'remix remix switch toggle drag end edge extend lengthen shorten music song instrumental loop seamless audition trim crop normal', [
+    'The **🎵 REMIX** switch sits next to **SNAP** on the tool bar (on to start with). **On:** the right end of any music or sound clip becomes a **♪** strip. Drag it out to make the song longer, or in to make it shorter (it snaps to the end of the video). When you let go, Reel re-fits the song to that length: it repeats or skips sections where the song repeats on the beat, joins them with short crossfades and keeps the real ending. Drag again as often as you like; ⌘Z undoes it.',
+    '**Off:** the end of a music clip trims it like any other clip. Turn REMIX off when you just want to crop the music. Video clips always trim normally. Reel remembers the switch (also in Settings › Timeline).',
+    'Other ways to fit music: the **MUSIC** tab in the panel on the right (**🎵 FIT TO THE VIDEO** in one click, or **Other length…**), **AUDIO ▾ › Fit music to a length…**, and right-click the clip.'], 'how'],
+  ['The panel on the right: tabs follow what you select', 'inspector panel right tabs tab audio video music speed fx all automatic selected select clip', [
+    'Click a clip and the panel on the right opens on the tab that suits it: **AUDIO** for a sound clip (with **MUSIC** next to it), **VIDEO** for a video or a picture, **ALL** when you pick a mix. Pick another tab by hand and it stays while the same clips are selected.',
+    '**SPEED** holds speed, duration and the Retime curve; **VIDEO** holds position, crop, colour, Stabilize and picture in picture; **FX** the effects and plug-ins.'], 'how'],
+  ['Renaming a project', 'rename name project title untitled projects screen folder', [
+    'Click the project’s name in the top bar, type a new one and press Return (or **SAVE**). When you close the project (or quit), its folder is renamed to match, so the **Projects** screen and Finder show the new name. If another project already has that name, the folder keeps its old one.'], 'how'],
+  ['The tape reels on the deck', 'reels reel tape deck spin winding play transport scrub jog', [
+    'The two reels beside the transport keys show where you are: the left reel holds the tape still to play and the right reel the tape played, winding across as the edit plays (the emptier reel spins faster, like real tape). **Grab a reel and turn it** to scrub: clockwise forward, counter-clockwise back.'], 'how'],
   ['Fade curves: drag a fade, then bend it (like Audition)', 'fade fades curve curved shape log logarithmic exponential linear fade in fade out handle bend smooth audition', [
     'Hover a clip: a small square sits at each top corner. **Drag it sideways** to set the fade’s length, and **up or down** to curve it (sound clips): up gives a **fast start** (the sound comes up early, smooth for music), down a **slow start** (it creeps in late). A label by the pointer shows the length and the curve.',
     'The clip shows the fade’s shape. **Double-click the handle** for a straight fade again. The AUDIO tab also has **Fade in curve** and **Fade out curve** sliders. Playback and export use the same curve.'], 'how'],
