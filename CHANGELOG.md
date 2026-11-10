@@ -1,5 +1,12 @@
 # Changelog
 
+## 1.5.10 — Tidier pop-ups and clearer voice progress
+
+- **Pop-up windows stay clear of the Mac's window buttons** (red, yellow, green): the Mixer, Voices, Auto Edit and
+  the rest no longer slide under them at the top-left corner.
+- **Kitten voices show what they're doing**: "Loading the voice model…" then "Speaking…", with a seconds count,
+  so a long first line no longer looks frozen; **Cancel** stops it.
+
 ## 1.5.9 — Kitten voices: natural speech, emotion and your own cloned voice
 
 - **Kitten voices**: the violet **🗣 VOICES** and **🎙 CLONE MY VOICE** keys in the panel on the right (also TEXT ▾ › 🗣 Speech from text, and Insert › Kitten Voices… / Clone My Voice from the Selected Clip…): KittenTTS 2
