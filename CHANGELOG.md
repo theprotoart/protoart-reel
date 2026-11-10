@@ -2,7 +2,7 @@
 
 ## 1.5.9 — Kitten voices: natural speech, emotion and your own cloned voice
 
-- **Kitten voices**: the **🗣 VOICES** key in the top bar (also TEXT ▾ › 🗣 Speech from text, and Insert › Kitten Voices… / Clone My Voice from the Selected Clip…): KittenTTS 2
+- **Kitten voices**: the violet **🗣 VOICES** and **🎙 CLONE MY VOICE** keys in the panel on the right (also TEXT ▾ › 🗣 Speech from text, and Insert › Kitten Voices… / Clone My Voice from the Selected Clip…): KittenTTS 2
   (KittenML, Apache 2.0) on this Mac's graphics chip. 115 voices (characters such as Victor, Maeve or Marcus, and
   voices for 20 languages), an **Emotion** (joyful, sad, stern, excited…), **Delivery** (Steady or Expressive),
   beats put in at the cursor (<laugh>, <sigh>, <pause>, <um>…) and (((stress))) on a selected word. The Mac's own
@@ -10,6 +10,9 @@
 - **Clone a voice from a clip**: select a clip of one person talking, put the playhead where they start, and press
   ＋ Clone a voice. Reel takes 15 seconds from there, hears what's said with the Mac's speech recognition, and saves
   it under a name (in Reel's own folder; Remove moves it to the Trash). Use it to fix a line in your own voice.
+- **● Record my voice**: clone your own voice right in Speech from text, no clip needed. Read the passage shown
+  (about 15 seconds) into the recording microphone, press STOP, listen back and save it. The words you read are
+  the voice's text, so nothing needs to be recognised; silence at the ends is trimmed.
 - **GET KITTEN VOICES** sets it up once (about 3 GB): a Python environment of Reel's own made from a Python 3.10+
   already on the Mac (Protoart Studio's, Homebrew's or python.org's), KittenTTS pinned to one reviewed commit, and
   the model in the shared Hugging Face cache. Then it runs offline; the model is unloaded soon after use on 8–16 GB

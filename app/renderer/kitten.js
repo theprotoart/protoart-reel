@@ -3,6 +3,7 @@
 import { el, toast, promptText, ask } from './ui.js';
 import { mediaById } from './model.js';
 import { openAudio } from './lib/sources.js';
+import { voiceRecorder } from './kittenrec.js';
 
 export const EMOTIONS = ['angry', 'contemplative', 'excited', 'joyful', 'mundane', 'nervous', 'sad', 'stern', 'surprised', 'tender'];
 export const EVENTS = ['laugh', 'giggle', 'sigh', 'pause', 'um', 'gasp', 'gulp', 'scoff', 'sob', 'growl'];
@@ -92,7 +93,7 @@ export async function cloneFromSelection(app, onStatus) {
 const clean = e => String(e?.message || e).replace(/^Error invoking remote method '[^']+':\s*(Error:\s*)?/, '');
 
 /** The Kitten half of Speech from text. Returns { root, ready(), request(text) }. */
-export function kittenPanel(app, { clone = false } = {}) {
+export function kittenPanel(app, { clone = false, record = false } = {}) {
   const root = el('div', { class: 'kit' });
   const note = el('p', { class: 'note' });
   const bar = el('div', { class: 'progress hidden' }, el('i'));
@@ -125,7 +126,7 @@ export function kittenPanel(app, { clone = false } = {}) {
       root.append(
         el('p', { class: 'kit-pitch', text: '115 natural voices, emotion and delivery, and your own voice cloned from a clip. Made by KittenTTS 2 on this Mac’s graphics chip: nothing is uploaded.' }),
         el('div', { class: 'btn-row' }, go, stopB), bar, sn);
-      if (clone) sn.textContent = 'To clone your voice, first press GET KITTEN VOICES (one time). ' + sn.textContent;
+      if (clone || record) sn.textContent = 'To clone your voice, first press GET KITTEN VOICES (one time). ' + sn.textContent;
       return;
     }
     // ready: voice, emotion, delivery, beats
@@ -160,16 +161,30 @@ export function kittenPanel(app, { clone = false } = {}) {
       catch (e) { note.textContent = clean(e); }
       cloneB.disabled = false;
     } });
+    // ● Record my voice: read a passage into the microphone right here (no clip needed)
+    const recHost = el('div');
+    let recUI = null;
+    const closeRec = () => { recUI?.stop(); recUI = null; recHost.replaceChildren(); recordB.classList.remove('lit'); };
+    const recordB = el('button', { class: 'tool', text: '● Record my voice', title: 'Clone your own voice: read a short passage into the microphone', onclick: () => {
+      if (recUI) { closeRec(); return; }
+      recUI = voiceRecorder(app, {
+        onStatus: t => { note.textContent = t; },
+        onSaved: async v => { closeRec(); pref('voice', 'mine:' + v.id); toast(`Saved “${v.name}”. It’s first in the voice list.`); await draw(); },
+      });
+      recHost.replaceChildren(recUI.root); recordB.classList.add('lit'); note.textContent = '';
+    } });
     root.append(
       el('div', { class: 'row' }, el('label', { text: 'Voice' }), pick, forget),
       el('label', { class: 'row kit-langs', title: 'Voices that speak Arabic, Chinese, French, German, Hindi, Italian, Spanish and more. They come with the model (no extra download); off, the list stays English.' }, langBox, el('span', { text: 'Other languages (voices that speak French, Spanish, German, Chinese…)' })),
       el('div', { class: 'row' }, el('label', { text: 'Emotion' }), emo),
       el('div', { class: 'row' }, el('label', { text: 'Delivery' }), seg),
       el('div', { class: 'row' }, el('label', { text: 'Add' }), beats),
-      el('div', { class: 'btn-row' }, cloneB),
+      el('div', { class: 'btn-row' }, recordB, cloneB),
+      recHost,
       note,
-      el('p', { class: 'note', text: 'Clone: select a clip of one person talking (no music) and put the playhead where they start; 15 seconds from there are used. Only clone voices you have permission to use. Language voices speak their own language: type in it.' }));
+      el('p', { class: 'note', text: 'Your own voice: press ● Record my voice and read the passage aloud (about 15 seconds). From a clip: select a clip of one person talking (no music) and put the playhead where they start; 15 seconds from there are used. Only clone voices you have permission to use. Language voices speak their own language: type in it.' }));
     if (clone) { clone = false; setTimeout(() => cloneB.click(), 50); }
+    else if (record) { record = false; setTimeout(() => recordB.click(), 50); }
   };
   draw();
 

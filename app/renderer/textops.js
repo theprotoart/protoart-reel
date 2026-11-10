@@ -141,7 +141,7 @@ export async function openSpeech(app, opts = {}) {
   const note = el('p', { class: 'note', text: voices.length ? 'Uses the voices built into macOS, offline. Download more (including Premium and Enhanced voices) in System Settings › Accessibility › Spoken Content.' : 'macOS voices aren’t available here.' });
   const macPanel = el('div', {}, el('div', { class: 'row' }, el('label', { text: 'Voice' }), pick),
     other.length ? el('label', { class: 'row kit-langs' }, macLangBox, el('span', { text: 'Other languages' })) : null, rateRow, note);
-  const kit = kittenPanel(app, { clone: !!opts.clone });
+  const kit = kittenPanel(app, { clone: !!opts.clone, record: !!opts.record });
   let engine = 'mac'; try { engine = localStorage.getItem('reel.ttsEngine') === 'kitten' ? 'kitten' : 'mac'; } catch { /* default */ }
   if (opts.engine) engine = opts.engine;
   const seg = el('div', { class: 'seg tts-engine' });

@@ -9,6 +9,7 @@ import { el, popMenu } from './ui.js';
 const ROWS = [
   ['', ['btn-record']],
   ['', ['btn-takes', 'btn-import', 'btn-autoedit']],
+  ['', ['btn-voices', 'btn-clonevoice']],
   ['', ['btn-automix', 'btn-sound', 'btn-spectral']],
   ['', ['btn-aiimage', 'btn-thumb']],
   ['', ['btn-export']],
@@ -19,11 +20,15 @@ export function initKeyPanel(app) {
   const deck = document.getElementById('keypanel'), bar = document.getElementById('title-actions'), editor = document.getElementById('editor');
   if (!deck || !bar || !editor) return;
   // where each key sits in the top bar, so it can go back exactly there
-  const home = new Map(IDS.filter(id => id !== 'btn-automix').map(id => { const b = document.getElementById(id); return [id, b ? { parent: b.parentNode, next: b.nextSibling } : null]; }));
+  const home = new Map(IDS.filter(id => id !== 'btn-automix' && id !== 'btn-clonevoice').map(id => { const b = document.getElementById(id); return [id, b ? { parent: b.parentNode, next: b.nextSibling } : null]; }));
   // AUTO MIX gets a key of its own (same as the mixer's and ⌥⌘M)
   if (!document.getElementById('btn-automix')) {
     const b = el('button', { id: 'btn-automix', class: 'hw role-mix', text: '⚖ AUTO MIX', title: 'AUTO MIX (⌥⌘M): sets dialogue, music and sound effects against each other. Colour your sound tracks first: blue dialogue, orange music, green sound FX', onclick: () => app.cmd('auto-mix') });
     deck.append(b);
+  }
+  // CLONE MY VOICE: a key of its own beside VOICES (Kitten voices: your voice from the selected clip)
+  if (!document.getElementById('btn-clonevoice')) {
+    deck.append(el('button', { id: 'btn-clonevoice', class: 'hw role-voice', text: '🎙 CLONE MY VOICE', title: 'CLONE MY VOICE: read a short passage into your microphone (or first select a clip of you talking, to use that). Reel saves your voice so 🗣 VOICES can say any text in it: fix a line without re-recording.', onclick: () => app.cmd('clone-voice') }));
   }
   const more = el('button', { class: 'hw keys-more', text: 'MORE ▾', title: 'The studio tools SIMPLE keeps out of the way (or switch to FULL)' });
   more.addEventListener('click', () => {

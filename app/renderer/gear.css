@@ -1819,3 +1819,18 @@ body.rec-paused #keypanel #btn-record .dot { animation: rk-blink 2s steps(2, sta
 #btn-voices.voices-btn { white-space: nowrap; }
 .kit-langs { gap: 8px; align-items: center; cursor: pointer; font-size: 12px; opacity: .85; }
 .kit-langs input { margin: 0; }
+
+/* Speech from text › ● Record my voice */
+.kit-rec { margin: 8px 0 4px; padding: 10px 12px; border-radius: 4px; background: rgba(0,0,0,.14); box-shadow: inset 0 1px 3px rgba(0,0,0,.35); }
+.kit-rec .note { margin: 0 0 6px; }
+.kit-read { width: 100%; box-sizing: border-box; font: 15px/1.45 -apple-system, system-ui, sans-serif; resize: vertical; }
+.kit-rec-row { display: flex; gap: 10px; align-items: center; margin: 8px 0 4px; }
+.kit-rec-btn { min-width: 150px; color: #ffd9d2; }
+.kit-rec-btn.lit { background: radial-gradient(ellipse at 50% 45%, #ff8a72 0%, #e0321c 50%, #8c1408 100%); color: #fff; box-shadow: 0 0 10px rgba(255,60,30,.6); }
+.kit-rec-clock { font-family: ui-monospace, Menlo, monospace; min-width: 44px; text-align: right; }
+
+/* 🗣 VOICES and 🎙 CLONE MY VOICE: violet keys in the tool deck */
+.hw.role-voice, #title-actions .hw.role-voice { color: #1c0b33; background: linear-gradient(#e2cdff, #9b6bf0); text-shadow: 0 1px 0 rgba(255,255,255,.45);
+  box-shadow: 0 1px 0 #000, inset 0 1px 0 rgba(255,255,255,.55); }
+.hw.role-voice:hover { background: linear-gradient(#efe2ff, #ad84f5); }
+#keypanel #btn-voices, #keypanel #btn-clonevoice { font-size: 11.5px; letter-spacing: .08em; padding: 10px 4px; }

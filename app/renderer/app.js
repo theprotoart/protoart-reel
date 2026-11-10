@@ -1028,7 +1028,11 @@ class App {
       case 'annotate': return textops.addAnnotation(this);
       case 'tts': return textops.openSpeech(this);
       case 'voices': return textops.openSpeech(this, { engine: 'kitten' });
-      case 'clone-voice': return textops.openSpeech(this, { engine: 'kitten', clone: true });
+      // CLONE MY VOICE: from the selected clip if there is one, otherwise read a passage into the microphone
+      case 'clone-voice': {
+        const sel = doc && doc.clips.find(c => this.selection.clips.includes(c.id) && c.type === 'media');
+        return textops.openSpeech(this, sel ? { engine: 'kitten', clone: true } : { engine: 'kitten', record: true });
+      }
       case 'freeze': return ops.freezeFrame(this);
       case 'reverse': return ops.toggleReverse(this);
       case 'adr-align': return ops.alignToGuide(this);
