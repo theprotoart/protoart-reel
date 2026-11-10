@@ -175,8 +175,12 @@ function stop() { clearTimeout(idle); if (helper) helper.stop(); helper = null; 
 ai.onStop(stop);
 
 /** Speaks `text` into `out` (a 48 kHz WAV). voice: a built-in name, or { file, text } for a saved voice. */
+let cancelled = false;
+/** Stops the speech being made (the model is unloaded; the next line loads it again). */
+function cancel() { cancelled = true; stop(); }
 function speak({ text, voice, mine, preset, normalize, out }, onEvent) {
   const job = queue.then(async () => {
+    cancelled = false;
     const st = status();
     if (!st.ready) throw new Error('Kitten voices aren’t set up yet: press GET KITTEN VOICES.');
     if (!helper) helper = new ai.Helper('Kitten voices', venvPython(), SCRIPT);
@@ -184,8 +188,11 @@ function speak({ text, voice, mine, preset, normalize, out }, onEvent) {
     const req = { cmd: 'say', text, out, preset, normalize };
     if (mine) Object.assign(req, { reference: mine.file, reference_text: mine.text });
     else req.voice = st.voices.includes(voice) ? voice : 'Bruno';
+    // the model stays loaded between lines (a while on big Macs), so only the first line waits for it
+    onEvent({ type: 'progress', msg: helper.proc ? 'Speaking…' : 'Loading the voice model…', loading: !helper.proc });
     try { return await helper.request(req, onEvent, ['done']); }
-    finally { idle = setTimeout(stop, IDLE_MS); }
+    catch (e) { if (cancelled) throw new Error('Stopped'); throw e; }
+    finally { cancelled = false; idle = setTimeout(stop, IDLE_MS); }
   });
   queue = job.catch(() => {});
   return job;
@@ -240,4 +247,4 @@ async function deleteVoice(id, trash) {
   return true;
 }
 
-module.exports = { setUserData, status, setup, cancelSetup, remove, speak, stop, myVoices, myVoice, saveVoice, deleteVoice, COMMIT, basePython };
+module.exports = { setUserData, status, setup, cancelSetup, remove, speak, cancel, stop, myVoices, myVoice, saveVoice, deleteVoice, COMMIT, basePython };

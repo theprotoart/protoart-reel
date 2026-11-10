@@ -123,6 +123,7 @@ contextBridge.exposeInMainWorld('reel', {
   kittenSetupCancel: () => invoke('kitten:setupCancel'),
   kittenRemove: () => invoke('kitten:remove'),
   kittenSay: (token, req) => invoke('kitten:say', token, req),
+  kittenCancel: () => invoke('kitten:cancel'),
   kittenSaveVoice: (name, samples, rate, text) => invoke('kitten:saveVoice', name, samples, rate, text),
   kittenDeleteVoice: id => invoke('kitten:deleteVoice', id),
   aiStatus: () => invoke('ai:status'),

@@ -1447,6 +1447,7 @@ const kittenEvent = ev => { if (win && !win.isDestroyed()) win.webContents.send(
 handle('kitten:status', async () => ({ ...kitten.status(), mine: await kitten.myVoices() }));
 handle('kitten:setup', async () => kitten.setup(kittenEvent));
 handle('kitten:setupCancel', async () => kitten.cancelSetup());
+handle('kitten:cancel', async () => kitten.cancel());
 handle('kitten:remove', async () => kitten.remove());
 handle('kitten:saveVoice', async (name, samples, rate, text) => kitten.saveVoice(name, samples, rate, text));
 handle('kitten:deleteVoice', async id => kitten.deleteVoice(id, f => shell.trashItem(f).catch(() => fs.promises.rm(f, { force: true }))));
@@ -1461,7 +1462,7 @@ handle('kitten:say', async (token, req) => {
   const name = await freeMediaName(p, `speech-${validate.fileStem(text.replace(/^\s*\[[a-z]+\]\s*/i, '').slice(0, 30)).replace(/\s+/g, '-') || 'clip'}.wav`);
   const out = path.join(mediaDir(p), name);
   try {
-    await kitten.speak({ text, voice, mine, preset: r.preset === 'expressive' ? 'expressive' : 'stable', normalize: r.normalize !== false, out }, kittenEvent);
+    await kitten.speak({ text, voice, mine, preset: r.preset === 'expressive' ? 'expressive' : 'stable', normalize: r.normalize !== false, out }, ev => kittenEvent({ type: 'kittenSay', msg: typeof ev.msg === 'string' ? ev.msg.slice(0, 200) : '', loading: !!ev.loading }));
   } catch (e) { await fs.promises.rm(out, { force: true }).catch(() => {}); throw e; }
   const who = mine ? mine.name : voice || 'Kitten';
   return { file: name, name: `Speech (${who}): ${text.replace(/^\s*\[[a-z]+\]\s*/i, '').slice(0, 40)}`, role: 'speech', ...(await probeMedia(out)) };

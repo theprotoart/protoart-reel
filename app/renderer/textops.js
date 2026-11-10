@@ -115,6 +115,12 @@ export function annotationPanel(app, insp, c) {
 }
 
 // ------------------------------------------------------------------ speech from text
+// one listener for Kitten's progress (the window can open many times)
+let speechCb = null;
+function speechListen(app, fn) {
+  speechCb = fn;
+  if (!app._speechHooked) { app._speechHooked = true; app.api.onAi?.(ev => speechCb?.(ev)); }
+}
 // Two engines: the Mac's own voices (instant, nothing to install), or Kitten voices (natural, emotion, cloning).
 export async function openSpeech(app, opts = {}) {
   const voices = await app.api.ttsVoices().catch(() => []);
@@ -152,15 +158,34 @@ export async function openSpeech(app, opts = {}) {
   };
   for (const [v, t] of [['mac', 'Mac voices'], ['kitten', 'Kitten voices (natural)']]) seg.append(el('button', { 'data-v': v, text: t, onclick: () => setEngine(v) }));
   setEngine(engine);
-  modal(engine === 'kitten' ? 'Voices' : 'Speech from text', el('div', {}, seg, area, macPanel, kit.root), [
-    { label: 'Cancel', onClick: c => c() },
+  // while Kitten speaks: what it's doing and for how long (the first line after opening Reel loads the model, which
+  // takes a while on 8–16 GB Macs), so it never looks frozen; Cancel stops it
+  const busy = el('div', { class: 'kit-busy hidden' }, el('span', { class: 'kit-spin' }), el('span', { class: 'kit-busy-msg' }));
+  let speaking = false;
+  speechListen(app, ev => {
+    if (!speaking || ev?.type !== 'kittenSay') return;
+    busy.querySelector('.kit-busy-msg').dataset.msg = ev.loading
+      ? 'Loading the voice model (the first line in a while: up to a minute or two on a Mac with 8 GB, and the Mac may feel slow meanwhile; it stays ready for the next lines)…'
+      : (ev.msg || 'Speaking…');
+  });
+  modal(engine === 'kitten' ? 'Voices' : 'Speech from text', el('div', {}, seg, area, macPanel, kit.root, busy), [
+    { label: 'Cancel', onClick: c => { if (speaking) { app.api.kittenCancel?.(); toast('Stopped.'); } c(); } },
     { label: 'Add at playhead', cls: 'hw amber', onClick: async (close, btn) => {
       if (!area.value.trim()) { toast('Type something to say.'); return; }
       if (engine === 'kitten' && !kit.ready()) { toast('Set up the Kitten voices first (GET KITTEN VOICES), or pick Mac voices.'); return; }
       btn.disabled = true; btn.textContent = 'SPEAKING…';
+      let tick = 0;
       try {
         let r;
-        if (engine === 'kitten') r = await kit.make(area.value);
+        if (engine === 'kitten') {
+          speaking = true;
+          const msg = busy.querySelector('.kit-busy-msg'), t0 = Date.now();
+          msg.dataset.msg = 'Starting…'; busy.classList.remove('hidden');
+          const show = () => { const s = Math.round((Date.now() - t0) / 1000); msg.textContent = `${msg.dataset.msg} ${s} s`; btn.textContent = `SPEAKING… ${s} s`; };
+          show(); tick = setInterval(show, 1000);
+          try { r = await kit.make(area.value); } finally { speaking = false; clearInterval(tick); busy.classList.add('hidden'); }
+          if (!document.body.contains(btn)) return; // cancelled and closed
+        }
         else {
           try { localStorage.setItem('reel.ttsVoice', pick.value); } catch { /* fine */ }
           r = await app.api.ttsMake(app.token, area.value, pick.value, rate);
@@ -178,8 +203,13 @@ export async function openSpeech(app, opts = {}) {
         app.select([id], null);
         app.timeline?.reveal?.([id]);
         close();
-        toast('Speech added. It’s marked as voice, so music marked “duck under voice” dips under it.');
-      } catch (e) { toast(String(e.message || e).replace(/^Error invoking remote method '[^']+':\s*(Error:\s*)?/, ''), 8000); btn.disabled = false; btn.textContent = 'ADD AT PLAYHEAD'; }
+        toast('Speech added at the playhead. Press PLAY (or the space bar) to hear it.', 4000);
+      } catch (e) {
+        clearInterval(tick);
+        const m = String(e.message || e).replace(/^Error invoking remote method '[^']+':\s*(Error:\s*)?/, '');
+        if (m === 'Stopped' || !document.body.contains(btn)) return;
+        toast(m, 8000); btn.disabled = false; btn.textContent = 'ADD AT PLAYHEAD';
+      }
     } },
   ], { wide: true });
   setTimeout(() => area.focus(), 50);

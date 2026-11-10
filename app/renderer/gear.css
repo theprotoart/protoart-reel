@@ -1834,3 +1834,8 @@ body.rec-paused #keypanel #btn-record .dot { animation: rk-blink 2s steps(2, sta
   box-shadow: 0 1px 0 #000, inset 0 1px 0 rgba(255,255,255,.55); }
 .hw.role-voice:hover { background: linear-gradient(#efe2ff, #ad84f5); }
 #keypanel #btn-voices, #keypanel #btn-clonevoice { font-size: 11.5px; letter-spacing: .08em; padding: 10px 4px; }
+/* Kitten: what it's doing while it speaks */
+.kit-busy { display: flex; gap: 10px; align-items: center; margin-top: 10px; padding: 9px 12px; border-radius: 6px; background: rgba(20,10,40,.35); color: #f1e8ff; font-size: 12.5px; line-height: 1.35; }
+.kit-busy.hidden { display: none; }
+.kit-spin { flex: none; width: 14px; height: 14px; border-radius: 50%; border: 2px solid rgba(255,255,255,.25); border-top-color: #c9a6ff; animation: kit-spin .8s linear infinite; }
+@keyframes kit-spin { to { transform: rotate(360deg); } }
