@@ -683,10 +683,31 @@ handle('projects:recent', async () => {
   }
   return out.sort((a, b) => b.modified - a.modified);
 });
-/** The editor went back to the home screen: forget the token so the folder can be trashed. */
+/**
+ * A project renamed from its title (inside the project) gets its folder renamed to match once it's closed, so the
+ * Projects screen (which shows folder names) and Finder agree. Skipped if that name is taken or can't be a folder.
+ */
+function folderForName(dir) {
+  let name = '';
+  try { name = JSON.parse(fs.readFileSync(path.join(dir, 'project.json'), 'utf8')).name || ''; } catch { return null; }
+  const clean = validate.fileStem(String(name).trim());
+  if (!clean) return null;
+  const dest = path.join(path.dirname(dir), clean + PROJECT_EXT);
+  if (dest === dir || fs.existsSync(dest)) return null;
+  return dest;
+}
+function syncFolderName(dir) {
+  const dest = folderForName(dir);
+  if (!dest) return dir;
+  try { fs.renameSync(dir, dest); } catch { return dir; }
+  const wasRecent = store.recents().includes(dir);
+  store.removeRecent(dir); if (wasRecent) store.addRecent(dest);
+  return dest;
+}
+/** The editor went back to the home screen: forget the token so the folder can be trashed, and match its name. */
 handle('project:close', async token => {
   const p = projects.get(token);
-  if (p) { projects.delete(token); tokenFor.delete(p.dir); }
+  if (p) { projects.delete(token); tokenFor.delete(p.dir); syncFolderName(p.dir); }
   return true;
 });
 handle('project:forget', async key => { store.removeRecent(await dirOfKey(key)); return true; });
@@ -1956,4 +1977,4 @@ app.whenReady().then(() => {
 });
 app.on('activate', () => { if (!win) createWindow(); });
 app.on('window-all-closed', () => app.quit());
-app.on('will-quit', () => { globalShortcut.unregisterAll(); ai.stopAll(); audio.stop(); fx.stop(); });
+app.on('will-quit', () => { for (const p of projects.values()) syncFolderName(p.dir); globalShortcut.unregisterAll(); ai.stopAll(); audio.stop(); fx.stop(); });

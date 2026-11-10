@@ -15,6 +15,7 @@ import { Inspector } from './inspector.js';
 import { Library } from './library.js';
 import { Overlay } from './overlay.js';
 import { openRecorder } from './recorder.js';
+import { openMusicFit } from './musicfit.js';
 import { openExport } from './exporter.js';
 import { openThumbnailStudio } from './thumbs.js';
 import { openImageGenerator } from './imagegen.js';
@@ -148,7 +149,8 @@ class App {
     document.querySelectorAll('.fx-editor').forEach(n => n.remove()); // floating panels belong to the project
     if (this.doc && this.dirty) await this.save();
     this.player.dispose();
-    if (this.token) api.projectClose?.(this.token).catch(() => {});
+    // closing renames the folder to the project's name (if it was renamed), so wait before listing the projects
+    if (this.token) await api.projectClose?.(this.token).catch(() => {});
     this.doc = null; this.token = null;
     this.setLamp('saved', false);
     $('#editor').classList.add('hidden'); $('#home').classList.remove('hidden');
@@ -1157,6 +1159,7 @@ class App {
       case 'find-claps': return openClapFinder(this);
       case 'takes': return openTakes(this);
       case 'master': return openMaster(this);
+      case 'music-fit': return openMusicFit(this, sel[0]);
       case 'autoedit-clip': if (sel.length) return openClipAutoEdit(this, sel[0]); toast('Select a clip first (or right-click it).'); return;
       case 'marker': this.commit(d => { d.markers.push({ id: uid('k'), t, label: `Chapter ${d.markers.length + 1}` }); d.markers.sort((a, b) => a.t - b.t); }); return;
       case 'insert-text': return this._insert(newTextClip(null, t, doc.name));

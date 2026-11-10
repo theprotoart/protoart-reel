@@ -193,6 +193,7 @@ export class Timeline {
       // bounce in place: render the effects into new audio on a track below; originals muted and greyed out
       c.bounced || c.bounceOf ? ['↩ Back to the original sound (remove the rendered copy)', () => app.cmd('bounce-revert')]
         : audioish && !c.audio?.mute ? ['⤓ Bounce to new track (render effects in place)', () => app.cmd('bounce')] : null,
+      audioish && m?.kind === 'audio' ? ['🎵 Extend or shorten music (seamless)…', () => { app.select([c.id], null); app.cmd('music-fit'); }] : null,
       audioish ? (() => { const tr = this.doc.tracks.find(t => t.id === c.track), on = app.autoLevelOn(tr); return [on ? `✓ Auto Level (on “${tr?.name || 'track'}”)` : `Auto Level (even out the volume)`, () => app.toggleAutoLevel(tr)]; })() : null,
       (() => { // transitions and crossfades on every selected clip (after ⌘A: the whole edit)
         const sel = this.doc.clips.filter(x => app.selection.clips.includes(x.id));

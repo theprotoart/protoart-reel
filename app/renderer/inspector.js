@@ -6,6 +6,7 @@ import { effectsSection, addPluginToClip } from './fx.js';
 import { TEXT_ANIMS } from './compositor.js';
 import { styleRow } from './titles.js';
 import { roleButton } from './automix.js';
+import { canFit, musicSection } from './musicfit.js';
 import { captionPanel, captionStylePanel, annotationPanel } from './textops.js';
 import { filtersSection, matteSection, stabilizeSection } from './filters.js';
 import { MOTION_PRESETS, applyMotion, clearMotion } from './motion.js';
@@ -65,6 +66,7 @@ export class Inspector {
       ['all', 'ALL', 'Everything'],
       ['video', 'VIDEO', 'Position, size, crop, style, transitions'],
       ['audio', 'AUDIO', 'Volume, pan, fades, voice'],
+      ['music', 'MUSIC', 'Extend or shorten music to fit the video, with no audible seam'],
       ['speed', 'SPEED', 'Duration, speed, reverse, lock'],
       ['motion', 'MOTION', 'Zoom & pan actions and keyframes'],
       ['screen', 'SCREEN', 'Pointer, clicks and keystrokes'],
@@ -75,6 +77,7 @@ export class Inspector {
     const catOf = title => {
       const t = title.toLowerCase();
       if (/^speed/.test(t)) return 'speed';
+      if (/^music/.test(t)) return 'music';
       if (/^position|^crop|^style|^transitions|^clip$|^video levels/.test(t)) return 'video';
       if (/^audio/.test(t)) return 'audio';
       if (/^actions|^keyframes|^motion presets/.test(t)) return 'motion';
@@ -285,6 +288,7 @@ export class Inspector {
       ));
     }
     if (c.type === 'media' && m && (m.hasAudio || m.kind === 'audio')) this.audioPanel(c, m);
+    if (canFit(this.doc, c)) this.root.append(musicSection(app, c, section));
     if (!visual) this.keyframesPanel(c);
     if (c.type === 'media' && m && m.cursor) this.cursorPanel(c);
     const isVideo = c.type === 'media' && m && m.kind === 'video' && !c.audioOnly;

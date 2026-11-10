@@ -99,7 +99,8 @@ export function section(title, ...kids) {
 export function popMenu(x, y, items) {
   document.querySelector('.pop-menu')?.remove();
   const menu = el('div', { class: 'pop-menu', style: { left: x + 'px', top: y + 'px' } },
-    ...items.filter(it => it !== undefined && it !== false).map(it => (it ? el('button', { disabled: !it[1], onclick: () => { menu.remove(); it[1]?.(); } }, el('span', { text: it[0] }), el('kbd', { text: it[2] || '' })) : el('hr'))));
+    // a null is a divider: no two in a row, none at the top or bottom (sections with nothing for this clip vanish)
+    ...items.filter(it => it !== undefined && it !== false).filter((it, i, all) => it || (i > 0 && all[i - 1] && all.slice(i + 1).some(Boolean))).map(it => (it ? el('button', { disabled: !it[1], onclick: () => { menu.remove(); it[1]?.(); } }, el('span', { text: it[0] }), el('kbd', { text: it[2] || '' })) : el('hr'))));
   document.body.append(menu);
   const r = menu.getBoundingClientRect();
   if (r.bottom > innerHeight - 8) menu.style.top = Math.max(8, innerHeight - r.height - 8) + 'px';
