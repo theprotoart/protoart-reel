@@ -21,11 +21,15 @@ export function makeReel(size) {
   const defs = svgEl('defs', {}, svg);
   defs.innerHTML = `
     <radialGradient id="${id}a" cx="40%" cy="35%" r="75%"><stop offset="0" stop-color="#e9e6df"/><stop offset=".55" stop-color="#a9a49b"/><stop offset="1" stop-color="#6c675f"/></radialGradient>
-    <radialGradient id="${id}t" cx="50%" cy="50%" r="50%"><stop offset=".6" stop-color="#3a2618"/><stop offset=".9" stop-color="#24170e"/><stop offset="1" stop-color="#160d07"/></radialGradient>
+    <radialGradient id="${id}t" cx="45%" cy="40%" r="60%"><stop offset="0" stop-color="#4a3122"/><stop offset=".7" stop-color="#2c1c11"/><stop offset="1" stop-color="#170e08"/></radialGradient>
+    <radialGradient id="${id}b" cx="55%" cy="60%" r="70%"><stop offset="0" stop-color="#d8d4cc"/><stop offset=".7" stop-color="#b3aea5"/><stop offset="1" stop-color="#858077"/></radialGradient>
     <radialGradient id="${id}h" cx="40%" cy="35%" r="70%"><stop offset="0" stop-color="#f4f1ea"/><stop offset="1" stop-color="#8e887e"/></radialGradient>`;
-  // tape pack (behind the flange; seen through the windows)
+  // the back flange: light metal, so an empty reel shows silver through the windows and a full one shows tape
+  svgEl('circle', { cx: c, cy: c, r: c - 1.5, fill: `url(#${id}b)` }, svg);
+  // tape pack (behind the front flange; seen through the windows): dark brown, wound rings, a shiny outer edge
   const pack = svgEl('circle', { cx: c, cy: c, r: c * 0.6, fill: `url(#${id}t)` }, svg);
-  const grain = svgEl('circle', { cx: c, cy: c, r: c * 0.5, fill: 'none', stroke: 'rgba(255,220,180,.08)', 'stroke-width': 0.6 }, svg);
+  const rings = [0.92, 0.8, 0.66, 0.5].map(k => [k, svgEl('circle', { cx: c, cy: c, r: c * 0.5, fill: 'none', stroke: 'rgba(255,214,170,.09)', 'stroke-width': 0.6 }, svg)]);
+  const edge = svgEl('circle', { cx: c, cy: c, r: c * 0.6, fill: 'none', stroke: 'rgba(255,205,160,.32)', 'stroke-width': 0.9 }, svg);
   // the spinning flange
   const rot = svgEl('g', { class: 'deck-rot' }, svg);
   const R = c - 1, hole = c * 0.2;
@@ -55,7 +59,15 @@ export function makeReel(size) {
   return {
     svg, angle: 0,
     /** fill 0..1: how much tape is on this reel */
-    setFill(f) { const r = c * (0.3 + 0.62 * Math.max(0, Math.min(1, f))); pack.setAttribute('r', r.toFixed(2)); grain.setAttribute('r', Math.max(c * 0.3, r - 3).toFixed(2)); this.r = r / c; },
+    setFill(f) {
+      // tape is wound by area: the pack's radius grows with the square root of how much tape is on the reel
+      const rh = 0.29, rm = 0.86, k = Math.max(0, Math.min(1, f));
+      const r = c * Math.sqrt(rh * rh + k * (rm * rm - rh * rh));
+      pack.setAttribute('r', r.toFixed(2)); edge.setAttribute('r', Math.max(0, r - 0.45).toFixed(2));
+      for (const [q, ring] of rings) { const rr = c * rh + (r - c * rh) * q; ring.setAttribute('r', rr.toFixed(2)); ring.style.display = r - c * rh > 3 ? '' : 'none'; }
+      edge.style.display = k > 0.01 ? '' : 'none';
+      this.r = r / c;
+    },
     turn(deg) { this.angle = (this.angle + deg) % 360; rot.setAttribute('transform', `rotate(${this.angle.toFixed(2)} ${c} ${c})`); },
   };
 }

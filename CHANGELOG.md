@@ -18,6 +18,9 @@
   the model in the shared Hugging Face cache. Then it runs offline; the model is unloaded soon after use on 8–16 GB
   Macs, and before recording or export.
 
+- **The deck's reels show the tape running**: while the edit plays, the brown tape pack shrinks on the left reel and
+  grows on the right one (by area, like real tape), with silver showing through the windows of the emptier reel.
+
 ## 1.5.8 — Pick several projects by dragging
 
 - **Drag a box across the projects on the home screen** to pick every one it touches (start on a project or the
