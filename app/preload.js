@@ -52,6 +52,8 @@ contextBridge.exposeInMainWorld('reel', {
   storageChoose: () => invoke('storage:choose'),
   storageReset: () => invoke('storage:reset'),
   storageReveal: () => invoke('storage:reveal'),
+  cacheInfo: token => invoke('cache:info', token),
+  cacheClearProxies: token => invoke('cache:clearProxies', token),
   askAccess: kind => invoke('rec:askAccess', kind),
   aiWriterStatus: () => invoke('ai:writerStatus'),
   aiWriterSetup: key => invoke('ai:writerSetup', key),

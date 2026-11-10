@@ -7,7 +7,7 @@ import {
   History, timeFormat, withGroups, normalize, uid, duration, split, remove, newMediaClip, newTextClip, newCalloutClip, newShapeClip,
   freeTrack, addTrack, clipEnd, propsAt, ANIMATABLE, mediaById, fmtTime, isFree,
   setSpeed, SPEED_STEPS, SPEED_MIN, SPEED_MAX, putKey,
-  mergeOverlapTracks, removeRange, applyTrackLocks, findGaps, closeGaps, smoothCuts,
+  mergeOverlapTracks, removeRange, applyTrackLocks, findGaps, closeGaps, smoothCuts, raisePip,
 } from './model.js';
 import { Player } from './player.js';
 import { Timeline } from './timeline.js';
@@ -18,6 +18,7 @@ import { openRecorder } from './recorder.js';
 import { openMusicFit } from './musicfit.js';
 import { openExport } from './exporter.js';
 import { openThumbnailStudio } from './thumbs.js';
+import { openMatchColour } from './colormatch.js';
 import { openImageGenerator } from './imagegen.js';
 import * as ops from './clipops.js';
 import * as textops from './textops.js';
@@ -51,7 +52,7 @@ import { convertInEditor, conversionDialog } from './conform.js';
 import { convertScreenflow, placeScreenflow } from './screenflow-import.js';
 import { pluginEdited, shareDuplicateRenders } from './fx.js';
 import { openNewDocument, applyStarter, STARTERS, starterThumb } from './presets.js';
-import { ProxyQueue, proxyPrefs, setProxyPrefs } from './proxies.js';
+import { ProxyQueue, proxyPrefs, setProxyPrefs, setProxyRam } from './proxies.js';
 import { fitHeader } from './headerfit.js';
 import { openAutoEdit, openClipAutoEdit } from './autoedit.js';
 import { openClapFinder, clapsOnTimeline, addClapMarkers } from './clapscan.js';
@@ -133,7 +134,7 @@ class App {
     fitHeader();
     initSimple(this);
     watchLive(this); // track plug-ins heard live while their window is open
-    loadMachine(api);
+    loadMachine(api).then(m => setProxyRam(m?.ram)).catch(() => {});
     this.showHome().then(async () => {
       // Settings › General › At launch: straight back into the last project
       if (pref('reopenLast') === true) { const r = (await api.recent().catch(() => []))[0]; if (r && !this.doc) this.open(api.openRecent(r.key)); }
@@ -601,14 +602,19 @@ class App {
     const CORNERS = { br: [0.85, 0.8], bl: [0.15, 0.8], tr: [0.85, 0.2], tl: [0.15, 0.2] };
     const order = ['br', 'bl', 'tl', 'tr'];
     const now = order.find(k => Math.abs((c.props?.x ?? 0.5) - CORNERS[k][0]) < 0.02 && Math.abs((c.props?.y ?? 0.5) - CORNERS[k][1]) < 0.02);
+    if (corner === 'off') {
+      this.commit(() => { c.props ||= {}; Object.assign(c.props, { x: 0.5, y: 0.5, scale: 1, radius: 0, shadow: 0 }); });
+      toast('Back to full frame.'); return;
+    }
     const next = corner || (now ? order[(order.indexOf(now) + 1) % 4] : 'br');
-    this.commit(() => {
+    let raised = false;
+    this.commit(d => {
       c.props ||= {};
       Object.assign(c.props, { x: CORNERS[next][0], y: CORNERS[next][1], scale: c.props.scale && c.props.scale < 0.5 ? c.props.scale : 0.26 });
       c.props.radius = Math.max(c.props.radius || 0, 24); c.props.shadow = Math.max(c.props.shadow || 0, 30);
+      raised = raisePip(d, c);
     });
-    // the picture-in-picture should be on top: move it up if a full-frame clip is above it
-    toast(`Picture in picture: ${{ br: 'bottom right', bl: 'bottom left', tl: 'top left', tr: 'top right' }[next]}. Choose it again to move it to the next corner; drag it in the preview to place it exactly. It shows over the tracks below it.`, 6000);
+    toast(`Picture in picture: ${{ br: 'bottom right', bl: 'bottom left', tl: 'top left', tr: 'top right' }[next]}.${raised ? ' Moved it to a track of its own above the main video, so it shows on top.' : ''} Press ▣ PiP again for the next corner, or drag it in the preview.`, 6000);
   }
 
   // ---------------------------------------------------------------- media & clips
@@ -984,6 +990,7 @@ class App {
       case 'pause-recording': if (this.onPauseRecording) this.onPauseRecording(); return;
       case 'discard-recording': if (this.onDiscardRecording) this.onDiscardRecording(); return;
       case 'thumbnail': return openThumbnailStudio(this);
+      case 'thumb-from-frame': return openThumbnailStudio(this, { frameT: this.player.time });
       case 'aiimage': return openImageGenerator(this);
       case 'export': return openExport(this);
       case 'about': return showAbout();
@@ -1001,6 +1008,7 @@ class App {
       case 'zoom-fit': return this.timeline.fit();
       case 'zoom-max': return this.timeline.zoomMax();
       case 'settings': return openSettings(this);
+      case 'settings-storage': return openSettings(this, 'storage');
       case 'voice-over': return openVoiceOver(this);
       case 'bounce': return bounceClips(this);
       case 'bounce-revert': return revertClips(this);
@@ -1088,6 +1096,9 @@ class App {
       case 'green-screen': return this.greenScreen();
       case 'remove-background': return this.removeBackground();
       case 'pip': return this.pictureInPicture();
+      case 'match-colour': return openMatchColour(this);
+      case 'music-fit': return openMusicFit(this);
+      case 'colour-wheels': { const c = this._visualClip('choose Colour wheels'); if (!c) return; if (!(c.filters || []).some(f => f.type === 'grade')) this.commit(() => { c.filters ||= []; c.filters.push({ id: uid('f'), type: 'grade' }); }); this.revealSection('Filters'); return; }
       case 'copy-effects': return ops.copyEffects(this);
       case 'paste-effects': return ops.pasteEffects(this);
       case 'paste-style': return ops.pasteStyle(this, false);
@@ -1159,7 +1170,6 @@ class App {
       case 'find-claps': return openClapFinder(this);
       case 'takes': return openTakes(this);
       case 'master': return openMaster(this);
-      case 'music-fit': return openMusicFit(this, sel[0]);
       case 'autoedit-clip': if (sel.length) return openClipAutoEdit(this, sel[0]); toast('Select a clip first (or right-click it).'); return;
       case 'marker': this.commit(d => { d.markers.push({ id: uid('k'), t, label: `Chapter ${d.markers.length + 1}` }); d.markers.sort((a, b) => a.t - b.t); }); return;
       case 'insert-text': return this._insert(newTextClip(null, t, doc.name));
@@ -1267,10 +1277,12 @@ class App {
       [tick(p.mode === 'always') + 'Every video', () => set({ mode: 'always' })],
       [tick(p.mode === 'off') + 'Off: play the originals', () => set({ mode: 'off' })],
       null,
+      [tick(p.size === 'auto') + 'Size: choose automatically', () => set({ size: 'auto' })],
       [tick(p.size === 'half') + 'Half size', () => set({ size: 'half' })],
       [tick(p.size === 'quarter') + 'Quarter size (slower Macs)', () => set({ size: 'quarter' })],
       null,
-      st.busy ? ['Stop making proxies', () => this.proxies.cancel()] : ['Make proxies now', this.doc && p.mode !== 'off' ? () => { this.proxies.kick(); if (!this.proxies.status().busy) toast('Every video here already has its proxy (or doesn’t need one).'); } : null],
+      st.busy ? ['Stop making proxies', () => this.proxies.cancel()] : ['Make proxies now', this.doc && p.mode !== 'off' ? () => { this.proxies.kick(true); if (!this.proxies.status().busy) toast('Every video here already has its proxy (or doesn’t need one).'); } : null],
+      ['Media & cache settings…', () => this.cmd('settings-storage')],
       ['Export and thumbnails always use the originals', null],
     ]);
   }
@@ -1788,6 +1800,15 @@ class App {
       this.cmd('spectral');
     });
     $('#btn-thumb').addEventListener('click', () => this.cmd('thumbnail'));
+    // right-click the picture (not a selected clip's box, which has its own menu): this frame as the thumbnail
+    $('#stage').addEventListener('contextmenu', e => {
+      if (!this.doc || e.target.closest('.sel-box')) return;
+      e.preventDefault();
+      popMenu(e.clientX, e.clientY, [
+        ['🖼 Use this frame for the thumbnail…', () => this.cmd('thumb-from-frame')],
+        ['▣ Picture in picture (selected clip)', () => this.cmd('pip')],
+      ]);
+    });
     $('#btn-aiimage').addEventListener('click', () => this.cmd('aiimage'));
     $('#btn-voices').addEventListener('click', () => this.cmd('voices'));
     $('#btn-export').addEventListener('click', () => this.cmd('export'));

@@ -15,6 +15,7 @@ import { masterOf } from './master-ui.js';
 import { PACKS, autoTransitions } from './fxlibrary.js';
 import { planCallouts, placeCallouts } from './callouts.js';
 import { clapsOnTimeline } from './clapscan.js';
+import { placeClapNotes } from './clapnotes.js';
 import { writerReady, nameChapters } from './writer.js';
 import { allChains, chainById, applyChain } from './lib/chainpresets.js';
 
@@ -67,7 +68,9 @@ export const CLEAN_LEVELS = { off: ['Off'], gentle: ['Gentle'], tight: ['Tight']
 export const VOLUME_LEVELS = { off: ['Leave it'], even: ['Even it out'] };
 /** Call-outs: none, a reminder now and then (Like · Subscribe · Bell, or Follow on a short), or that plus an end screen. */
 /** Clap signals (clap, clap, clap before a retake): leave them, mark them, or cut them out. */
-export const CLAP_LEVELS = { off: ['Leave them'], markers: ['Mark them'], cut: ['Cut them out'] };
+export const CLAP_LEVELS = { off: ['Leave them'], markers: ['Mark them'], cut: ['Cut them out'], notes: ['Show as notes'] };
+/** Clap notes (clap, then say what goes on screen): keep the spoken note in the video, or cut it so it only shows as text. */
+export const NOTE_SPEECH = { keep: ['Keep what I say'], cut: ['Cut what I say (text only)'] };
 export const CTA_LEVELS = { off: ['Off'], remind: ['Reminders'], end: ['Reminders + end screen'] };
 export const SFX_LEVELS = { off: ['Off', 0], quiet: ['Quiet', 0.4], normal: ['Normal', 1], loud: ['Loud', 1.6] };
 /** How a wide video fills a tall frame. */
@@ -83,7 +86,7 @@ const recipeDefaults = r => ({
   cta: r.highlights ? 'remind' : 'end',
   keepSped: true,
   motion: r.zoom[0] in MOTION_STYLES ? r.zoom[0] : 'follow',
-  claps: r.claps || 'off', voice: r.voice || 'none',
+  claps: r.claps || 'off', voice: r.voice || 'none', noteSpeech: 'keep',
 });
 /**
  * The parts to work on: the sections added with X (each an In–Out), plus the current In–Out if it isn't one of
@@ -155,6 +158,8 @@ export function openAutoEdit(app) {
   };
   drawParts();
   const fitRow = el('div', { class: 'row ae-row' }, el('label', { text: 'Fill the frame' }), seg('fit', FIT_LEVELS));
+  const noteRow = el('div', { class: 'row ae-row', title: 'Clap, then say what should be on screen (“Ingredients: two eggs, a cup of flour and a pinch of salt”). Each clap becomes a note card with what you said, as a list you can edit.' },
+    el('label', { text: 'Notes' }), seg('noteSpeech', NOTE_SPEECH));
   const loadRecipe = () => {
     o = { ...recipeDefaults(RECIPES[id]), ...(p.custom?.[id] || {}) };
     if (!SFX_LEVELS[o.sfx]) o.sfx = o.sounds === false ? 'off' : o.sounds ? 'normal' : recipeDefaults(RECIPES[id]).sfx; // settings saved by 1.4.6–1.4.7
@@ -168,6 +173,8 @@ export function openAutoEdit(app) {
     lenRow.parentElement && (lenRow.parentElement.style.display = r.lengths ? '' : 'none');
     for (const [k, box] of Object.entries(segs)) for (const b of box.children) b.classList.toggle('on', b.dataset.v === o[k]);
     fitRow.style.display = r.format ? '' : 'none';
+    noteRow.style.display = o.claps === 'notes' ? '' : 'none';
+    if (!NOTE_SPEECH[o.noteSpeech]) o.noteSpeech = 'keep';
     packSel.value = o.pack; packSel.disabled = o.trans === 'off';
     keepSpedCb.checked = o.keepSped !== false; keepSpedBox.style.opacity = o.clean === 'off' ? 0.45 : 1; keepSpedCb.disabled = o.clean === 'off';
     if (!chainById(o.voice)) o.voice = 'none';
@@ -179,7 +186,7 @@ export function openAutoEdit(app) {
     const many = useRegion && parts.length > 1, within = useRegion && parts.length ? (many ? ' from each part' : ' in that part') : '';
     steps.replaceChildren(...[
       useRegion && parts.length ? `Work only on ${parts.map(q => `${fmt(q.t0)}–${fmt(q.t1)}`).join(', ')}; the rest is set aside` : null,
-      o.claps === 'cut' ? 'Find clap signals and cut them out (each leaves a take marker)' : o.claps === 'markers' ? 'Find clap signals and mark them' : null,
+      o.claps === 'cut' ? 'Find clap signals and cut them out (each leaves a take marker)' : o.claps === 'markers' ? 'Find clap signals and mark them' : o.claps === 'notes' ? `Find clap signals, cut them out, and put what you say after each one on screen as a note card${o.noteSpeech === 'cut' ? ' (the spoken note is cut, so it only shows as text)' : ''}` : null,
       'Listen to the speech (on this Mac)',
       r.highlights ? (many && r.highlights === 1 ? `Pick the best moments${within}, about ${len} s in all, and join them in order` : `Pick the best ${many && r.highlights > 1 ? 'moment from each part (a short each)' : r.highlights > 1 ? `${r.highlights} moments` : 'moment'} of about ${len} s${many ? '' : within}, starting on a strong line`) : (many ? 'Join the parts in order' : null),
       o.clean !== 'off' ? (o.clean === 'tight' ? 'Cut ums and dead air (tight)' : 'Cut ums and tighten long pauses') + (o.keepSped !== false ? ', leaving sped-up clips whole' : '') : null,
@@ -219,6 +226,7 @@ export function openAutoEdit(app) {
         row('Clean up', seg('clean', CLEAN_LEVELS)),
         row('', keepSpedBox),
         row('Claps', seg('claps', CLAP_LEVELS)),
+        noteRow,
         row('Voice', voiceSel),
         row('Volume', seg('volume', VOLUME_LEVELS)),
         row('Call-outs', seg('cta', CTA_LEVELS)),
@@ -281,6 +289,7 @@ export async function runAutoEdit(app, recipeId, o) {
       report.push(rs.length > 1 ? `${rs.length} parts` : `from ${fmt(rs[0].t0)} – ${fmt(rs[0].t1)}`);
     }
     let joins = parts ? parts.slice(1).map(([a]) => a) : [];
+    const noteTimes = []; // clap notes: where each clap was (after the claps were cut out)
     // ½ · clap signals: before anything listens to the words, so the claps don't count as speech
     if ((o.claps || 'off') !== 'off') {
       step('Listening for clap signals');
@@ -292,16 +301,16 @@ export async function runAutoEdit(app, recipeId, o) {
       catch (e) { note(`Couldn’t listen for claps (${e.message}).`); }
       if (!alive()) return;
       if (!sigs.length) note('No clap signals found');
-      else if (o.claps === 'cut') {
+      else if (o.claps === 'cut' || o.claps === 'notes') {
         app.commit(d => {
           for (const x of [...sigs].reverse()) removeRange(d, x.t0, x.t1);
           let shift = 0;
-          for (const x of sigs) { d.markers.push({ id: uid('k'), t: x.t0 - shift, label: '✂ Clap', claps: true }); shift += x.t1 - x.t0; }
+          for (const x of sigs) { if (o.claps === 'notes') noteTimes.push(x.t0 - shift); else d.markers.push({ id: uid('k'), t: x.t0 - shift, label: '✂ Clap', claps: true }); shift += x.t1 - x.t0; }
           d.markers.sort((a, b) => a.t - b.t);
         });
         // the parts' times move up by what was cut before them
         if (parts) parts = parts.map(([a, b]) => { const before = q => sigs.filter(x => x.t1 <= q).reduce((n, x) => n + x.t1 - x.t0, 0); return [a - before(a), b - before(b)]; });
-        report.push(`${sigs.length} clap signal${sigs.length === 1 ? '' : 's'} cut out (takes in ✂ TAKES)`);
+        if (o.claps !== 'notes') report.push(`${sigs.length} clap signal${sigs.length === 1 ? '' : 's'} cut out (takes in ✂ TAKES)`);
       } else {
         app.commit(d => { for (const x of sigs) if (!(d.markers || []).some(k => Math.abs(k.t - x.t0) < 0.3)) d.markers.push({ id: uid('k'), t: x.t0, end: x.t1, label: '✂ Clap', claps: true }); d.markers.sort((a, b) => a.t - b.t); });
         report.push(`${sigs.length} clap marker${sigs.length === 1 ? '' : 's'}`);
@@ -314,6 +323,15 @@ export async function runAutoEdit(app, recipeId, o) {
     try { words = await timelineWords(app, { locale: o.locale, track: '' }, (t, v) => { what.textContent = t; progress(0.02 + v * 0.25); }); }
     catch (e) { note(`No speech to work from (${e.message}). Going by the picture instead.`); }
     if (!alive()) return;
+    // 1½ · clap notes: what was said after each clap goes on screen as a note card
+    if (noteTimes.length) {
+      step('Putting your notes on screen');
+      const r2 = placeClapNotes(app, words, noteTimes, { cutSpeech: o.noteSpeech === 'cut' });
+      words = r2.words;
+      if (parts && r2.cuts.length) parts = parts.map(([a, b]) => { const before = q => r2.cuts.filter(([, y]) => y <= q).reduce((n, [x, y]) => n + y - x, 0); return [a - before(a), b - before(b)]; });
+      joins = parts ? parts.slice(1).map(([a]) => a) : [];
+      report.push(`${r2.n} note card${r2.n === 1 ? '' : 's'} from your claps${r2.placeholders ? ` (${r2.placeholders} with nothing said after the clap: type over “Type your note here”)` : ''}`);
+    }
 
     // 2 · best moments
     if (r.highlights) {

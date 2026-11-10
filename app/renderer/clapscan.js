@@ -5,6 +5,7 @@
 import { el, toast, modal } from './ui.js';
 import { ClapDetector } from './lib/claps.js';
 import { mediaById, removeRange, uid } from './model.js';
+import { clapNotesFromSignals } from './clapnotes.js';
 
 const urlOf = (app, m) => `app://reel/m/${app.token}/${encodeURIComponent(m.file)}`;
 
@@ -160,6 +161,7 @@ export async function openClapFinder(app) {
     el('p', { text: `Found ${n} clap signal${s}, at ${sigs.map(x => fmt(x.t0)).join(', ')}.` }),
     el('p', { class: 'note', text: 'Markers show where they are; jump between them with the timeline’s marker keys. Cutting removes about a second of claps from every track and leaves a cut there, so you can trim back to the take you want. ⌘Z undoes either.' })), [
     { label: 'Cancel', onClick: c => c() },
+    { label: '📝 Make on-screen notes', onClick: c => { c(); clapNotesFromSignals(app, sigs); } },
     { label: `Add ${n} marker${s}`, onClick: c => { c(); app.commit(d => { addClapMarkers(d, sigs); }); toast(`${n} clap marker${s} added: ${n + 1} takes. Keep or drop them in ✂ TAKES.`); app.cmd('takes'); } },
     { label: `Cut out the claps${n > 1 ? ` (${n})` : ''}`, cls: 'hw amber', onClick: c => {
       c();

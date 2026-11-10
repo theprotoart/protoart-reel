@@ -1,6 +1,7 @@
 // Draws one frame of a project onto a 2D canvas. Used for the live preview (sources are <video>
 // and <img> elements) and for export (sources are WebCodecs VideoFrames and ImageBitmaps), so
 // what you see is what you export.
+import { revealLayer, finishReveal } from './lib/textreveal.js';
 import { activeClips, propsAt, sourceTime, mediaById, clamp, TEXT_DEFAULTS, animated, captionAt, CAPTION_STYLE } from './model.js';
 import { keysAt } from './cursor.js';
 import { filterParams, needsGl } from './lib/glfx.js';
@@ -34,16 +35,19 @@ export function drawFrame(ctx, doc, t, sources, opts = {}) {
     const p = propsAt(c, local);
     if (p.opacity <= 0.001 && !p.dip) continue;
     const masked = p.mask && p.mask.k < 1;
-    if (masked) { ctx.save(); maskPath(ctx, p.mask, W, H); ctx.clip(); }
+    // text reveal: the clip is drawn on a layer of its own, then cut to the shape of the words
+    const dc = p.textMask ? revealLayer(W, H) : ctx;
+    if (masked) { dc.save(); maskPath(dc, p.mask, W, H); dc.clip(); }
     try {
-      if (c.type === 'media') drawMedia(ctx, doc, c, p, local, sources, W, H, sx);
-      else if (c.type === 'text') drawText(ctx, c, p, local, W, H, sx);
-      else if (c.type === 'callout') drawCallout(ctx, c, p, W, H, local);
-      else if (c.type === 'shape') drawShape(ctx, c, p, local, W, H, sx);
-      else if (c.type === 'draw') drawAnnotation(ctx, c, p, local, W, H, sx);
-      else if (c.type === 'element') drawElement(ctx, c.element, p, local, c.duration, W, H, sources.image ? id => (id ? sources.image(id) : null) : null);
+      if (c.type === 'media') drawMedia(dc, doc, c, p, local, sources, W, H, sx);
+      else if (c.type === 'text') drawText(dc, c, p, local, W, H, sx);
+      else if (c.type === 'callout') drawCallout(dc, c, p, W, H, local);
+      else if (c.type === 'shape') drawShape(dc, c, p, local, W, H, sx);
+      else if (c.type === 'draw') drawAnnotation(dc, c, p, local, W, H, sx);
+      else if (c.type === 'element') drawElement(dc, c.element, p, local, c.duration, W, H, sources.image ? id => (id ? sources.image(id) : null) : null);
     } catch (e) { if (opts.onError) opts.onError(c, e); }
-    if (masked) ctx.restore();
+    if (masked) dc.restore();
+    if (p.textMask) { try { finishReveal(ctx, dc, p.textMask, W, H); } catch (e) { if (opts.onError) opts.onError(c, e); } }
     if (p.glitch > 0.05) glitchBars(ctx, p.glitch, W, H, t);
     if (p.leak > 0.01) lightLeak(ctx, p.leak, W, H, t, p.burn);
     // cinematic overlays: film grain, a lens flare streak, letterbox bars (from transitions or the clip's filters)

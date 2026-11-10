@@ -76,6 +76,13 @@ export class Overlay {
       style: { left: r.x + 'px', top: r.y + 'px', width: r.w + 'px', height: r.h + 'px' },
       title: tgt.action ? 'Editing the selected action' : canCrop ? 'Drag to move · handles to resize · hold ⌥ Option and drag a handle to crop' : 'Drag to move · handles to resize',
     }, ...HANDLES.map(h => el('div', { class: 'h ' + h, 'data-h': h })));
+    // like a colourist's / editor's transform box (DaVinci): it turns with the picture, has a rotation handle on a
+    // stem above it and a dot at its centre
+    const rot0 = kind === 'callout' ? 0 : Number(tgt.get('rotation')) || 0;
+    if (rot0) b.style.transform = `rotate(${rot0}deg)`;
+    if (r.y < 50 && !rot0) b.classList.add('rot-in'); // no room above (a full-frame picture): the rotation handle hangs inside
+    if (kind !== 'callout') b.append(el('div', { class: 'rot-stem' }), el('div', { class: 'h rot', 'data-h': 'rot', title: 'Drag to rotate (hold ⇧ for steps of 15°) · double-click to straighten' }),
+      el('div', { class: 'anchor', 'data-h': 'anchor', title: 'Drag to move · double-click to centre it in the frame' }));
     this.root.append(b);
     b.addEventListener('contextmenu', e => {
       e.preventDefault();
@@ -96,6 +103,8 @@ export class Overlay {
         ['Reset rotation', () => set(() => { tgt.set('rotation', 0); })],
         ['Reset opacity', () => set(() => { tgt.set('opacity', 1); })],
         null,
+        ['🖼 Use this frame for the thumbnail…', () => app.cmd('thumb-from-frame')],
+        null,
         c.keys && Object.keys(c.keys).length ? ['Remove all keyframes', () => app.commit(() => { delete c.keys; })] : null,
         (c.actions || []).length ? ['Remove all actions', () => app.commit(() => { c.actions = []; app.selection.action = null; })] : null,
         ['Delete clip', () => app.cmd('delete'), '⌫'],
@@ -109,25 +118,48 @@ export class Overlay {
     b.addEventListener('pointerdown', e => {
       if (e.button !== 0) return;
       e.preventDefault();
-      const handle = e.target.dataset?.h || null;
-      const cropping = canCrop && handle && (e.altKey || this.root.classList.contains('crop-mode'));
+      let handle = e.target.dataset?.h || null;
+      // double-click the rotation handle: straight; double-click the centre dot: centred in the frame
+      const now = performance.now(), dbl = this._lastDown && this._lastDown.h === handle && now - this._lastDown.t < 350;
+      this._lastDown = { h: handle, t: now };
+      if (dbl && (handle === 'rot' || handle === 'anchor')) {
+        this.app.beginChange();
+        if (handle === 'rot') tgt.set('rotation', 0); else { tgt.set('x', 0.5); tgt.set('y', 0.5); }
+        this.app.endChange({ keepInspector: true }); this._lastDown = null; return;
+      }
+      if (handle === 'anchor') handle = null; // the centre dot moves the picture
+      const cropping = canCrop && handle && handle !== 'rot' && (e.altKey || this.root.classList.contains('crop-mode'));
       const sx0 = e.clientX, sy0 = e.clientY;
       const app = this.app;
       const lt = clamp(app.player.time - c.start, 0, c.duration), tol = 0.5 / (this.doc.canvas.fps || 30);
       const cv = k => paramAt(c, 'callout.' + k, lt), setC = (k, v) => setParam(c, 'callout.' + k, lt, v, tol);
       const start = kind === 'callout' ? { x: cv('x'), y: cv('y'), w: cv('w'), h: cv('h') }
-        : { x: tgt.get('x'), y: tgt.get('y'), scale: tgt.get('scale'), crop: [...(tgt.get('crop') || [0, 0, 0, 0])] };
+        : { x: tgt.get('x'), y: tgt.get('y'), scale: tgt.get('scale'), crop: [...(tgt.get('crop') || [0, 0, 0, 0])], rot: Number(tgt.get('rotation')) || 0 };
+      const bc = b.getBoundingClientRect(), ccx = bc.left + bc.width / 2, ccy = bc.top + bc.height / 2, a0 = Math.atan2(sy0 - ccy, sx0 - ccx);
       // snapping targets in screen pixels: the frame's edges and centre
       const SNAP = 7;
       const snapTo = (v, list) => { for (const s of list) if (Math.abs(v - s) <= SNAP) return s; return null; };
       let moved = false;
       b.setPointerCapture(e.pointerId);
       const move = ev => {
-        const dxp = ev.clientX - sx0, dyp = ev.clientY - sy0;
+        let dxp = ev.clientX - sx0, dyp = ev.clientY - sy0;
         if (!moved && Math.abs(dxp) + Math.abs(dyp) < 3) return;
         if (!moved) { moved = true; this.dragging = true; app.beginChange(); b.classList.toggle('cropping', !!cropping); }
         const vx = [], hy = [];
-        if (kind === 'callout') {
+        // resizing and cropping a turned picture: the drag measured along its own sides
+        if (handle && handle !== 'rot' && start.rot) {
+          const th = -start.rot * Math.PI / 180, lx = dxp * Math.cos(th) - dyp * Math.sin(th), ly = dxp * Math.sin(th) + dyp * Math.cos(th);
+          dxp = lx; dyp = ly;
+        }
+        if (handle === 'rot') {
+          let deg = start.rot + (Math.atan2(ev.clientY - ccy, ev.clientX - ccx) - a0) * 180 / Math.PI;
+          deg = ((deg + 540) % 360) - 180;
+          if (ev.shiftKey) deg = Math.round(deg / 15) * 15;
+          else { const q = Math.round(deg / 90) * 90; if (Math.abs(deg - q) < 2.5) deg = q; } // straight and square are sticky
+          tgt.set('rotation', +deg.toFixed(2));
+          b.style.transform = deg ? `rotate(${deg}deg)` : '';
+          b.dataset.deg = `${Math.round(deg)}°`;
+        } else if (kind === 'callout') {
           const dx = dxp / W, dy = dyp / H;
           if (handle) { setC('w', Math.max(0.02, start.w + dx * 2)); setC('h', Math.max(0.02, start.h + dy * 2)); }
           else { setC('x', start.x + dx); setC('y', start.y + dy); }
@@ -182,7 +214,7 @@ export class Overlay {
       };
       const up = () => {
         b.removeEventListener('pointermove', move); b.removeEventListener('pointerup', up);
-        this.dragging = false; guides.replaceChildren(); b.classList.remove('cropping');
+        this.dragging = false; guides.replaceChildren(); b.classList.remove('cropping'); delete b.dataset.deg;
         if (moved) app.endChange(); else this.update();
       };
       b.addEventListener('pointermove', move); b.addEventListener('pointerup', up);

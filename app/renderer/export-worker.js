@@ -12,7 +12,8 @@ import { GlFx, parseCube } from './lib/glfx.js';
 import { MasterChain, LoudnessMeter, TruePeakLimiter } from './lib/master.js';
 import { HttpReader, WavAudio } from './lib/sources.js';
 import { GifEncoder, ApngEncoder } from './lib/anim.js';
-import { stretch } from './lib/stretch.js';
+import { stretch, warp } from './lib/stretch.js';
+import { mapAt } from './lib/retime.js';
 
 let cancelled = false;
 const RATE = 48000, BLOCK = 1024;
@@ -151,13 +152,20 @@ async function run({ doc, token, opts }) {
   // sped-up / slowed clips that keep their pitch: the clip's sound stretched once (WSOLA), at the output rate
   const stretched = new Map();
   // the stretched sound of a clip is held in memory: up to 10 minutes of it on 8 GB Macs, 20 with more
-  const keepsPitch = c => (c.speed || 1) !== 1 && c.audio?.keepPitch !== false && c.duration <= (opts.stretchMax || 600);
+  // (and clips with a time map, Elastic Wave or a retime curve: their speed changes along the clip)
+  const keepsPitch = c => ((c.speed || 1) !== 1 && c.audio?.keepPitch !== false || !!c.retime) && c.duration <= (opts.stretchMax || 600);
   const stretchedOf = async (c, src) => {
     if (stretched.has(c.id)) return stretched.get(c.id);
-    const speed = c.speed || 1, srcLen = c.duration * speed, a0 = Math.floor((c.in || 0) * src.rate), n = Math.ceil(srcLen * src.rate) + 4;
+    const speed = c.speed || 1, srcLen = c.retime ? c.retime[c.retime.length - 1].s : c.duration * speed, a0 = Math.floor((c.in || 0) * src.rate), n = Math.ceil(srcLen * src.rate) + 4;
     const pcm = await src.read(a0, n), outN = Math.ceil(srcLen * RATE), ratio = src.rate / RATE;
     const res = pcm.slice(0, 2).map(ch => { const o = new Float32Array(outN); for (let i = 0; i < outN; i++) { const p = i * ratio, k = Math.floor(p), f = p - k; o[i] = (ch[k] ?? 0) * (1 - f) + (ch[k + 1] ?? ch[k] ?? 0) * f; } return o; });
-    const out = stretch(res, speed, RATE);
+    let out;
+    if (c.retime) {
+      const outLen = Math.ceil(c.duration * RATE), map = o => mapAt(c.retime, o / RATE) * RATE;
+      if (c.audio?.keepPitch === false) { // tape: read along the map, so faster parts sound higher
+        out = res.map(ch => { const o = new Float32Array(outLen); for (let i = 0; i < outLen; i++) { const p = map(i), k = Math.floor(p), f = p - k; o[i] = (ch[k] ?? 0) * (1 - f) + (ch[k + 1] ?? ch[k] ?? 0) * f; } return o; });
+      } else out = warp(res, map, outLen, RATE);
+    } else out = stretch(res, speed, RATE);
     const v = { L: out[0], R: out[1] || out[0] };
     stretched.set(c.id, v);
     return v;

@@ -1,16 +1,58 @@
 # Changelog
 
-## 1.5.11 — Seamless music length, the right tab for what you pick
+## 1.6.0 — Two lines of work together: clap notes, colour match, retime, fit music, voices
+
+Brings together the two versions that were both called 1.5.9: the one with Kitten voices (released as 1.5.9 and
+1.5.10, below) and the one with clap notes, colour match, retime and fit music (these notes). Plus:
 
 - **The panel on the right opens on the tab for what you select**: AUDIO for a sound clip, VIDEO for a video or a
   picture (ALL for a mix). A tab you pick by hand stays while the same clips are selected.
-- **Extend or shorten music to fit, seamlessly**: select a music clip and open the new **MUSIC** tab in the panel on
-  the right: **🎵 FIT TO THE VIDEO**, or **Other length…** (also right-click › Extend or shorten music). Reel finds
-  the parts of the song that repeat and joins them on the beat with tiny crossfades, repeating a part (longer) or
-  skipping one (shorter), keeping the song's own start and ending. The original stays in the media list; ⌘Z undoes.
 - **Fix: renaming a project** from its title now renames its folder too (when you close it or quit), so the
   Projects screen shows the new name.
 - **Right-click menus** no longer show runs of empty divider lines.
+- **🎵 Fit music to a length** (seamless music extension, like DaVinci Resolve): select the music › the **MUSIC** tab in
+  the panel on the right (🎵 FIT TO THE VIDEO in one click), or AUDIO ▾ › Fit music to a length…, and choose the end of the video, the In–Out or a length you type. Reel finds the beat and where the
+  song repeats itself, and plays a section again (or skips one) right there with short crossfades, so the join can't
+  be heard; the intro and the real ending stay. The last fraction of a second is made up with a pitch-kept speed
+  change of at most 3%. Or **drag the ♪ on the end of a music clip** to where the music should stop (it snaps to the end of the
+  video): on release the song is re-fitted to that length, longer or shorter, again and again from its original source.
+  The result is ordinary grouped clips (move a join, or ⌘Z).
+- **〰 Elastic Wave** (like Fairlight's): right-click an audio clip › Elastic Wave, press on the waveform and drag (or
+  double-click to drop a marker on a word or beat, and drag that): the sound on each side stretches or squeezes to meet it, pitch kept, the ends pinned.
+  Each part shows its speed.
+- **⤳ Retime curve** in the inspector: clip time across, source time up; drag points or press anywhere on the line
+  and drag, double-click to add or remove,
+  presets Ease in, Ease out, Speed ramp, Slow-mo middle and Straight. Picture and sound follow it in the preview and
+  the export (sound pitch-kept with the same WSOLA stretch as speed changes; Keep pitch off gives a tape sound).
+  Splits, trims, rolling edits and speed changes keep a clip's timing map in step.
+
+- **Notes on screen with a clap** (cooking, crafts, tutorials). Clap, then say what should appear on screen:
+  “Ingredients: two eggs, a cup of flour and a pinch of salt.” AUTO EDIT › Claps › **Show as notes** turns each
+  clap into a note card (a title and a list that comes in one item at a time) with what you said, and cuts the claps
+  out. Notes: **Keep what I say**, or **Cut what I say** so it only shows as text. Also in Find clap markers…
+  (📝 Make on-screen notes). The card's list is editable in the inspector, one item per line.
+- **Picture in picture is easy to find:** a **▣ PiP** key on the tool strip, and **PICTURE IN PICTURE** corners
+  (↖ ↗ ↙ ↘, FULL) at the top of the inspector for any video or picture. A PiP clip under a full-frame video
+  moves to a track of its own on top, so it always shows.
+- **Text reveal transition:** the next clip plays through big bold words over the one before, then the words zoom
+  into a letter until the new clip fills the screen. Type the words in Transitions › Reveal text.
+- **Thumbnails from a frame of the video:** right-click the preview › Use this frame for the thumbnail…, or pick
+  from the best-looking frames Thumbnail Studio finds (★ the sharpest, most colourful one), step a frame or a
+  second at a time, and give it **Pop**. No AI art needed.
+- **🎨 Match colour:** make clips look like a reference shot (the same warmth, brightness and contrast), measured
+  on a few frames on this Mac; the selected clips or every clip, with an Amount. **◐ Colour wheels** for
+  shadows, midtones and highlights (lift, gamma, gain). Both run on the graphics chip, in preview and export.
+- **Transform handles like DaVinci Resolve:** round handles on the corners and sides, a **rotation handle** on a
+  stem above the picture (⇧ for 15° steps; straight is sticky; double-click to straighten), and a centre dot
+  (double-click to centre). The box turns with a rotated picture, and resizing follows its sides.
+- **Proxy media & render cache settings** (Settings › Media & Storage, like an editor's optimized media and render
+  cache page): proxies Automatic / Every video / Off; size **Choose automatically** (quarter for 4K, or on an
+  8 GB Mac; the new default), Half or Quarter; **make proxies in the background** straight away, after 5, 15 or
+  30 s without a click, or only when asked (never while Reel is playing); the proxy format; and this project's
+  cache (media, proxies, rendered plug-in sound) with **Delete proxies…**. PROXY ▾ › Make proxies now starts at once.
+- **Layout checks at 1280×720, 1440×900, 1920×1080 and a narrow window:** a clip's level and speed badges no longer
+  sit under the ⧓ at a cut or the ⚙ of a selected clip, and the Transitions panel fits a 13" screen (its fades
+  were off the bottom; it scrolls now).
 
 ## 1.5.10 — Tidier pop-ups and clearer voice progress
 

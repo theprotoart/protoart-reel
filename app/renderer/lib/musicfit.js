@@ -1,199 +1,152 @@
-// Music length: makes a song longer or shorter without an audible seam, ending on the song's own ending.
-// Written for Reel. The idea is the one behind "remix to length" tools: find moments where the music repeats almost
-// exactly (a bar of the chorus and the same bar of the next chorus), then jump between them, back to repeat a part
-// (longer) or forward to skip one (shorter), with each join lined up to the sample and crossfaded.
-//
-//   analyse(mono, rate)            -> { hop, n, cands: [{ a, b, score }] }   (seconds; b > a, music at a ≈ music at b)
-//   planFit(cands, D, T)           -> { segments: [{ from, to }], length, jumps } (play the segments in order)
-//   refineJoin(x, rate, p, q)      -> q' : where to land so the join is phase-aligned
-//   render(channels, rate, plan)   -> new channels (Float32Array per channel), crossfaded joins
-import { fft } from '../spectral-dsp.js';
+// Seamless music extension (like DaVinci Resolve's music remixing): makes a song longer or shorter without an
+// audible join, keeping its real start and ending. The song is measured (tone colour in 24 bands every 50 ms, and
+// how hard each moment hits), its beat grid is found, and pairs of beats whose surroundings sound alike are seams
+// where the music can jump: forward to skip a stretch, or back to play a section again. The plan is a list of
+// source ranges played one after another with short crossfades at the seams.
 
-const BANDS = 24, FMIN = 60, FMAX = 5500;
+export const HOP = 0.05;   // seconds between measurements
+const BANDS = 24;
 
-/** Per-frame spectral shape: log energy in 24 log-spaced bands, centred and normalised (so loudness doesn't count). */
-export function features(mono, rate, { hop = 0.085, size = 2048 } = {}) {
-  // analyse at ~12 kHz (enough for rhythm and harmony, 4× less work)
-  const k = Math.max(1, Math.round(rate / 12000)), sr = rate / k;
-  const len = Math.floor(mono.length / k), x = new Float32Array(len);
-  for (let i = 0; i < len; i++) { let s = 0; for (let j = 0; j < k; j++) s += mono[i * k + j]; x[i] = s / k; }
-  const h = Math.max(256, Math.round(hop * sr)), n = Math.max(0, Math.floor((len - size) / h) + 1);
-  const edges = [];
-  for (let b = 0; b <= BANDS; b++) edges.push(Math.max(1, Math.round(FMIN * Math.pow(FMAX / FMIN, b / BANDS) / sr * size)));
-  const win = new Float32Array(size); for (let i = 0; i < size; i++) win[i] = 0.5 - 0.5 * Math.cos(2 * Math.PI * i / size);
-  const re = new Float32Array(size), im = new Float32Array(size);
-  const out = new Float32Array(n * BANDS), energy = new Float32Array(n);
+/** In-place radix-2 FFT (re, im of length a power of two). */
+export function fft(re, im) {
+  const n = re.length;
+  for (let i = 1, j = 0; i < n; i++) {
+    let bit = n >> 1;
+    for (; j & bit; bit >>= 1) j ^= bit;
+    j ^= bit;
+    if (i < j) { [re[i], re[j]] = [re[j], re[i]]; [im[i], im[j]] = [im[j], im[i]]; }
+  }
+  for (let len = 2; len <= n; len <<= 1) {
+    const a = (-2 * Math.PI) / len, wr = Math.cos(a), wi = Math.sin(a);
+    for (let i = 0; i < n; i += len) {
+      let cr = 1, ci = 0;
+      for (let k = 0; k < len / 2; k++) {
+        const p = i + k, q = p + len / 2, tr = re[q] * cr - im[q] * ci, ti = re[q] * ci + im[q] * cr;
+        re[q] = re[p] - tr; im[q] = im[p] - ti; re[p] += tr; im[p] += ti;
+        const nr = cr * wr - ci * wi; ci = cr * wi + ci * wr; cr = nr;
+      }
+    }
+  }
+}
+
+/**
+ * Measures a song (mono samples at `rate`): { hop, n, feat: Float32Array[] (24 bands, centred on the song's own
+ * average so what's special about each moment counts), onset: Float32Array (how sharply each moment hits), duration }.
+ */
+export function analyseMusic(mono, rate) {
+  const N = 2048, hop = Math.round(HOP * rate), n = Math.max(1, Math.floor((mono.length - N) / hop) + 1);
+  const win = new Float32Array(N); for (let i = 0; i < N; i++) win[i] = 0.5 - 0.5 * Math.cos((2 * Math.PI * i) / N);
+  // band edges on a log scale from 60 Hz to 11 kHz
+  const edges = Array.from({ length: BANDS + 1 }, (_, b) => Math.min(N / 2, Math.max(1, Math.round((60 * (11000 / 60) ** (b / BANDS)) * N / rate))));
+  const feat = [], onset = new Float32Array(n), prev = new Float32Array(BANDS);
+  const re = new Float32Array(N), im = new Float32Array(N);
   for (let f = 0; f < n; f++) {
-    const o = f * h; let e = 0;
-    for (let i = 0; i < size; i++) { const v = x[o + i]; re[i] = v * win[i]; im[i] = 0; e += v * v; }
-    energy[f] = Math.sqrt(e / size);
+    const o = f * hop;
+    for (let i = 0; i < N; i++) { re[i] = (mono[o + i] || 0) * win[i]; im[i] = 0; }
     fft(re, im);
-    let mean = 0;
+    const v = new Float32Array(BANDS);
+    let flux = 0;
     for (let b = 0; b < BANDS; b++) {
-      let s = 0; for (let i = edges[b]; i < Math.max(edges[b] + 1, edges[b + 1]); i++) s += re[i] * re[i] + im[i] * im[i];
-      const v = Math.log(1e-9 + s); out[f * BANDS + b] = v; mean += v;
+      let e = 0; for (let k = edges[b]; k < Math.max(edges[b] + 1, edges[b + 1]); k++) e += re[k] * re[k] + im[k] * im[k];
+      v[b] = Math.log10(1e-9 + e);
+      flux += Math.max(0, v[b] - prev[b]);
+      prev[b] = v[b];
     }
-    mean /= BANDS; let norm = 0;
-    for (let b = 0; b < BANDS; b++) { const v = out[f * BANDS + b] - mean; out[f * BANDS + b] = v; norm += v * v; }
-    norm = Math.sqrt(norm) || 1;
-    for (let b = 0; b < BANDS; b++) out[f * BANDS + b] /= norm;
+    onset[f] = f ? flux : 0;
+    feat.push(v);
   }
-  return { feat: out, energy, n, hop: h / sr };
+  const mean = new Float32Array(BANDS);
+  for (const v of feat) for (let b = 0; b < BANDS; b++) mean[b] += v[b] / n;
+  for (const v of feat) for (let b = 0; b < BANDS; b++) v[b] -= mean[b];
+  return { hop: HOP, n, feat, onset, duration: mono.length / rate };
+}
+
+/** The beat: { period (s), phase (s), times: [s] } from the onsets (60–190 beats a minute). */
+export function beatGrid(an) {
+  const o = an.onset, n = o.length, h = an.hop;
+  let mean = 0; for (const v of o) mean += v / n;
+  const x = Array.from(o, v => Math.max(0, v - mean));
+  let best = 0, lagBest = Math.round(0.5 / h);
+  for (let lag = Math.round(60 / 190 / h); lag <= Math.round(60 / 60 / h); lag++) {
+    let s = 0; for (let i = lag; i < n; i++) s += x[i] * x[i - lag];
+    s *= 1 + 0.15 * Math.exp(-(((lag * h - 0.5) / 0.25) ** 2)); // a slight preference for ~120 a minute
+    if (s > best) { best = s; lagBest = lag; }
+  }
+  // the phase: where beats line up with the strongest onsets
+  let phBest = 0, ps = -1;
+  for (let ph = 0; ph < lagBest; ph++) { let s = 0; for (let i = ph; i < n; i += lagBest) s += x[i]; if (s > ps) { ps = s; phBest = ph; } }
+  const times = []; for (let i = phBest; i < n; i += lagBest) times.push(i * h);
+  return { period: lagBest * h, phase: phBest * h, times };
+}
+
+/** How alike the music sounds around times a and b (seconds): the mean match of `w` seconds on each side, −1 … 1. */
+export function likeness(an, a, b, w = 1.5) {
+  const fa = Math.round(a / an.hop), fb = Math.round(b / an.hop), k = Math.round(w / an.hop);
+  let s = 0, m = 0;
+  for (let d = -k; d <= k; d += 2) {
+    const u = an.feat[fa + d], v = an.feat[fb + d];
+    if (!u || !v) continue;
+    let dot = 0, nu = 0, nv = 0;
+    for (let i = 0; i < u.length; i++) { dot += u[i] * v[i]; nu += u[i] * u[i]; nv += v[i] * v[i]; }
+    s += dot / Math.sqrt(1e-9 + nu * nv); m++;
+  }
+  return m ? s / m : -1;
 }
 
 /**
- * Finds pairs of moments that sound the same over ~2.5 s around them. Only pairs at least `minGap` seconds apart,
- * away from the very start and end. Returns the best few dozen, spread out (not all the same spot). Async-friendly:
- * pass `yieldEvery` lags to await `tick()` between batches so the page stays responsive.
+ * The plan for playing [0, length] of the song in `target` seconds: { segments: [{ a, b }] (source ranges in order),
+ * length (what they add up to), speed (a pitch-kept nudge, 0.97–1.03, for the last fraction of a second), seams:
+ * [{ at, likeness }] }. The song's first and last few seconds are always kept (its intro and real ending).
  */
-export async function analyse(mono, rate, { minGap = 4, edge = 3, context = 2.5, max = 60, tick = null } = {}) {
-  const F = features(mono, rate);
-  const { feat, energy, n, hop } = F;
-  const W = Math.max(4, Math.round(context / hop)), half = W >> 1;
-  const g0 = Math.max(1, Math.round(minGap / hop)), e0 = Math.round(edge / hop);
-  let loud = 0; for (let i = 0; i < n; i++) loud = Math.max(loud, energy[i]);
-  const quiet = loud * 0.06;
-  const best = []; // [score, a, lag]
-  const sim = new Float32Array(n);
-  for (let lag = g0; lag < n - 2 * e0; lag++) {
-    // similarity of frame t and frame t+lag, then a moving average over the context window
-    for (let t = 0; t + lag < n; t++) {
-      let s = 0; const p = t * BANDS, q = (t + lag) * BANDS;
-      for (let b = 0; b < BANDS; b++) s += feat[p + b] * feat[q + b];
-      sim[t] = s;
+export function planFit(an, grid, length, target, { keepIntro = 2, keepOutro = 4, minLikeness = 0.55 } = {}) {
+  const delta = target - length;
+  const done = (segments, seams = []) => {
+    const len = segments.reduce((s, g) => s + g.b - g.a, 0);
+    const k = len / target;
+    return { segments, length: len, speed: Math.abs(k - 1) <= 0.03 && Math.abs(k - 1) > 0.002 ? k : 1, seams };
+  };
+  if (Math.abs(delta) < 0.05) return done([{ a: 0, b: length }]);
+  const beats = grid.times.filter(t => t >= keepIntro && t <= length - keepOutro);
+  const per = grid.period || 0.5;
+  let best = null;
+  const consider = (i, j, k, err) => {
+    const like = likeness(an, i, j);
+    if (like < minLikeness) return;
+    const score = like - Math.abs(err) / per * 0.35 - (k - 1) * 0.03;
+    if (!best || score > best.score) best = { i, j, k, err, like, score };
+  };
+  if (delta < 0) {
+    // shorten: jump forward from beat i to beat j, skipping j − i ≈ −delta
+    const want = -delta;
+    for (let x = 0; x < beats.length; x++) for (let y = x + 1; y < beats.length; y++) {
+      const gap = beats[y] - beats[x], err = gap - want;
+      if (err > per * 1.5) break;
+      if (err < -per * 1.5) continue;
+      consider(beats[x], beats[y], 1, err);
     }
-    let run = 0;
-    for (let t = 0; t < W && t + lag < n; t++) run += sim[t];
-    let localBest = -1, localA = -1;
-    for (let t = half; t + lag + half < n; t++) {
-      if (t > half) run += sim[t + half - 1] - sim[t - half - 1];
-      if (t < e0 || t + lag > n - e0) continue;
-      if (energy[t] < quiet || energy[t + lag] < quiet) continue;
-      const s = run / W;
-      if (s > localBest) { localBest = s; localA = t; }
-    }
-    if (localA >= 0) best.push([localBest, localA, lag]);
-    if (tick && lag % 40 === 0) await tick(lag / n);
+    if (best) return done([{ a: 0, b: best.i }, { a: best.j, b: length }], [{ at: best.i, likeness: best.like }]);
+    // no seamless jump: keep the start and the ending, joined with a crossfade
+    const cut = Math.max(keepIntro, (length - want) * 0.5);
+    return done([{ a: 0, b: cut }, { a: cut + want, b: length }], [{ at: cut, likeness: 0 }]);
   }
-  best.sort((x, y) => y[0] - x[0]);
-  // spread them out: drop a pair too close to one already kept (same jump, nudged)
-  const kept = [];
-  for (const [s, a, lag] of best) {
-    if (s < 0.6) break;
-    if (kept.some(k => Math.abs(k.a - a * hop) < 1.5 && Math.abs(k.b - k.a - lag * hop) < 1.5)) continue;
-    kept.push({ a: a * hop, b: (a + lag) * hop, score: s });
-    if (kept.length >= max) break;
+  // lengthen: at beat j jump back to beat i, playing the section i–j again (k times in all)
+  for (let x = 0; x < beats.length; x++) for (let y = x + 1; y < beats.length; y++) {
+    const loop = beats[y] - beats[x];
+    if (loop < Math.max(2, per * 4)) continue;
+    const k = Math.max(1, Math.round(delta / loop));
+    if (k > 12) continue;
+    consider(beats[x], beats[y], k, k * loop - delta);
   }
-  return { hop, n, duration: mono.length / rate, cands: kept };
+  if (best) {
+    const segs = [{ a: 0, b: best.j }];
+    for (let r = 1; r < best.k; r++) segs.push({ a: best.i, b: best.j });
+    segs.push({ a: best.i, b: length });
+    return done(segs, Array.from({ length: best.k }, (_, r) => ({ at: best.j + r * (best.j - best.i), likeness: best.like })));
+  }
+  // nothing loops cleanly: play the middle again from its start
+  const a = Math.min(length - keepOutro - 1, keepIntro + 1), b = Math.max(a + 1, length - keepOutro);
+  const loop = b - a, k = Math.max(1, Math.ceil(delta / loop)), segs = [{ a: 0, b }];
+  for (let r = 1; r < k; r++) segs.push({ a, b });
+  segs.push({ a, b: length });
+  return done(segs, [{ at: b, likeness: 0 }]);
 }
-
-/**
- * The segments to play for a song of length D to last about T. Longer: one or two loops (jump back from b to a),
- * repeated as often as needed. Shorter: one or two skips (jump forward from a to b). Picks the plan closest to T,
- * then the one with fewer, better joins. Always starts at 0 and ends at D (the song's own intro and ending).
- */
-export function planFit(cands, D, T, { tolerance = 1.5 } = {}) {
-  const plain = { segments: [{ from: 0, to: D }], length: D, jumps: 0, score: 1 };
-  if (!(T > 0) || Math.abs(T - D) <= tolerance / 3 || !cands.length) return plain;
-  const plans = [];
-  const cost = p => Math.abs(p.length - T) * 3 + p.jumps * 0.6 + (1 - p.score) * 20;
-  if (T > D) {
-    // jump back: play 0→b, then a→b (n−1 more times), then a→D
-    for (const c of cands) {
-      const L = c.b - c.a; if (L < 2) continue;
-      const reps = Math.max(1, Math.round((T - D) / L));
-      for (const r of [reps - 1, reps, reps + 1]) {
-        if (r < 1 || r > 40) continue;
-        const segs = [{ from: 0, to: c.b }];
-        for (let i = 1; i < r; i++) segs.push({ from: c.a, to: c.b });
-        segs.push({ from: c.a, to: D });
-        plans.push({ segments: segs, length: D + r * L, jumps: r, score: c.score });
-      }
-    }
-    // two different loops (fills the length more exactly): 0→b1, a1→b2 (b2 > a1), a2→D, with repeats of the first
-    const top = cands.slice(0, 25);
-    for (const c1 of top) for (const c2 of top) {
-      if (c1 === c2 || !(c2.b > c1.a + 2) || !(c2.a < c2.b)) continue;
-      const L1 = c1.b - c1.a, L2 = c2.b - c2.a;
-      for (let r1 = 1; r1 <= 20; r1++) {
-        const extra = T - D - r1 * L1 - L2; // the second loop once
-        if (extra < -L1) break;
-        if (Math.abs(extra) > tolerance * 2) continue;
-        const segs = [{ from: 0, to: c1.b }];
-        for (let i = 1; i < r1; i++) segs.push({ from: c1.a, to: c1.b });
-        segs.push({ from: c1.a, to: c2.b }, { from: c2.a, to: D });
-        // only valid if the music between c1.a and c2.b runs forwards
-        if (c2.b <= c1.a) continue;
-        plans.push({ segments: segs, length: D + r1 * L1 + L2, jumps: r1 + 1, score: Math.min(c1.score, c2.score) });
-      }
-    }
-  } else {
-    // jump forward: play 0→a, then b→D (skips b−a)
-    for (const c of cands) {
-      const L = c.b - c.a;
-      plans.push({ segments: [{ from: 0, to: c.a }, { from: c.b, to: D }], length: D - L, jumps: 1, score: c.score });
-    }
-    const top = cands.slice(0, 30);
-    for (const c1 of top) for (const c2 of top) {
-      if (!(c2.a > c1.b + 2)) continue; // second skip after the first lands
-      const len = D - (c1.b - c1.a) - (c2.b - c2.a);
-      if (len < 4) continue;
-      plans.push({ segments: [{ from: 0, to: c1.a }, { from: c1.b, to: c2.a }, { from: c2.b, to: D }], length: len, jumps: 2, score: Math.min(c1.score, c2.score) });
-    }
-  }
-  if (!plans.length) return plain;
-  plans.sort((p, q) => cost(p) - cost(q));
-  return plans[0];
-}
-
-/** Where to land after jumping from p to q (seconds): q nudged by up to ±40 ms so the waveforms line up. */
-export function refineJoin(x, rate, p, q, { search = 0.04, win = 0.06 } = {}) {
-  const P = Math.round(p * rate), Q = Math.round(q * rate), S = Math.round(search * rate), N = Math.round(win * rate);
-  let best = -Infinity, bestD = 0;
-  const step = Math.max(1, Math.round(rate / 24000)); // ~every other sample at 48 kHz
-  for (let d = -S; d <= S; d += step) {
-    let dot = 0, e1 = 0, e2 = 0;
-    for (let i = 0; i < N; i += 2) {
-      const u = x[P + i] || 0, v = x[Q + d + i] || 0;
-      dot += u * v; e1 += u * u; e2 += v * v;
-    }
-    const c = dot / (Math.sqrt(e1 * e2) || 1);
-    if (c > best) { best = c; bestD = d; }
-  }
-  return (Q + bestD) / rate;
-}
-
-/**
- * Plays the plan into new audio: each segment in turn, with an equal-power crossfade (`fade` seconds) at every
- * join, starting the fade where the previous segment ends. `mono` (for lining up the joins) defaults to channel 0.
- */
-export function render(channels, rate, plan, { fade = 0.05, mono = null } = {}) {
-  const x = mono || channels[0];
-  const segs = plan.segments.map(s => ({ ...s }));
-  for (let i = 1; i < segs.length; i++) segs[i].from = refineJoin(x, rate, segs[i - 1].to, segs[i].from);
-  const F = Math.max(1, Math.round(fade * rate));
-  const lens = segs.map(s => Math.max(0, Math.round((s.to - s.from) * rate)));
-  const total = lens.reduce((a, b) => a + b, 0);
-  const out = channels.map(() => new Float32Array(total));
-  let w = 0;
-  for (let k = 0; k < segs.length; k++) {
-    const s0 = Math.round(segs[k].from * rate), n = lens[k];
-    for (let c = 0; c < channels.length; c++) {
-      const src = channels[c], dst = out[c];
-      for (let i = 0; i < n; i++) dst[w + i] = src[s0 + i] || 0;
-      // crossfade into this segment: the previous segment carries on for F samples past its end, fading out
-      if (k > 0) {
-        const pe = Math.round(segs[k - 1].to * rate);
-        for (let i = 0; i < F && i < n; i++) {
-          const t = (i + 0.5) / F, gIn = Math.sin(t * Math.PI / 2), gOut = Math.cos(t * Math.PI / 2);
-          dst[w + i] = dst[w + i] * gIn + (src[pe + i] || 0) * gOut;
-        }
-      }
-    }
-    w += n;
-  }
-  return { channels: out, seconds: total / rate, joins: segs.slice(1).map(s => s.from) };
-}
-
-/** m:ss for messages. */
-export const mmss = s => { const r = Math.max(0, Math.round(s)); return `${Math.floor(r / 60)}:${String(r % 60).padStart(2, '0')}`; };

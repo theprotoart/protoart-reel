@@ -2,6 +2,7 @@
 // Pure functions over a plain JSON document, shared by the editor and the export worker.
 
 import { pref } from './prefs.js';
+import { mapAt, cutRetime, meanSpeed, scaleRetime, validRetime } from './lib/retime.js';
 import { duckWeight } from './lib/automix.js';
 export const EPS = 1e-6;
 export const uid = (p = 'c') => p + Math.random().toString(36).slice(2, 9) + Date.now().toString(36).slice(-3);
@@ -59,7 +60,19 @@ export function activeClips(doc, t) {
 }
 
 /** Source time (seconds into the media) shown at timeline time t. */
-export const sourceTime = (c, t) => (c.in || 0) + (t - c.start) * (c.speed || 1);
+export const sourceTime = (c, t) => (c.in || 0) + (c.retime ? mapAt(c.retime, t - c.start) : (t - c.start) * (c.speed || 1));
+/** Source seconds covered by the first d seconds of the clip (d may be negative: before its start). */
+export const sourceSpan = (c, d) => (c.retime ? mapAt(c.retime, d) : d * (c.speed || 1));
+/** The clip now starts d seconds later (trim, roll, split): its In moves on, and its time map is cut to match. */
+export function advanceStart(c, d) {
+  if (c.type === 'media') c.in = (c.in || 0) + sourceSpan(c, d);
+  if (c.retime) { c.retime = cutRetime(c.retime, d, c.duration).pts; c.speed = meanSpeed(c.retime); }
+}
+/** The clip now lasts dur seconds from its start (trim the end): its time map is cut or extended to match. */
+export function setEnd(c, dur) {
+  if (c.retime) { c.retime = cutRetime(c.retime, 0, dur).pts; c.speed = meanSpeed(c.retime); }
+  c.duration = dur;
+}
 
 function lerp(a, b, k) {
   if (Array.isArray(a)) return a.map((v, i) => v + ((b?.[i] ?? v) - v) * k);
@@ -84,12 +97,16 @@ export function propsAt(c, local) {
   const d = c.duration;
   const tin = c.transIn && c.transIn.type !== 'none' ? c.transIn : null;
   const tout = c.transOut && c.transOut.type !== 'none' ? c.transOut : null;
-  p.dip = null; p.mask = null; p.glitch = 0; p.leak = 0; p.burn = 0;
+  p.dip = null; p.mask = null; p.glitch = 0; p.leak = 0; p.burn = 0; p.textMask = null;
   if (tin && local < tin.dur) applyTransition(p, tin, EASES.ease(clamp(local / tin.dur, 0, 1)), 'in');
   if (tout && local > d - tout.dur) applyTransition(p, tout, EASES.ease(clamp((d - local) / tout.dur, 0, 1)), 'out');
   // crossfade in: the incoming picture fades up over the outgoing one (which stays solid underneath)
   const xi = c.xfadeIn || 0;
-  if (xi > 0 && local < xi / 2) p.opacity *= clamp((local + xi / 2) / xi, 0, 1);
+  if (tin?.type === 'text-reveal') {
+    // the picture shows through the words, from the start of the crossfade to its end (no fade)
+    const k = xi > 0 ? (local + xi / 2) / xi : local / Math.max(0.1, tin.dur * 2);
+    if (k < 1) p.textMask = { k: clamp(k, 0, 1), text: tin.text || 'NEXT', font: tin.font || '' };
+  } else if (xi > 0 && local < xi / 2) p.opacity *= clamp((local + xi / 2) / xi, 0, 1);
   return p;
 }
 
@@ -356,6 +373,25 @@ export function addTrack(doc, at = doc.tracks.length) {
   return t;
 }
 
+/**
+ * Picture in picture shows only over what's on the tracks below it. If a full-frame picture on a track above
+ * plays at the same time, the clip moves to a new "Picture in picture" track just above that. Returns true if it moved.
+ */
+export function raisePip(doc, c) {
+  const ti = trackIndex(doc, c.track), end = c.start + c.duration;
+  const fills = x => {
+    if (x.id === c.id || x.type !== 'media' || x.disabled || !(x.start < end - EPS && x.start + x.duration > c.start + EPS)) return false;
+    const m = mediaById(doc, x.media);
+    return !!m && m.kind !== 'audio' && (x.props?.scale ?? 1) >= 0.9;
+  };
+  const above = doc.clips.filter(x => fills(x) && trackIndex(doc, x.track) < ti);
+  if (!above.length) return false;
+  const t = addTrack(doc, Math.min(...above.map(x => trackIndex(doc, x.track))));
+  t.name = 'Picture in picture';
+  c.track = t.id;
+  return true;
+}
+
 /** Splits clips (selected ones, or all under the playhead) at time t. Returns new clip ids. */
 export function split(doc, t, ids) {
   const out = [];
@@ -371,7 +407,8 @@ export function split(doc, t, ids) {
     if (c.group) right.group = newGroup(c.group);
     right.start = t;
     right.duration = c.duration - local;
-    if (c.type === 'media') right.in = (c.in || 0) + local * (c.speed || 1);
+    if (c.type === 'media') right.in = (c.in || 0) + sourceSpan(c, local);
+    if (c.retime) { right.retime = cutRetime(c.retime, local, c.duration).pts; right.speed = meanSpeed(right.retime); c.retime = cutRetime(c.retime, 0, local).pts; c.speed = meanSpeed(c.retime); }
     // actions after the cut move to the right half; the right half starts from the state at the cut
     const state = propsAt({ ...c, transIn: null, transOut: null }, local);
     right.props = { ...c.props };
@@ -582,7 +619,8 @@ export function roll(doc, left, right, t) {
   t = clamp(t, lo, hi);
   const d = t - right.start;
   left.duration = t - left.start;
-  if (right.type === 'media') right.in = (right.in || 0) + d * rs;
+  if (left.retime) setEnd(left, left.duration);
+  advanceStart(right, d);
   right.actions = (right.actions || []).map(a => ({ ...a, t: a.t - d })).filter(a => a.t + a.dur > 0);
   if (Math.abs(d) > 1e-9) shiftKeys(right, d, null);
   right.start = t; right.duration -= d;
@@ -647,7 +685,7 @@ export function trim(doc, c, edge, t, media) {
     // don't overlap the neighbour on the left
     for (const o of doc.clips) if (o !== c && o.track === c.track && clipEnd(o) <= c.start + EPS) s = Math.max(s, clipEnd(o));
     const d = s - c.start;
-    if (c.type === 'media') c.in = (c.in || 0) + d * speed;
+    advanceStart(c, d);
     c.actions = (c.actions || []).map(a => ({ ...a, t: a.t - d })).filter(a => a.t + a.dur > 0);
     if (Math.abs(d) > 1e-9) shiftKeys(c, d, null);
     if (c.marks) c.marks = c.marks.map(m => m - d).filter(m => m >= 0);
@@ -656,7 +694,7 @@ export function trim(doc, c, edge, t, media) {
     let e = Math.max(t, c.start + 0.05);
     if (media && media.kind !== 'image' && media.duration) e = Math.min(e, c.start + (media.duration - (c.in || 0)) / speed);
     for (const o of doc.clips) if (o !== c && o.track === c.track && o.start >= clipEnd(c) - EPS) e = Math.min(e, o.start);
-    c.duration = e - c.start;
+    setEnd(c, e - c.start);
   }
 }
 
@@ -706,6 +744,10 @@ export function normalize(doc) {
     c.actions ||= [];
     c.transIn ||= { type: 'none', dur: 0.5 };
     c.transOut ||= { type: 'none', dur: 0.5 };
+    // a time map that doesn't fit the clip any more (or was damaged) is dropped: the clip plays at its average speed
+    if (c.retime && !validRetime(c.retime)) delete c.retime;
+    else if (c.retime && Math.abs(c.retime[c.retime.length - 1].t - c.duration) > 0.01) c.retime = cutRetime(c.retime, 0, c.duration).pts;
+    if (c.retime) c.speed = meanSpeed(c.retime);
     if (c.type === 'media') {
       c.audio = { volume: 1, pan: 0, fadeIn: 0, fadeOut: 0, mute: false, duck: 0, ...(c.audio || {}) };
       if (!Number.isFinite(c.audio.pan)) c.audio.pan = 0; // older projects had no pan (showed as RNaN)
@@ -763,6 +805,7 @@ export function setSpeed(doc, c, sp, anchor = 'start') {
   c.actions = (c.actions || []).map(a => ({ ...a, t: a.t * k, dur: a.dur * k }));
   if (c.audio) { c.audio.fadeIn = (c.audio.fadeIn || 0) * k; c.audio.fadeOut = (c.audio.fadeOut || 0) * k; }
   if (anchor === 'end') c.start = c.start + c.duration - dur;
+  if (c.retime) { c.retime = scaleRetime(c.retime, dur); c.duration = dur; c.speed = meanSpeed(c.retime); return c.speed; }
   c.duration = dur;
   c.speed = Math.abs(sp - 1) < 1e-4 ? 1 : sp;
   return c.speed;
@@ -771,7 +814,7 @@ export function setSpeed(doc, c, sp, anchor = 'start') {
 /** The cut transitions: one look applied to both sides of a cut. */
 export const CUT_TRANSITIONS = [['zoom-through', 'Zoom through'], ['spin-through', 'Spin through'], ['whip-through', 'Whip through'], ['blur-through', 'Blur through'],
   ['light-leak', 'Light leak'], ['film-burn', 'Film burn'], ['flash-cut', 'Flash'], ['glitch-cut', 'Glitch'], ['shake-cut', 'Shake'],
-  ['lens-defocus', 'Lens defocus'], ['exposure-burn', 'Exposure burn'], ['flare-sweep', 'Lens flare sweep'], ['punch-zoom', 'Punch zoom'], ['chroma-split', 'Chromatic split']];
+  ['lens-defocus', 'Lens defocus'], ['exposure-burn', 'Exposure burn'], ['flare-sweep', 'Lens flare sweep'], ['punch-zoom', 'Punch zoom'], ['chroma-split', 'Chromatic split'], ['text-reveal', 'Text reveal']];
 /** Clips meeting at a cut on one track: [outgoing, incoming] for the cut nearest time t (within `near` s). */
 export function cutAt(doc, trackId, t, near = 1.5) {
   const list = clipsOnTrack(doc, trackId).filter(c => c.type !== 'caption');
@@ -791,6 +834,17 @@ export function cutsOn(doc, trackId) {
 }
 /** Puts a transition on both sides of a cut (half its length on each). */
 export function applyCut(a, b, type, dur = 0.5) {
+  // Text reveal: the incoming clip shows through big words that grow until they fill the frame. It needs the
+  // outgoing clip to go on playing underneath, so it rides on a crossfade (both clips' handles) of its full length.
+  if (type === 'text-reveal') {
+    const full = Math.max(0.6, Math.min(Math.max(1.6, dur * 2.5), a.duration, b.duration * 0.9));
+    const keep = b.transIn?.type === 'text-reveal' ? b.transIn : {};
+    a.transOut = { type: 'none', dur: 0.5 };
+    b.transIn = { ...keep, type, dur: full / 2, text: keep.text || 'NEXT' };
+    a.xfadeOut = full; b.xfadeIn = full; delete a.xfAuto; delete b.xfAuto;
+    return;
+  }
+  if (b.transIn?.type === 'text-reveal') { delete a.xfadeOut; delete b.xfadeIn; } // the reveal's crossfade goes with it
   const half = Math.max(0.08, Math.min(dur / 2, a.duration / 2, b.duration / 2));
   a.transOut = { type, dur: half }; b.transIn = { type, dur: half };
 }
@@ -809,8 +863,8 @@ export function crossfadeOverlaps(clips) {
     const mid = b.start + ov / 2, dt = mid - b.start;
     // a moving transition (push, slide, zoom…) becomes the same transition at the cut, half on each side
     const kind = b.transIn?.type && !['none', 'fade', 'dissolve', 'crossfade'].includes(b.transIn.type) ? b.transIn.type : null;
-    a.duration = mid - a.start;
-    b.in = (b.in || 0) + dt * (b.speed || 1); b.start = mid; b.duration -= dt;
+    setEnd(a, mid - a.start);
+    advanceStart(b, dt); b.start = mid; b.duration -= dt;
     b.actions = (b.actions || []).map(x => ({ ...x, t: x.t - dt })).filter(x => x.t + (x.dur || 0) > 0).map(x => (x.t < 0 ? { ...x, dur: (x.dur || 0) + x.t, t: 0 } : x));
     if (b.keys) shiftKeys(b, dt, null);
     // the outgoing clip keeps its keyframes past the cut: its handle still uses them

@@ -4,9 +4,10 @@ import { el, toast, modal, slider } from './ui.js';
 import { uid } from './model.js';
 import { LOOKS } from './lib/glfx.js';
 import { gate } from './capability.js';
+import { openMatchColour, matchControls, colourWheel } from './colormatch.js';
 
 const KINDS = [
-  ['color', 'Colour'], ['look', 'Look'], ['lut', 'LUT (.cube)…'], ['sharpen', 'Sharpen'], ['blur', 'Blur'],
+  ['color', 'Colour'], ['grade', 'Colour wheels (lift · gamma · gain)'], ['match', 'Match colour to another clip…'], ['look', 'Look'], ['lut', 'LUT (.cube)…'], ['sharpen', 'Sharpen'], ['blur', 'Blur'],
   ['vignette', 'Vignette'], ['bw', 'Black & white'], ['chroma', 'Green screen'],
   ['grain', 'Film grain (cinematic)'], ['letterbox', 'Letterbox bars (cinematic)'], ['halation', 'Halation glow (cinematic)'], ['aberration', 'Chromatic aberration (cinematic)'],
 ];
@@ -20,7 +21,7 @@ export function filtersSection(app, insp, c) {
   const sl = (f, key, label, opts) => insp.sl(label, () => f[key] ?? opts.def ?? 0, v => { f[key] = v; }, opts);
 
   c.filters.forEach((f, i) => {
-    const name = f.type === 'look' ? `Look: ${LOOK_NAMES[f.look] || f.look}` : f.type === 'lut' ? `LUT: ${f.name || 'file'}` : (KINDS.find(k => k[0] === f.type) || [, f.type])[1];
+    const name = f.type === 'match' ? 'Match colour' : f.type === 'look' ? `Look: ${LOOK_NAMES[f.look] || f.look}` : f.type === 'lut' ? `LUT: ${f.name || 'file'}` : (KINDS.find(k => k[0] === f.type) || [, f.type])[1];
     const box = el('div', { class: 'fx-item' + (f.off ? ' off' : '') });
     box.append(el('div', { class: 'row', style: { margin: 0 } },
       el('span', { class: 'fx-name', text: name }),
@@ -40,6 +41,18 @@ export function filtersSection(app, insp, c) {
           sl(f, 'temperature', 'Temperature', { min: -1, max: 1, step: 0.01, fmt: signed }),
           sl(f, 'tint', 'Tint', { min: -1, max: 1, step: 0.01, fmt: signed }));
         break;
+      case 'grade': {
+        // three wheels, like a colourist's panel: the dot pushes that range toward a colour, the slider below it darker or brighter
+        const wheel = (key, title) => colourWheel(title, f[key], (v, done) => {
+          if (!done) { if (!f._live) { f._live = true; app.beginChange(); } f[key] = v; app.changed({ light: true, keepInspector: true }); return; }
+          f[key] = v; if (f._live) { delete f._live; app.endChange({ keepInspector: true }); } else insp.edit(() => {});
+        });
+        body.append(el('div', { class: 'cw-row' }, wheel('lift', 'Shadows'), wheel('gamma', 'Midtones'), wheel('gain', 'Highlights')),
+          el('div', { class: 'btn-row' }, el('button', { class: 'mini', text: 'Reset wheels', onclick: () => insp.edit(() => { delete f.lift; delete f.gamma; delete f.gain; }) })),
+          el('p', { class: 'note', text: 'Drag a dot toward a colour (warm shadows, cool highlights…); the slider under a wheel makes that range darker or brighter. Double-click a wheel to reset it.' }));
+        break;
+      }
+      case 'match': body.append(...matchControls(app, insp, c, f, sl)); break;
       case 'look': {
         const s = el('select', {}, ...Object.entries(LOOK_NAMES).map(([k, t]) => el('option', { value: k, text: t, selected: f.look === k })));
         s.addEventListener('change', () => insp.edit(() => { f.look = s.value; }));
@@ -90,6 +103,7 @@ export function filtersSection(app, insp, c) {
       } catch (e) { toast(e.message); }
       return;
     }
+    if (type === 'match') { openMatchColour(app, c); return; }
     const base = { id: uid('f'), type };
     if (type === 'look') base.look = 'warm';
     if (type === 'chroma') Object.assign(base, { color: '#00d000', tolerance: 0.12, softness: 0.08, spill: 0.6 });

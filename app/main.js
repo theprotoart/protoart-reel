@@ -1070,6 +1070,29 @@ handle('storage:choose', async () => {
   return projectsRoot();
 });
 handle('storage:reset', async () => { store.setStorageRoot(''); return projectsRoot(); });
+// The open project's cache (Settings › Media & Storage): proxies and rendered plug-in sound in its media folder
+const PROXY_FILE = /\sproxy(-\d+)?\.mp4$/i, RENDER_FILE = /^fx-.*\.wav$/i;
+handle('cache:info', async token => {
+  const dir = mediaDir(projectOf(token)), out = { proxies: { n: 0, bytes: 0 }, renders: { n: 0, bytes: 0 }, media: { n: 0, bytes: 0 } };
+  let names = [];
+  try { names = await fs.promises.readdir(dir); } catch { return out; }
+  for (const n of names) {
+    let st; try { st = await fs.promises.stat(path.join(dir, n)); } catch { continue; }
+    if (!st.isFile()) continue;
+    const k = PROXY_FILE.test(n) ? 'proxies' : RENDER_FILE.test(n) ? 'renders' : 'media';
+    out[k].n++; out[k].bytes += st.size;
+  }
+  return out;
+});
+handle('cache:clearProxies', async token => {
+  const dir = mediaDir(projectOf(token));
+  let n = 0;
+  for (const name of await fs.promises.readdir(dir).catch(() => [])) {
+    if (!PROXY_FILE.test(name)) continue;
+    try { await shell.trashItem(path.join(dir, name)); n++; } catch { /* in use or gone */ }
+  }
+  return n;
+});
 handle('storage:reveal', async () => { await fs.promises.mkdir(projectsRoot(), { recursive: true }).catch(() => {}); shell.openPath(projectsRoot()); });
 handle('rec:permissions', async () => ({
   screen: systemPreferences.getMediaAccessStatus('screen'),

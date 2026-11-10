@@ -20,7 +20,7 @@ const LORA_STEPS = [0, 0.25, 0.5, 0.75, 1, 1.25, 1.5, 2];
  */
 export async function erniePanel(app, s, save, opts) {
   s.prompt ??= ''; s.style ??= 'bold'; s.variations ??= 2; s.genre ??= ''; s.topic ??= ''; s.loras ??= []; s.fluxLoras ??= []; s.engine ??= 'ernie';
-  let status = await app.api.aiStatus().catch(() => ({ ernie: { ready: false, reason: 'ERNIE status unavailable' }, text: { ready: false } }));
+  let status = (await app.api.aiStatus().catch(() => null)) || { ernie: { ready: false, reason: 'ERNIE status unavailable' }, text: { ready: false } };
   status.flux ||= { ready: false, canSetup: false, reason: 'FLUX isn’t available in this build.' };
   // two picture engines, each with its own LoRA styles from Protoart Studio
   const loraLists = { ernie: await app.api.aiLoras('ernie').catch(() => []), flux: await app.api.aiLoras('flux').catch(() => []) };
@@ -91,7 +91,7 @@ export async function erniePanel(app, s, save, opts) {
     setupBtn.classList.toggle('hidden', !(s.engine === 'flux' && status.flux.canSetup));
   };
   const setupBtn = pushButton({ label: 'Get FLUX', lamp: 'amber', cls: 'hidden', title: 'One time: download FLUX.2 [klein] 4-bit (4.6 GB), the same copy Protoart Studio uses' });
-  setupBtn.addEventListener('click', () => openFluxSetup(app, async () => { status = await app.api.aiStatus().catch(() => status); status.flux ||= {}; engineNote(); reflectReady(); }));
+  setupBtn.addEventListener('click', () => openFluxSetup(app, async () => { status = (await app.api.aiStatus().catch(() => status)) || status; status.flux ||= {}; engineNote(); reflectReady(); }));
   buttonGroup(art.body, { title: 'Engine', labels: ['ERNIE', 'FLUX'], subs: ['Turbo · 8 steps', 'klein 4B · 4 steps'], index: s.engine === 'flux' ? 1 : 0, cols: 2,
     onChange: i => {
       s.engine = i ? 'flux' : 'ernie'; save();
@@ -203,7 +203,7 @@ export async function erniePanel(app, s, save, opts) {
     if (generating) return;
     if (!engineReady()) {
       // maybe it became ready since the panel opened (Protoart Studio finished a download, say)
-      status = await app.api.aiStatus().catch(() => status); status.flux ||= { ready: false };
+      status = (await app.api.aiStatus().catch(() => status)) || status; status.flux ||= { ready: false };
       engineNote(); reflectReady();
       if (!engineReady()) {
         why.classList.add('flash'); setTimeout(() => why.classList.remove('flash'), 600);

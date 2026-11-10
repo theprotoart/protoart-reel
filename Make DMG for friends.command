@@ -52,12 +52,14 @@ FIRST RECORDING
 - While recording, the panel at the bottom of the screen has MARK, PAUSE and STOP
   (or ⌥⇧⌘M, ⌥⇧⌘2 and ⇧⌘2).
 
-NEW IN THIS BUILD — PLEASE TRY
-- 🎵 MUSIC tab (select a music clip): FIT TO THE VIDEO makes the song last to the
-  end of your edit with seamless joins, keeping its real ending. Other length… too.
-- The panel on the right opens on AUDIO when you pick a sound clip, VIDEO for video.
-- Renaming a project now shows on the Projects screen; tidier right-click menus.
-- From 1.5.10: pop-ups clear of the window buttons; VOICES shows its progress.
+NEW IN THIS BUILD — PLEASE TRY (1.6.0: both 1.5.9 lines together)
+- 🎵 Fit music: select a music clip › MUSIC tab › FIT TO THE VIDEO, or drag the ♪
+  on its end; sections repeat or skip where the song repeats, real ending kept.
+- 📝 Clap notes: clap, then say what should appear on screen (AUTO EDIT › Claps).
+- 🎨 Match colour and ◐ colour wheels; ⤳ Retime curve; 〰 Elastic Wave.
+- Text reveal transition; thumbnails from a frame; DaVinci-style picture handles.
+- 🗣 VOICES and 🎙 CLONE MY VOICE (natural Kitten voices on your Mac).
+- The panel on the right opens on AUDIO or VIDEO for what you pick.
 
 EARLIER BUILDS
 - HEAR PLUG-INS LIVE: in the MIXER, click + effect on a track › ★ Your plug-ins, then press
