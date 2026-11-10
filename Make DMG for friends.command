@@ -53,12 +53,13 @@ FIRST RECORDING
   (or ⌥⇧⌘M, ⌥⇧⌘2 and ⇧⌘2).
 
 NEW IN THIS BUILD — PLEASE TRY
-- 🗣 KITTEN VOICES (TEXT ▾ › Speech from text): 115 natural voices, emotions and
-  beats like <laugh> or <sigh>, made on your Mac. Press GET KITTEN VOICES once (about
-  3 GB). Clone a voice from a clip (your own) to fix a line without re-recording.
+- 🗣 VOICES (violet key in the panel on the right): 115 natural Kitten voices,
+  emotions and beats like <laugh> or <sigh>, made on your Mac. Press GET KITTEN
+  VOICES once (about 3 GB). English by default; other languages are a tick away.
+- 🎙 CLONE MY VOICE: read a short passage into your mic (or use a clip of you
+  talking), then type any line and hear it in your own voice.
+- The deck's reels show the tape winding from one reel to the other as you play.
 - Home screen: drag a box across projects to pick several; ⌫ moves them to the Trash.
-- 1.5.7: cinematic transitions and filters, device frames, Stabilize, audio
-  visualizers, copy and paste effects, and the plug-in crash fix.
 
 EARLIER BUILDS
 - HEAR PLUG-INS LIVE: in the MIXER, click + effect on a track › ★ Your plug-ins, then press
