@@ -8,7 +8,7 @@ export function fitHeader() {
   const more = el('button', { class: 'hw more-key hidden', text: 'MORE ▾', title: 'The buttons that don’t fit at this window size' });
   box.append(more);
   // fold order: least-used first; REC, EXPORT and MORE always stay
-  const order = ['btn-help', 'btn-explain', 'btn-aiimage', 'btn-thumb', 'btn-spectral', 'btn-sound', 'btn-import'];
+  const order = ['btn-help', 'btn-explain', 'btn-aiimage', 'btn-thumb', 'btn-spectral', 'btn-sound', 'btn-voices', 'btn-import'];
   const label = b => b.textContent.replace(/\s+/g, ' ').trim();
   more.addEventListener('click', () => {
     const r = more.getBoundingClientRect();

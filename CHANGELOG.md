@@ -2,7 +2,7 @@
 
 ## 1.5.9 — Kitten voices: natural speech, emotion and your own cloned voice
 
-- **Kitten voices in Speech from text** (TEXT ▾ › 🗣 Speech from text, or Insert › Speech from Text…): KittenTTS 2
+- **Kitten voices**: the **🗣 VOICES** key in the top bar (also TEXT ▾ › 🗣 Speech from text, and Insert › Kitten Voices… / Clone My Voice from the Selected Clip…): KittenTTS 2
   (KittenML, Apache 2.0) on this Mac's graphics chip. 115 voices (characters such as Victor, Maeve or Marcus, and
   voices for 20 languages), an **Emotion** (joyful, sad, stern, excited…), **Delivery** (Steady or Expressive),
   beats put in at the cursor (<laugh>, <sigh>, <pause>, <um>…) and (((stress))) on a selected word. The Mac's own

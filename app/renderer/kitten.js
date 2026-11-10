@@ -91,7 +91,7 @@ export async function cloneFromSelection(app, onStatus) {
 const clean = e => String(e?.message || e).replace(/^Error invoking remote method '[^']+':\s*(Error:\s*)?/, '');
 
 /** The Kitten half of Speech from text. Returns { root, ready(), request(text) }. */
-export function kittenPanel(app) {
+export function kittenPanel(app, { clone = false } = {}) {
   const root = el('div', { class: 'kit' });
   const note = el('p', { class: 'note' });
   const bar = el('div', { class: 'progress hidden' }, el('i'));
@@ -124,6 +124,7 @@ export function kittenPanel(app) {
       root.append(
         el('p', { class: 'kit-pitch', text: '115 natural voices, emotion and delivery, and your own voice cloned from a clip. Made by KittenTTS 2 on this Mac’s graphics chip: nothing is uploaded.' }),
         el('div', { class: 'btn-row' }, go, stopB), bar, sn);
+      if (clone) sn.textContent = 'To clone your voice, first press GET KITTEN VOICES (one time). ' + sn.textContent;
       return;
     }
     // ready: voice, emotion, delivery, beats
@@ -163,6 +164,7 @@ export function kittenPanel(app) {
       el('div', { class: 'btn-row' }, cloneB),
       note,
       el('p', { class: 'note', text: 'Clone: select a clip of one person talking (no music) and put the playhead where they start; 15 seconds from there are used. Only clone voices you have permission to use. Language voices speak their own language: type in it.' }));
+    if (clone) { clone = false; setTimeout(() => cloneB.click(), 50); }
   };
   draw();
 

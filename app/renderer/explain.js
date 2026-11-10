@@ -11,6 +11,7 @@ const HELP = {
   '#btn-proxy': ['Proxy editing', 'Big videos (4K, HEVC, ProRes) get a half-size copy in the background so playback and scrubbing stay smooth. The green lamp means proxies are on; amber means one is being made. Export and thumbnails always use the full-quality originals.'],
   '#home-new': ['New Document', 'Pick a size and frame rate (1080 vertical, 1080p, 4K, square…) or start from a TikTok, YouTube or Instagram template.'],
   '#btn-import': ['Add media', 'Bring in video, audio and pictures from your Mac. You can also drag files onto the media list or the timeline.'],
+  '#btn-voices': ['Voices', 'Speech from text in natural voices (Kitten, on this Mac): 115 voices, emotion, laughs and sighs, and your own voice cloned from a clip to fix a line. The first time, press GET KITTEN VOICES.'],
   '#btn-aiimage': ['AI Image', 'Make a picture with ERNIE on this Mac (backgrounds, B-roll stills, title cards) and drop it into the edit.'],
   '#btn-thumb': ['Thumbnail', 'Thumbnail Studio: build a YouTube or social thumbnail from a frame of the video or an ERNIE picture, with title text and badges.'],
   '#btn-export': ['Export', 'Make the finished movie (H.264 or HEVC), or just the sound. Choose size, quality, the in/out range, captions and motion blur.'],

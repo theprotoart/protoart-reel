@@ -1816,3 +1816,4 @@ body.rec-paused #keypanel #btn-record .dot { animation: rk-blink 2s steps(2, sta
 .kit-beats { display: flex; flex-wrap: wrap; gap: 4px; flex: 1; }
 .kit-beats .mini { font-family: ui-monospace, Menlo, monospace; font-size: 11px; }
 .kit .progress { margin: 8px 0; }
+#btn-voices.voices-btn { white-space: nowrap; }

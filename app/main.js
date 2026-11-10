@@ -1822,6 +1822,8 @@ function buildMenu() {
       { label: 'Title…', accelerator: 'Command+Alt+T', click: m('titles') },
       { label: 'Annotation (draw)', accelerator: 'Command+Alt+D', click: m('annotate') },
       { label: 'Speech from Text…', click: m('tts') },
+      { label: 'Kitten Voices (natural speech)…', click: m('voices') },
+      { label: 'Clone My Voice from the Selected Clip…', click: m('clone-voice') },
       { label: 'Callout', accelerator: 'Command+Shift+C', click: m('insert-callout') },
       { label: 'Arrow / Shape', click: m('insert-shape') },
     ] },

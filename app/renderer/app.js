@@ -154,7 +154,7 @@ class App {
     $('#editor').classList.add('hidden'); $('#home').classList.remove('hidden');
     $('#doc-name').textContent = '';
     $('#doc-name').contentEditable = 'false';
-    for (const b of ['#btn-import', '#btn-thumb', '#btn-aiimage', '#btn-export', '#btn-autoedit']) $(b).disabled = true;
+    for (const b of ['#btn-import', '#btn-thumb', '#btn-aiimage', '#btn-export', '#btn-autoedit', '#btn-voices']) $(b).disabled = true;
     $('#btn-close-project').classList.add('hidden');
     $('#btn-save-project').classList.add('hidden');
     const grid = $('#recent');
@@ -283,7 +283,7 @@ class App {
       this.selection = { clips: [], action: null };
       this.setDirty(false);
       $('#home').classList.add('hidden'); $('#editor').classList.remove('hidden');
-      for (const b of ['#btn-import', '#btn-thumb', '#btn-aiimage', '#btn-export', '#btn-autoedit']) $(b).disabled = false;
+      for (const b of ['#btn-import', '#btn-thumb', '#btn-aiimage', '#btn-export', '#btn-autoedit', '#btn-voices']) $(b).disabled = false;
       $('#btn-close-project').classList.remove('hidden');
       $('#btn-save-project').classList.remove('hidden');
       const name = $('#doc-name');
@@ -1027,6 +1027,8 @@ class App {
       case 'titles': return openTitles(this);
       case 'annotate': return textops.addAnnotation(this);
       case 'tts': return textops.openSpeech(this);
+      case 'voices': return textops.openSpeech(this, { engine: 'kitten' });
+      case 'clone-voice': return textops.openSpeech(this, { engine: 'kitten', clone: true });
       case 'freeze': return ops.freezeFrame(this);
       case 'reverse': return ops.toggleReverse(this);
       case 'adr-align': return ops.alignToGuide(this);
@@ -1780,6 +1782,7 @@ class App {
     });
     $('#btn-thumb').addEventListener('click', () => this.cmd('thumbnail'));
     $('#btn-aiimage').addEventListener('click', () => this.cmd('aiimage'));
+    $('#btn-voices').addEventListener('click', () => this.cmd('voices'));
     $('#btn-export').addEventListener('click', () => this.cmd('export'));
     $('#btn-help').addEventListener('click', () => this.cmd('about'));
     // the search box next to HELP: start typing and the help opens with what you typed, searching as you go

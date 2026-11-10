@@ -116,7 +116,7 @@ export function annotationPanel(app, insp, c) {
 
 // ------------------------------------------------------------------ speech from text
 // Two engines: the Mac's own voices (instant, nothing to install), or Kitten voices (natural, emotion, cloning).
-export async function openSpeech(app) {
+export async function openSpeech(app, opts = {}) {
   const voices = await app.api.ttsVoices().catch(() => []);
   const area = el('textarea', { class: 'big', placeholder: 'Type what the voice should say…', style: { minHeight: '120px' } });
   const pick = el('select', {}, el('option', { value: '', text: 'System voice' }), ...voices.filter(v => /^en/.test(v.lang)).concat(voices.filter(v => !/^en/.test(v.lang)))
@@ -126,8 +126,9 @@ export async function openSpeech(app) {
   const rateRow = slider('Speed', rate, { min: 90, max: 320, step: 5, fmt: v => v.toFixed(0) + ' wpm', onInput: v => { rate = v; } });
   const note = el('p', { class: 'note', text: voices.length ? 'Uses the voices built into macOS, offline. Download more (including Premium and Enhanced voices) in System Settings › Accessibility › Spoken Content.' : 'macOS voices aren’t available here.' });
   const macPanel = el('div', {}, el('div', { class: 'row' }, el('label', { text: 'Voice' }), pick), rateRow, note);
-  const kit = kittenPanel(app);
+  const kit = kittenPanel(app, { clone: !!opts.clone });
   let engine = 'mac'; try { engine = localStorage.getItem('reel.ttsEngine') === 'kitten' ? 'kitten' : 'mac'; } catch { /* default */ }
+  if (opts.engine) engine = opts.engine;
   const seg = el('div', { class: 'seg tts-engine' });
   const setEngine = v => {
     engine = v; try { localStorage.setItem('reel.ttsEngine', v); } catch { /* fine */ }
@@ -136,7 +137,7 @@ export async function openSpeech(app) {
   };
   for (const [v, t] of [['mac', 'Mac voices'], ['kitten', 'Kitten voices (natural)']]) seg.append(el('button', { 'data-v': v, text: t, onclick: () => setEngine(v) }));
   setEngine(engine);
-  modal('Speech from text', el('div', {}, seg, area, macPanel, kit.root), [
+  modal(engine === 'kitten' ? 'Voices' : 'Speech from text', el('div', {}, seg, area, macPanel, kit.root), [
     { label: 'Cancel', onClick: c => c() },
     { label: 'Add at playhead', cls: 'hw amber', onClick: async (close, btn) => {
       if (!area.value.trim()) { toast('Type something to say.'); return; }
