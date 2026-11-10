@@ -19,8 +19,9 @@ export const CHARACTERS = {
   Martha: 'weathered radio journalist', Sable: 'hushed conspirator', Victoria: 'regal narrator',
 };
 
-/** The voice list, grouped: saved voices first, then the classics, characters, languages and the rest. */
-export function voiceGroups(builtin, mine) {
+/** The voice list, grouped: saved voices first, then the classics, characters, the rest, and (greyed out unless
+ *  `langs`) the voices that speak other languages. English is the default. */
+export function voiceGroups(builtin, mine, langs = false) {
   const has = new Set(builtin);
   const take = names => names.filter(n => has.has(n));
   const used = new Set([...CLASSIC, ...Object.keys(CHARACTERS), ...LANGUAGES]);
@@ -28,8 +29,8 @@ export function voiceGroups(builtin, mine) {
     ['My voices', mine.map(v => ({ value: 'mine:' + v.id, text: `${v.name} (cloned)` }))],
     ['Voices', take(CLASSIC).map(n => ({ value: n, text: n }))],
     ['Characters', take(Object.keys(CHARACTERS)).map(n => ({ value: n, text: `${n} · ${CHARACTERS[n]}` }))],
-    ['Languages', take(LANGUAGES).map(n => ({ value: n, text: `${n} (speaks ${n})` }))],
     ['More voices', builtin.filter(n => !used.has(n)).sort().map(n => ({ value: n, text: n }))],
+    [langs ? 'Other languages' : 'Other languages (tick “Other languages” to use)', take(LANGUAGES).map(n => ({ value: n, text: `${n} (speaks ${n})`, disabled: !langs }))],
   ].filter(([, list]) => list.length);
 }
 
@@ -128,9 +129,12 @@ export function kittenPanel(app, { clone = false } = {}) {
       return;
     }
     // ready: voice, emotion, delivery, beats
-    pick = el('select', {}, ...voiceGroups(st.voices, st.mine || []).map(([label, list]) => el('optgroup', { label }, ...list.map(o => el('option', o)))));
+    const langs = pref('langs') === '1';
+    pick = el('select', {}, ...voiceGroups(st.voices, st.mine || [], langs).map(([label, list]) => el('optgroup', { label }, ...list.map(o => el('option', o)))));
     const saved = pref('voice');
-    pick.value = saved && [...pick.options].some(o => o.value === saved) ? saved : 'Bruno';
+    pick.value = saved && [...pick.options].some(o => o.value === saved && !o.disabled) ? saved : 'Bruno';
+    const langBox = el('input', { type: 'checkbox', checked: langs });
+    langBox.addEventListener('change', () => { pref('langs', langBox.checked ? '1' : ''); if (!langBox.checked && LANGUAGES.includes(pick.value)) pref('voice', 'Bruno'); draw(); });
     const forget = el('button', { class: 'mini', text: 'Remove', title: 'Move this saved voice’s recording to the Trash' });
     const syncForget = () => { forget.style.display = pick.value.startsWith('mine:') ? '' : 'none'; };
     forget.onclick = async () => {
@@ -158,6 +162,7 @@ export function kittenPanel(app, { clone = false } = {}) {
     } });
     root.append(
       el('div', { class: 'row' }, el('label', { text: 'Voice' }), pick, forget),
+      el('label', { class: 'row kit-langs', title: 'Voices that speak Arabic, Chinese, French, German, Hindi, Italian, Spanish and more. They come with the model (no extra download); off, the list stays English.' }, langBox, el('span', { text: 'Other languages (voices that speak French, Spanish, German, Chinese…)' })),
       el('div', { class: 'row' }, el('label', { text: 'Emotion' }), emo),
       el('div', { class: 'row' }, el('label', { text: 'Delivery' }), seg),
       el('div', { class: 'row' }, el('label', { text: 'Add' }), beats),

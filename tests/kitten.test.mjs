@@ -8,12 +8,21 @@ const part = src.slice(src.indexOf('export const EMOTIONS'), src.indexOf('/** Wr
 const { voiceGroups, withEmotion, EMOTIONS } = new Function(part + '\nreturn { voiceGroups, withEmotion, EMOTIONS };')();
 
 test('saved voices come first, then classics, characters, languages and the rest', () => {
-  const g = voiceGroups(['Bruno', 'Victor', 'German', 'Zed', 'Luna'], [{ id: 'me', name: 'Me' }]);
-  assert.deepEqual(g.map(x => x[0]), ['My voices', 'Voices', 'Characters', 'Languages', 'More voices']);
+  const g = voiceGroups(['Bruno', 'Victor', 'German', 'Zed', 'Luna'], [{ id: 'me', name: 'Me' }], true);
+  assert.deepEqual(g.map(x => x[0]), ['My voices', 'Voices', 'Characters', 'More voices', 'Other languages']);
   assert.equal(g[0][1][0].value, 'mine:me');
   assert.deepEqual(g[1][1].map(o => o.value), ['Luna', 'Bruno']);
   assert.match(g[2][1][0].text, /Victor · controlled fury/);
-  assert.deepEqual(g[4][1].map(o => o.value), ['Zed']);
+  assert.deepEqual(g[3][1].map(o => o.value), ['Zed']);
+  assert.equal(g[4][1][0].disabled, false);
+});
+
+test('English by default: other-language voices are greyed out until turned on', () => {
+  const g = voiceGroups(['Bruno', 'German', 'French'], []);
+  const langs = g.find(x => x[0].startsWith('Other languages'));
+  assert.match(langs[0], /tick/);
+  assert.ok(langs[1].every(o => o.disabled === true));
+  assert.equal(g[0][0], 'Voices');
 });
 
 test('empty groups are left out', () => {

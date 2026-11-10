@@ -1817,3 +1817,5 @@ body.rec-paused #keypanel #btn-record .dot { animation: rk-blink 2s steps(2, sta
 .kit-beats .mini { font-family: ui-monospace, Menlo, monospace; font-size: 11px; }
 .kit .progress { margin: 8px 0; }
 #btn-voices.voices-btn { white-space: nowrap; }
+.kit-langs { gap: 8px; align-items: center; cursor: pointer; font-size: 12px; opacity: .85; }
+.kit-langs input { margin: 0; }

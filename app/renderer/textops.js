@@ -119,13 +119,28 @@ export function annotationPanel(app, insp, c) {
 export async function openSpeech(app, opts = {}) {
   const voices = await app.api.ttsVoices().catch(() => []);
   const area = el('textarea', { class: 'big', placeholder: 'Type what the voice should say…', style: { minHeight: '120px' } });
-  const pick = el('select', {}, el('option', { value: '', text: 'System voice' }), ...voices.filter(v => /^en/.test(v.lang)).concat(voices.filter(v => !/^en/.test(v.lang)))
-    .map(v => el('option', { value: v.name, text: `${v.name} · ${v.lang}` })));
-  try { pick.value = localStorage.getItem('reel.ttsVoice') || ''; } catch { /* default */ }
+  // English voices by default; the others greyed out until “Other languages” is ticked
+  let macLangs = false; try { macLangs = localStorage.getItem('reel.ttsLangs') === '1'; } catch { /* default */ }
+  const en = voices.filter(v => /^en/.test(v.lang)), other = voices.filter(v => !/^en/.test(v.lang));
+  const pick = el('select', {});
+  const fillMac = () => {
+    const keep = pick.value;
+    pick.replaceChildren(el('option', { value: '', text: 'System voice' }),
+      el('optgroup', { label: 'English' }, ...en.map(v => el('option', { value: v.name, text: `${v.name} · ${v.lang}` }))),
+      other.length ? el('optgroup', { label: macLangs ? 'Other languages' : 'Other languages (tick “Other languages” to use)' }, ...other.map(v => el('option', { value: v.name, text: `${v.name} · ${v.lang}`, disabled: !macLangs }))) : null);
+    let want = keep; if (!keep) { try { want = localStorage.getItem('reel.ttsVoice') || ''; } catch { /* default */ } }
+    const ok = [...pick.options].find(o => o.value === want && !o.disabled);
+    // default: an English voice (Samantha if the Mac has it), not whatever language the Mac's system voice is
+    pick.value = ok ? want : (en.find(v => v.name === 'Samantha') || en.find(v => v.lang === 'en-US') || en[0] || { name: '' }).name;
+  };
+  fillMac();
+  const macLangBox = el('input', { type: 'checkbox', checked: macLangs });
+  macLangBox.addEventListener('change', () => { macLangs = macLangBox.checked; try { localStorage.setItem('reel.ttsLangs', macLangs ? '1' : ''); } catch { /* fine */ } fillMac(); });
   let rate = 180;
   const rateRow = slider('Speed', rate, { min: 90, max: 320, step: 5, fmt: v => v.toFixed(0) + ' wpm', onInput: v => { rate = v; } });
   const note = el('p', { class: 'note', text: voices.length ? 'Uses the voices built into macOS, offline. Download more (including Premium and Enhanced voices) in System Settings › Accessibility › Spoken Content.' : 'macOS voices aren’t available here.' });
-  const macPanel = el('div', {}, el('div', { class: 'row' }, el('label', { text: 'Voice' }), pick), rateRow, note);
+  const macPanel = el('div', {}, el('div', { class: 'row' }, el('label', { text: 'Voice' }), pick),
+    other.length ? el('label', { class: 'row kit-langs' }, macLangBox, el('span', { text: 'Other languages' })) : null, rateRow, note);
   const kit = kittenPanel(app, { clone: !!opts.clone });
   let engine = 'mac'; try { engine = localStorage.getItem('reel.ttsEngine') === 'kitten' ? 'kitten' : 'mac'; } catch { /* default */ }
   if (opts.engine) engine = opts.engine;
