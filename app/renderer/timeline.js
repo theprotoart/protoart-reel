@@ -4,6 +4,8 @@
 import { el, $, popMenu, toast } from './ui.js';
 import { clipEnd, isFree, snap, trim, setSpeed, SPEED_STEPS, mediaById, duration, fmtTime, keyAt, withGroups, TRACK_LANES, gainToPos, posToGain, fmtDb, fmtPan, clamp, neighbour, roll, KEY_EASES, split, tidyCrossfades, cutsOn, crossfadeOverlaps } from './model.js';
 import { peaksFor, posterFor } from './peaks.js';
+import { mapAt, addPoint, movePoint, removePoint, linearRetime } from './lib/retime.js';
+import { musicLike, fitSource, refitTo } from './musicfit.js';
 import { renderingNow } from './fx.js';
 import { openSpeedPanel } from './speedpanel.js';
 import { copyEffects, copyAction } from './clipops.js';
@@ -219,6 +221,11 @@ export class Timeline {
       c.type === 'media' && m?.kind !== 'image' ? ['Speed…', () => app.cmd('speed-custom')] : null,
       c.type === 'media' && (c.speed || 1) !== 1 ? ['Normal speed', () => app.cmd('speed-normal')] : null,
       c.type === 'media' ? [c.reversed ? 'Play forwards' : 'Play in reverse', () => app.cmd('reverse')] : null,
+      // Elastic Wave and the retime curve: stretch parts of a clip, pitch kept
+      audioish && !c.reversed ? [c.elastic ? '✓ Elastic Wave (double-click the clip to add a marker)' : '〰 Elastic Wave: stretch parts without changing pitch', () => app.commit(() => { if (c.elastic) delete c.elastic; else c.elastic = true; })] : null,
+      c.type === 'media' && m?.kind !== 'image' && !c.reversed ? ['⤳ Retime curve…', () => { app.select([c.id], null); app.revealSection('Retime curve'); }] : null,
+      c.retime ? ['Remove Elastic Wave / retime (back to an even speed)', () => app.commit(() => { delete c.retime; c.speed = Math.abs((c.speed || 1) - 1) < 1e-3 ? 1 : c.speed; })] : null,
+      audioish ? ['🎵 Fit the music to a length (extend or shorten)…', () => { app.select([c.id], null); app.cmd('music-fit'); }] : null,
       audioish && (c.adrOriginal || app.selection.clips.length === 2) ? [c.adrOriginal ? 'Restore original take' : 'Align to guide (ADR)…', () => app.cmd('adr-align'), '⌥⌘A'] : null,
       audioish ? [c.spectral ? `Spectral edit… (${c.spectral.edits?.length || 0} edits)` : 'Spectral edit…', () => { app.select([c.id], null); app.cmd('spectral'); }, '⌥⌘S'] : null,
       m?.kind === 'video' && m.hasAudio && !c.audioOnly ? ['Detach audio', () => app.cmd('detach-audio')] : null,
@@ -704,7 +711,7 @@ export class Timeline {
     const m = c.type === 'media' ? mediaById(this.doc, c.media) : null;
     const kind = c.audioOnly ? 'audio' : c.type === 'media' ? (m ? m.kind : 'video') : c.type;
     const name = c.type === 'text' ? (c.text?.content || 'Text').split('\n')[0] : c.name || (m && m.name) || c.type;
-    const tags = (c.reversed ? ' ◀◀' : '') + (c.speed && c.speed !== 1 ? `  ${Math.round(c.speed * 100)}%` : '') + (c.audio?.mute && c.detached ? '  (sound detached)' : '');
+    const tags = (c.reversed ? ' ◀◀' : '') + (c.speed && Math.round(c.speed * 100) !== 100 ? `  ${Math.round(c.speed * 100)}%` : '') + (c.audio?.mute && c.detached ? '  (sound detached)' : '');
     const e = el('div', { class: `clip ${kind}${selected ? ' selected' : ''}${c.locked ? ' locked' : ''}${c.group ? ' grouped' : ''}${c.bounced ? ' bounced-src' : ''}${c.bounceOf ? ' bounced' : ''}`, 'data-id': c.id, style: { left: this.x(c.start) + 'px', width: Math.max(4, this.x(c.duration)) + 'px' } },
       el('div', { class: 'cname', text: (c.locked ? '🔒 ' : '') + name + tags }));
     // sound clips on a labelled track take its colour: blue dialogue, orange music, green sound FX
@@ -764,6 +771,8 @@ export class Timeline {
       mk.addEventListener('contextmenu', ev => { ev.preventDefault(); ev.stopPropagation(); popMenu(ev.clientX, ev.clientY, [['Jump here', () => this.app.seek(c.start + mt)], ['Remove clip marker', () => this.app.commit(() => { c.marks = c.marks.filter(x => x !== mt); })]]); });
       e.append(mk);
     }
+    if (c.elastic || c.retime) this._elasticMarks(e, c);
+    if (musicLike(this.doc, c)) this._musicHandle(e, c);
     if (selected) {
       // ⚙ on the selected clip: the clip menu without hunting for a right-click (ScreenFlow's gear)
       const gear = el('button', { class: 'clip-gear', title: 'Clip menu (or right-click the clip)', text: '⚙' });
@@ -815,6 +824,107 @@ export class Timeline {
   }
 
   /**
+   * Elastic Wave markers (DaVinci Fairlight style): each holds a moment of the sound. Drag one and the sound on each
+   * side stretches or squeezes to meet it, its pitch kept; the clip's ends stay where they are. Double-click a
+   * marker to remove it. The speed of each part shows between markers when it isn't 100%.
+   */
+  /**
+   * ♪ on the end of a music clip: drag it to where the music should end and let go. The song is re-fitted to that
+   * length (sections repeated or skipped where it repeats on the beat, its real ending kept), not just cut off.
+   * Snaps to the end of the video, markers and other clips' edges.
+   */
+  _musicHandle(e, c) {
+    const h = el('div', { class: 'mf-handle', title: 'Drag to make the music longer or shorter: it re-fits seamlessly, keeping its real ending' }, el('span', { text: '♪' }));
+    h.addEventListener('pointerdown', ev => {
+      if (ev.button !== 0) return;
+      ev.stopPropagation(); ev.preventDefault();
+      const app = this.app, f = fitSource(this.doc, c), w0 = e.getBoundingClientRect().width, x0 = ev.clientX;
+      const end0 = clipEnd(c);
+      let end = end0;
+      const tip = el('span', { class: 'mf-len' }); h.append(tip);
+      e.classList.add('mf-dragging');
+      document.body.style.cursor = 'ew-resize';
+      const move = mv => {
+        let t = end0 + this.t(mv.clientX - x0);
+        t = snap(this.doc, t, this.t(8), f.members.map(x => x.id));
+        end = Math.max(f.first.start + 3, t);
+        e.style.width = Math.max(12, w0 + this.x(end - end0)) + 'px';
+        tip.textContent = `${fmtTime(end - f.first.start).replace(/\.\d$/, '')}`;
+      };
+      const up = async () => {
+        removeEventListener('pointermove', move); removeEventListener('pointerup', up);
+        document.body.style.cursor = ''; e.classList.remove('mf-dragging'); tip.remove();
+        if (Math.abs(end - end0) < 0.2) { e.style.width = w0 + 'px'; return; }
+        e.classList.add('mf-working');
+        try {
+          const plan = await refitTo(app, c, end - f.first.start);
+          const n = plan.segments.length - 1;
+          toast(`Music re-fitted to ${fmtTime(plan.length / plan.speed).replace(/\.\d$/, '')}${n ? ` (${n} seamless join${n === 1 ? '' : 's'})` : ''}. ⌘Z undoes it.`, 4000);
+        } catch (err) { toast(`Couldn’t fit the music: ${err.message}`, 5000); this.render(); }
+      };
+      addEventListener('pointermove', move); addEventListener('pointerup', up);
+    });
+    e.append(h);
+  }
+
+  /** Elastic Wave by dragging the waveform itself: grabs the moment under the pointer (or the marker right there). */
+  _elasticGrab(e, c, host) {
+    const app = this.app, left = host.getBoundingClientRect().left, x0 = e.clientX, t0 = this.t(x0 - left);
+    let i = -1;
+    document.body.style.cursor = 'ew-resize';
+    const move = ev => {
+      if (i < 0) {
+        if (Math.abs(ev.clientX - x0) < 3) return;
+        app.beginChange();
+        c.retime ||= linearRetime(c.duration, c.duration * (c.speed || 1));
+        i = c.retime.findIndex((p, k) => k > 0 && k < c.retime.length - 1 && Math.abs(this.x(p.t) - (x0 - left)) < 6);
+        if (i < 0) { c.retime = addPoint(c.retime, t0); i = c.retime.findIndex(p => Math.abs(p.t - t0) < 1e-6); }
+        if (i <= 0 || i >= c.retime.length - 1) { i = -2; return; } // too near an end: nothing to stretch
+      }
+      if (i === -2) return;
+      c.retime = movePoint(c.retime, i, t0 + this.t(ev.clientX - x0));
+      app.changed({ light: true, keepInspector: true });
+    };
+    const up = () => {
+      removeEventListener('pointermove', move); removeEventListener('pointerup', up);
+      document.body.style.cursor = '';
+      if (i !== -1) app.endChange();
+    };
+    addEventListener('pointermove', move); addEventListener('pointerup', up);
+  }
+
+  _elasticMarks(e, c) {
+    e.classList.add('elastic');
+    const pts = c.retime || [];
+    for (let i = 1; i < pts.length; i++) { // the speed of each part
+      const a = pts[i - 1], b = pts[i], sp = (b.s - a.s) / (b.t - a.t);
+      if (Math.abs(sp - 1) > 0.005 && this.x(b.t - a.t) > 34) e.append(el('span', { class: 'ew-speed' + (sp > 1 ? ' fast' : ' slow'), text: `${Math.round(sp * 100)}%`, style: { left: this.x(a.t) + 'px', width: this.x(b.t - a.t) + 'px' } }));
+    }
+    if (!c.elastic) return;
+    pts.forEach((p, i) => {
+      if (i === 0 || i === pts.length - 1) return;
+      const mk = el('div', { class: 'ew-mark', title: 'Drag to stretch the sound on each side (pitch kept) · double-click to remove · or drag anywhere on the waveform', style: { left: this.x(p.t) + 'px' } });
+      mk.addEventListener('pointerdown', ev => {
+        if (ev.button !== 0) return;
+        ev.stopPropagation(); ev.preventDefault();
+        mk.setPointerCapture(ev.pointerId);
+        const x0 = ev.clientX, t0 = p.t, app = this.app;
+        let began = false;
+        const move = mv => {
+          if (!began) { if (Math.abs(mv.clientX - x0) < 2) return; began = true; app.beginChange(); }
+          c.retime = movePoint(c.retime, i, t0 + this.t(mv.clientX - x0));
+          mk.style.left = this.x(c.retime[i].t) + 'px';
+          app.changed({ light: true, keepInspector: true, noTimeline: true });
+        };
+        const up = () => { mk.removeEventListener('pointermove', move); mk.removeEventListener('pointerup', up); if (began) app.endChange(); };
+        mk.addEventListener('pointermove', move); mk.addEventListener('pointerup', up);
+      });
+      mk.addEventListener('dblclick', ev => { ev.stopPropagation(); this.app.commit(() => { c.retime = removePoint(c.retime, i); }); });
+      e.append(mk);
+    });
+  }
+
+  /**
    * A clip's waveform, in tiles of at most 2048 pixels, each drawn only when it scrolls into view. (One canvas for
    * a long clip had to be capped in size and then showed the sound squeezed into its first part, so speech
    * appeared where there was silence.) Each tile maps its own pixels to the source time, so it lines up at any zoom.
@@ -829,7 +939,7 @@ export class Timeline {
     peaksFor(this.app, m).then(peaks => {
       if (!peaks || !host.isConnected) return;
       const n = Math.min(3000, Math.ceil(w / TILE)), tw = Math.ceil(w / n);
-      const snap = { in: c.in || 0, dur: c.duration, speed: c.speed || 1 };
+      const snap = { in: c.in || 0, dur: c.duration, speed: c.speed || 1, retime: c.retime || null };
       for (let i = 0; i < n; i++) {
         const x0 = i * tw, width = Math.min(tw, w - x0);
         if (width <= 0) break;
@@ -861,7 +971,9 @@ export class Timeline {
     g.fillStyle = 'rgba(190,255,215,0.55)';
     const rate = peaks.rate, span = c.dur * c.speed;
     for (let x = 0; x < width; x++) {
-      const t0 = c.in + ((x0 + x) / w) * span, t1 = c.in + ((x0 + x + 1) / w) * span;
+      // with a time map (Elastic Wave, retime curve) the waveform follows it: stretched parts look stretched
+      const at = px => c.in + (c.retime ? mapAt(c.retime, (px / w) * c.dur) : (px / w) * span);
+      const t0 = at(x0 + x), t1 = at(x0 + x + 1);
       let v = 0;
       for (let i = Math.floor(t0 * rate); i <= Math.floor(t1 * rate) && i < peaks.data.length; i++) v = Math.max(v, peaks.data[i] || 0);
       const vh = Math.max(1, v * (h - 4));
@@ -1099,6 +1211,12 @@ export class Timeline {
     const now = performance.now();
     if (this._lastClick && this._lastClick.id === c.id && now - this._lastClick.at < 420 && Math.abs(e.clientX - this._lastClick.x) < 6) {
       this._lastClick = null;
+      // Elastic Wave: a double-click puts a marker there (a moment of the sound to drag to another time)
+      if (c.elastic && !e.target.closest('.ew-mark')) {
+        const host = e.target.closest('.clip'), t = this.t(e.clientX - host.getBoundingClientRect().left);
+        this.app.commit(() => { c.retime ||= linearRetime(c.duration, c.duration * (c.speed || 1)); c.retime = addPoint(c.retime, t); });
+        return;
+      }
       this.app.select([c.id], null);
       this.app.editClip?.(c) ?? this.app.focusInspector();
       return;
@@ -1126,6 +1244,11 @@ export class Timeline {
     if (retime) return this._retimeDrag(e, c, target.classList.contains('l') ? 'start' : 'end');
     if (!sel.includes(c.id)) this.app.select(mine, null);
     if (this.app.selection.clips.some(id => this.doc.clips.find(k => k.id === id)?.locked)) return; // locked clips stay put
+    // Elastic Wave: press on the waveform and drag to stretch the sound from that moment (the name strip still moves the clip)
+    if (c.elastic && !target.classList.contains('edge') && !target.closest('.cbadges, .clip-gear, .fade-h, .ew-mark, .fxbadge')) {
+      const host = target.closest('.clip');
+      if (host && e.clientY - host.getBoundingClientRect().top > 16) return this._elasticGrab(e, c, host);
+    }
     const edge = target.classList.contains('edge') ? (target.classList.contains('l') ? 'start' : 'end') : null;
     const startX = e.clientX, startRow = this._rowAt(e.clientY);
     const doc = this.doc;

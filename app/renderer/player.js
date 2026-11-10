@@ -1,6 +1,7 @@
 // Live preview: keeps one media element per clip in step with the timeline clock, draws frames
 // with the shared compositor, and plays sound through the elements (volume follows fades).
 import { drawFrame } from './compositor.js';
+import { slopeAt } from './lib/retime.js';
 import { activeClips, sourceTime, mediaById, duration, gainAt, panAt, panGains, clipEnd, spanStart, spanEnd } from './model.js';
 import { cursorAt, clicksBetween } from './cursor.js';
 import { clickSample } from './lib/click.js';
@@ -587,7 +588,8 @@ export class Player {
       const st = sourceTime(c, this.time + shift);
       // browsers play media at up to 16×: past that the picture runs at 16× and is kept in step by seeking
       // (the re-seek below), and the sound is muted (the export always uses the exact speed)
-      const want = (c.speed || 1) * this.rate, speed = Math.min(16, want), tooFast = want > 16;
+      // a time map (Elastic Wave, retime curve): the speed where the playhead is; it changes as it plays
+      const want = (c.retime ? slopeAt(c.retime, this.time + shift - c.start) : (c.speed || 1)) * this.rate, speed = Math.min(16, Math.max(0.0625, want)), tooFast = want > 16;
       if (el.playbackRate !== speed) el.playbackRate = speed;
       el.preservesPitch = c.audio?.keepPitch !== false; // off: faster sound goes up in pitch, like tape
       const g = (m.hasAudio || m.kind === 'audio') && !tooFast ? gainAt(this.doc, c, this.time + shift - c.start) : 0;

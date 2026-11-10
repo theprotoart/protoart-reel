@@ -7,12 +7,24 @@ const KEY = 'reel.proxy';
 export function proxyPrefs() {
   let p = {};
   try { p = JSON.parse(localStorage.getItem(KEY) || '{}') || {}; } catch { /* defaults */ }
-  return { mode: ['auto', 'always', 'off'].includes(p.mode) ? p.mode : 'auto', size: p.size === 'quarter' ? 'quarter' : 'half' };
+  return { mode: ['auto', 'always', 'off'].includes(p.mode) ? p.mode : 'auto', size: ['quarter', 'half'].includes(p.size) ? p.size : 'auto',
+    idle: [0, 5, 15, 30, -1].includes(p.idle) ? p.idle : 5 };
 }
 export function setProxyPrefs(next) {
   const p = { ...proxyPrefs(), ...next };
   try { localStorage.setItem(KEY, JSON.stringify(p)); } catch { /* fine */ }
   return p;
+}
+
+/** Machine memory (GB), set once Reel knows it (Choose automatically picks lighter proxies on an 8 GB Mac). */
+let ramGB = 8;
+export const setProxyRam = gb => { if (gb > 0) ramGB = gb; };
+/** How much smaller this video's proxy is: 2 (half) or 4 (quarter). Choose automatically: quarter for 4K and up, or above 1080p on an 8 GB Mac. */
+export function proxyDiv(m, prefs = proxyPrefs()) {
+  if (prefs.size === 'quarter') return 4;
+  if (prefs.size === 'half') return 2;
+  const h = Math.min(m?.width || 0, m?.height || 0) || m?.height || 0; // the short side, so vertical video counts the same
+  return h >= 2000 || (ramGB <= 8.5 && h > 1200) ? 4 : 2;
 }
 
 /** Does this video want a proxy under the current mode? */
@@ -30,6 +42,10 @@ export function previewFile(m, fullRes = false) {
   return m.proxy.file;
 }
 
+// the last time you clicked, typed or scrolled (background proxies wait for a quiet moment)
+let lastActivity = Date.now();
+if (typeof window !== 'undefined') for (const ev of ['pointerdown', 'keydown', 'wheel']) window.addEventListener(ev, () => { lastActivity = Date.now(); }, { capture: true, passive: true });
+
 export class ProxyQueue {
   constructor(app) { this.app = app; this.busy = null; this.worker = null; this.listeners = new Set(); this.done = 0; this.total = 0; }
   onChange(fn) { this.listeners.add(fn); }
@@ -40,20 +56,32 @@ export class ProxyQueue {
   needed() {
     const doc = this.app.doc, prefs = proxyPrefs();
     if (!doc) return [];
-    const div = prefs.size === 'quarter' ? 4 : 2;
-    return doc.media.filter(m => wantsProxy(m, prefs) && !(m.proxy && m.proxy.of === m.file && m.proxy.div === div));
+    return doc.media.filter(m => wantsProxy(m, prefs) && !(m.proxy && m.proxy.of === m.file && m.proxy.div === proxyDiv(m, prefs)));
   }
-  /** Starts (or continues) making proxies in the background, one file at a time. */
-  kick() {
+  /**
+   * Starts (or continues) making proxies in the background, one file at a time — like a background render cache:
+   * only once you've left Reel alone for the chosen number of seconds, and never while it's playing.
+   * now: start straight away (Make proxies now).
+   */
+  kick(now = false) {
     if (this.busy) return;
+    clearTimeout(this._wait);
+    const prefs = proxyPrefs();
+    if (!now && !this.forced) {
+      if (prefs.idle < 0) return; // only when asked
+      const quiet = Date.now() - lastActivity, need = prefs.idle * 1000;
+      if (this.app.player?.playing || quiet < need) { this._wait = setTimeout(() => this.kick(), Math.max(1000, need - quiet)); return; }
+    }
+    this.forced = now || this.forced;
     const list = this.needed();
-    if (!list.length) { if (this.total) { this.total = 0; this.done = 0; this._emit(); } return; }
+    if (!list.length) { this.forced = false; if (this.total) { this.total = 0; this.done = 0; this._emit(); } return; }
     if (!this.total) { this.total = list.length; this.done = 0; }
     this._make(list[0]);
   }
   cancel() {
     if (this.worker) { this.worker.postMessage({ type: 'cancel' }); this.worker.terminate(); this.worker = null; }
     if (this.rid) this.app.api.renderCancel(this.rid).catch?.(() => {});
+    clearTimeout(this._wait); this.forced = false;
     this.busy = null; this.rid = null; this.total = 0; this.done = 0; this._emit();
   }
 
@@ -73,7 +101,7 @@ export class ProxyQueue {
     return null;
   }
   async _make(m) {
-    const app = this.app, token = app.token, div = proxyPrefs().size === 'quarter' ? 4 : 2;
+    const app = this.app, token = app.token, div = proxyDiv(m);
     this.busy = m; this.progress = 0; this._emit();
     // a proxy made in an earlier session whose project wasn't saved afterwards is still on disk: use it
     // instead of making another copy (that left "proxy-2" files of several hundred MB each)

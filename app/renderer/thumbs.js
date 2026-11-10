@@ -7,21 +7,24 @@ import { hexA } from './compositor.js';
 import { SIZE_PRESETS, genreById } from './genres.js';
 import { erniePanel } from './imagegen.js';
 import { module, knob, buttonGroup, latch, tape } from './gear.js';
+import { frameScore, pickFrames, sampleTimes, popFilter } from './lib/framepick.js';
 
 const SHORT_SIZE = { yt: 'YT', 'yt-hd': 'HD', shorts: 'Shorts', 'ig-square': '1:1', 'ig-portrait': '4:5', social: 'Link', x: 'X', podcast: 'Pod', banner: 'Banner' };
 
 const FONTS = ['Avenir Next Condensed', 'Impact', 'Futura', 'Avenir Next', 'DIN Condensed', 'Helvetica Neue', 'Arial Black', 'Rockwell', 'Marker Felt', 'Poppins', 'SF Pro Display', 'Didot'];
 
-export async function openThumbnailStudio(app) {
+/** opts.frameT: start from that moment of the video (right-click › Use this frame for the thumbnail). */
+export async function openThumbnailStudio(app, opts = {}) {
   const doc = app.doc;
   if (!doc) return;
-  const saved = doc.thumbStudio || {};
+  const saved = { ...(doc.thumbStudio || {}), ...(opts.frameT != null ? { frameT: opts.frameT, bg: 'frame' } : {}) };
   const st = {
     preset: saved.preset || 'yt',
     bg: saved.bg || 'frame', frameT: Math.min(saved.frameT ?? app.player.time, duration(doc)),
     strength: saved.strength ?? 0.55, title: saved.title ?? doc.name, subtitle: saved.subtitle || '',
     font: saved.font || 'Avenir Next Condensed', size: saved.size || 118, color: saved.color || '#ffffff', accent: saved.accent || '#ffb02a',
     accentLast: saved.accentLast ?? true, outline: saved.outline || '#000000', upper: saved.upper ?? true, pos: saved.pos || 'left',
+    pop: saved.pop ?? 0.35,
     tx: saved.tx ?? 0.3, ty: saved.ty ?? 0.5, darken: saved.darken ?? 0.55, inset: saved.inset ?? false, insetSide: saved.insetSide || 'right', insetSize: saved.insetSize ?? 0.5,
     ai: { prompt: saved.prompt || '', style: saved.style || 'bold', variations: saved.variations || 2, genre: saved.genre || '', loras: saved.loras || [], ...(saved.ai || {}) },
   };
@@ -39,7 +42,7 @@ export async function openThumbnailStudio(app) {
     ctx.save();
     ctx.fillStyle = '#000'; ctx.fillRect(0, 0, W, H);
     const bgImg = st.bg !== 'frame' && ai ? ai : frame;
-    if (bgImg) cover(ctx, bgImg, 0, 0, W, H);
+    if (bgImg) { if (bgImg === frame) ctx.filter = popFilter(st.pop); cover(ctx, bgImg, 0, 0, W, H); ctx.filter = 'none'; }
     if (st.darken > 0) {
       let g;
       if (st.pos === 'left') g = ctx.createLinearGradient(0, 0, W * 0.75, 0);
@@ -59,7 +62,7 @@ export async function openThumbnailStudio(app) {
       ctx.beginPath(); ctx.roundRect(-iw / 2 - 8 * k, -ih / 2 - 8 * k, iw + 16 * k, ih + 16 * k, 18 * k); ctx.fill();
       ctx.shadowColor = 'transparent';
       ctx.beginPath(); ctx.roundRect(-iw / 2, -ih / 2, iw, ih, 12 * k); ctx.clip();
-      cover(ctx, frame, -iw / 2, -ih / 2, iw, ih);
+      ctx.filter = popFilter(st.pop); cover(ctx, frame, -iw / 2, -ih / 2, iw, ih); ctx.filter = 'none';
       ctx.restore();
     }
     drawTitle(ctx, st, W, H);
@@ -67,7 +70,10 @@ export async function openThumbnailStudio(app) {
   };
 
   // The frame is grabbed at the project's own shape, then cropped to fill the thumbnail.
-  const loadFrame = async () => { frame = await app.player.still(st.frameT, doc.canvas.width, doc.canvas.height); draw(); };
+  // one still at a time: the player can only stand on one moment (the frame strip and a click can overlap)
+  let queue = Promise.resolve();
+  const grab = (t, w, h) => { const p = queue.then(() => app.player.still(t, w, h)); queue = p.catch(() => {}); return p; };
+  const loadFrame = async () => { frame = await grab(st.frameT, doc.canvas.width, doc.canvas.height); draw(); };
   const frameBytes = async () => {
     if (!frame) await loadFrame();
     // ERNIE + frame: give ERNIE the frame already cropped to the thumbnail's shape.
@@ -102,7 +108,39 @@ export async function openThumbnailStudio(app) {
   const bgGroup = buttonGroup(bgMod.body, { labels: ['Video frame', 'ERNIE art', 'ERNIE + frame'], index: BG_IDS.indexOf(st.bg), lamp: 'amber',
     onChange: i => { st.bg = BG_IDS[i]; strengthRow.style.display = st.bg === 'img2img' ? '' : 'none'; draw(); persist(); } });
   const setBg = v => { st.bg = v; bgGroup.set(BG_IDS.indexOf(v)); strengthRow.style.display = v === 'img2img' ? '' : 'none'; };
-  bgMod.body.append(frameSlider, el('div', { class: 'btn-row' }, el('button', { class: 'tool', text: 'Use playhead', onclick: () => { st.frameT = app.player.time; setSlider(frameSlider, st.frameT, fmtTime); loadFrame(); persist(); } })));
+  // pick a frame: the best-looking moments to click, then fine-tune a frame or a second at a time
+  let closed = false;
+  const strip = el('div', { class: 'ts-strip' }, el('p', { class: 'note', text: 'Finding good frames…' }));
+  const useFrame = t => {
+    st.frameT = clamp(t, 0, duration(doc)); setSlider(frameSlider, st.frameT, fmtTime);
+    if (st.bg !== 'frame' && !ai) setBg('frame');
+    for (const b of strip.querySelectorAll('.ts-frame')) b.classList.toggle('lit', Math.abs(Number(b.dataset.t) - st.frameT) < 0.02);
+    loadFrame(); persist();
+  };
+  const fps = doc.canvas.fps || 30;
+  const step = (txt, dt, title) => el('button', { class: 'tool', text: txt, title, onclick: () => useFrame(st.frameT + dt) });
+  const findFrames = async () => {
+    const total = duration(doc), scored = [];
+    for (const t of sampleTimes(total, 24)) {
+      if (closed) return;
+      const c = await grab(t, 192, 108);
+      const g = c.getContext('2d', { willReadFrequently: true });
+      scored.push({ t, score: frameScore(g.getImageData(0, 0, 192, 108).data, 192, 108), c });
+    }
+    if (closed) return;
+    const best = pickFrames(scored, 8, total / 20), top = Math.max(...best.map(f => f.score));
+    strip.replaceChildren(...best.map(f => {
+      const b = el('button', { class: 'ts-frame' + (Math.abs(f.t - st.frameT) < 0.02 ? ' lit' : ''), 'data-t': String(f.t), title: `${fmtTime(f.t)}${f.score === top ? ' — the sharpest, most colourful frame' : ''}: click to use it` }, f.c, el('span', { text: (f.score === top ? '★ ' : '') + fmtTime(f.t).replace(/\.\d+$/, '') }));
+      b.addEventListener('click', () => useFrame(f.t));
+      return b;
+    }));
+  };
+  bgMod.body.append(
+    el('div', { class: 'engr ts-pick-head', text: 'Pick a frame' }), strip, frameSlider,
+    el('div', { class: 'btn-row ts-steps' },
+      step('◀◀ 1s', -1, 'One second earlier'), step('◀', -1 / fps, 'One frame earlier'), step('▶', 1 / fps, 'One frame later'), step('1s ▶▶', 1, 'One second later'),
+      el('button', { class: 'tool', text: 'Use playhead', onclick: () => useFrame(app.player.time) })),
+    live('Pop', 'pop', { min: 0, max: 1, step: 0.01, fmt: v => (v < 0.01 ? 'As shot' : Math.round(v * 100) + '%') }));
 
   // TITLE
   const titleMod = module('Title', { finish: 'bone', sub: 'Words on the picture' });
@@ -165,7 +203,7 @@ export async function openThumbnailStudio(app) {
   });
   showBadges(genreById(st.ai.genre));
 
-  const side = el('div', { class: 'ts-side' }, sizeMod, panel.channel, bgMod, panel.art, titleMod, insetMod);
+  const side = el('div', { class: 'ts-side' }, sizeMod, bgMod, panel.channel, panel.art, titleMod, insetMod); // the frame picker first: most thumbnails start from the video
 
   const body = el('div', { class: 'ts' }, el('div', {}, el('div', { class: 'ts-canvas-wrap' }, canvas), panel.galleryEl), side);
   const pngBytes = async () => new Uint8Array(await (await new Promise(r => canvas.toBlob(r, 'image/png'))).arrayBuffer());
@@ -182,7 +220,7 @@ export async function openThumbnailStudio(app) {
     { label: 'Add to project', cls: 'hw', onClick: async () => { try { await app.addAiImage(await pngBytes(), 'thumbnail', false); toast('Added to media — use it as an intro or end card.'); } catch (e) { toast(e.message); } } },
     { label: 'Save JPG', cls: 'hw', onClick: () => save('image/jpeg') },
     { label: 'Save PNG', cls: 'hw amber', onClick: () => save('image/png') },
-  ], { wide: true, onClose: () => panel.dispose() });
+  ], { wide: true, onClose: () => { closed = true; panel.dispose(); } });
 
   // ---------------------------------------------------------------- drag the title
   canvas.addEventListener('pointerdown', e => {
@@ -194,6 +232,7 @@ export async function openThumbnailStudio(app) {
   });
 
   await loadFrame();
+  findFrames().catch(() => { strip.replaceChildren(); });
 }
 
 /** Text and decorations are authored for 1280×720 and scaled to the preset. */

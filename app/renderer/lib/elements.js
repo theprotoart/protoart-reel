@@ -117,6 +117,48 @@ export const ELEMENTS = {
       ctx.beginPath(); ctx.moveTo(-120, 80); ctx.lineTo(-170, 150); ctx.lineTo(-40, 88); ctx.fill();
       ctx.shadowColor = 'transparent'; ctx.fillStyle = e.accent; ctx.font = font(800, 64); ctx.textAlign = 'center'; ctx.textBaseline = 'middle'; ctx.fillText(e.text, 0, -20);
     } },
+  // A card with a title and a list (ingredients, steps, a tip), one item at a time. One item per line of text.
+  noteCard: { name: 'Note card (list)', group: 'Call-outs', box: [760, 460], multiline: true,
+    defaults: { text: 'Two eggs\nOne cup of flour\nA pinch of salt', sub: 'INGREDIENTS', color: '#ffffff', accent: '#ffb02a' },
+    draw(ctx, e, t, d) {
+      const [ki, ko] = io(t, d, 0.5, 0.45), k = easeOut(ki), o = easeInOut(ko);
+      const W = 760, pad = 40, lh = 58, maxW = W - pad * 2 - 44;
+      ctx.font = font(650, 42);
+      const lines = []; // { txt, item (its number), first (first line of that item) }
+      String(e.text || '').split('\n').map(s => s.trim()).filter(Boolean).slice(0, 10).forEach((itemText, n) => {
+        let cur = '', first = true;
+        for (const w of itemText.split(/\s+/)) {
+          const tryLine = cur ? `${cur} ${w}` : w;
+          if (cur && ctx.measureText(tryLine).width > maxW) { lines.push({ txt: cur, item: n, first }); first = false; cur = w; } else cur = tryLine;
+        }
+        if (cur) lines.push({ txt: cur, item: n, first });
+      });
+      const head = e.sub ? 62 : 0, H = pad * 2 + head + Math.max(1, lines.length) * lh - 10;
+      ctx.globalAlpha *= k * o;
+      ctx.translate((1 - k) * 70, 0);
+      ctx.shadowColor = 'rgba(0,0,0,.45)'; ctx.shadowBlur = 30; ctx.shadowOffsetY = 10;
+      ctx.fillStyle = 'rgba(18,18,20,.86)'; roundRect(ctx, -W / 2, -H / 2, W, H, 22); ctx.fill();
+      ctx.shadowColor = 'transparent';
+      ctx.fillStyle = e.accent; roundRect(ctx, -W / 2, -H / 2, 10, H, [22, 0, 0, 22]); ctx.fill();
+      let y = -H / 2 + pad;
+      ctx.textBaseline = 'top'; ctx.textAlign = 'left';
+      if (e.sub) {
+        ctx.fillStyle = e.accent; ctx.font = font(800, 30);
+        if ('letterSpacing' in ctx) ctx.letterSpacing = '4px';
+        ctx.fillText(String(e.sub).toUpperCase(), -W / 2 + pad + 8, y);
+        if ('letterSpacing' in ctx) ctx.letterSpacing = '0px';
+        y += head;
+      }
+      // items come in one after another
+      for (const { txt, item, first } of lines) {
+        const a = easeOut(clamp((t - 0.35 - item * 0.22) / 0.35, 0, 1));
+        ctx.save(); ctx.globalAlpha *= a; ctx.translate((1 - a) * 24, 0);
+        if (first) { ctx.fillStyle = e.accent; ctx.beginPath(); ctx.arc(-W / 2 + pad + 18, y + 22, 8, 0, Math.PI * 2); ctx.fill(); }
+        ctx.fillStyle = e.color; ctx.font = font(650, 42); ctx.fillText(txt, -W / 2 + pad + 44, y);
+        ctx.restore();
+        y += lh;
+      }
+    } },
   // ---------------------------------------------------------------- shapes
   burst: { name: 'Burst', group: 'Shapes', box: [500, 500], defaults: { text: '', sub: '', color: '#ffd60a', accent: '#ffffff' },
     draw(ctx, e, t) {
@@ -458,5 +500,5 @@ export function elementBox(el, p, W, H) {
 /** Where an element sits by default (lower thirds low on the left; the rest in the middle). */
 export function elementHome(kind) {
   const g = ELEMENTS[kind]?.group;
-  return g === 'Lower thirds' ? { x: 0.3, y: 0.82 } : ['subscribe', 'likeButton', 'bell', 'likeSubscribe', 'follow', 'commentPrompt'].includes(kind) ? { x: 0.5, y: 0.8 } : kind === 'progressBar' ? { x: 0.5, y: 0.88 } : { x: 0.5, y: 0.5 };
+  return kind === 'noteCard' ? { x: 0.76, y: 0.42, scale: 0.85 } : g === 'Lower thirds' ? { x: 0.3, y: 0.82 } : ['subscribe', 'likeButton', 'bell', 'likeSubscribe', 'follow', 'commentPrompt'].includes(kind) ? { x: 0.5, y: 0.8 } : kind === 'progressBar' ? { x: 0.5, y: 0.88 } : { x: 0.5, y: 0.5 };
 }

@@ -16,6 +16,7 @@ uniform float exposure, contrast, saturation, vibrance, temperature, tint, highl
 uniform float inBlack, inWhite, gammaV, outBlack, outWhite, brightness;
 uniform float sharpen, vignette, bw, lutAmount, lutSize, useMask, maskFeather, aberr;
 uniform vec3 key; uniform float keyOn, keyTol, keySoft, keySpill;
+uniform vec3 mMul, mAdd, lift, gam, gain; // colour match; colour wheels (lift / gamma / gain)
 
 vec3 lutLookup(vec3 c) {
   // 3D LUT stored as lutSize slices side by side: width = size*size, height = size
@@ -53,6 +54,8 @@ void main() {
     c = mix(c, vec3(lum), spill);
     a *= alpha;
   }
+  // colour match: each channel scaled and shifted so this shot's colours sit like the reference shot's
+  c = c * mMul + mAdd;
   // levels: input black / white, gamma (midtones), output black / white, then brightness
   c = clamp((c - inBlack) / max(0.01, inWhite - inBlack), 0.0, 1.0);
   c = pow(c, vec3(1.0 / max(0.05, gammaV)));
@@ -65,6 +68,9 @@ void main() {
   c = (c - 0.5) * (1.0 + contrast) + 0.5;
   // temperature (blue↔amber) and tint (green↔magenta)
   c += vec3(temperature, 0.0, -temperature) * 0.12 + vec3(tint, -tint, tint) * 0.06;
+  // colour wheels: lift moves the shadows, gamma the midtones, gain the highlights (per channel)
+  c = gain * (c + lift * (1.0 - c));
+  c = pow(max(c, vec3(0.0)), 1.0 / max(gam, vec3(0.05)));
   float g = dot(c, vec3(0.2126, 0.7152, 0.0722));
   float sat = max(c.r, max(c.g, c.b)) - min(c.r, min(c.g, c.b));
   c = mix(vec3(g), c, 1.0 + saturation + vibrance * (1.0 - sat));
@@ -81,7 +87,8 @@ void main() {
 /** Effective uniforms for a clip's filter stack (bypassed filters skipped; later ones add up). */
 export function filterParams(filters = [], levels = null) {
   const u = { inBlack: 0, inWhite: 1, gammaV: 1, outBlack: 0, outWhite: 1, brightness: 0, exposure: 0, contrast: 0, saturation: 0, vibrance: 0, temperature: 0, tint: 0, highlights: 0, shadows: 0,
-    sharpen: 0, vignette: 0, bw: 0, lut: null, lutAmount: 0, key: null, blur: 0, aberr: 0 };
+    sharpen: 0, vignette: 0, bw: 0, lut: null, lutAmount: 0, key: null, blur: 0, aberr: 0,
+    mMul: [1, 1, 1], mAdd: [0, 0, 0], lift: [0, 0, 0], gam: [1, 1, 1], gain: [1, 1, 1] };
   for (const f of filters) {
     if (!f || f.off) continue;
     switch (f.type) {
@@ -93,6 +100,19 @@ export function filterParams(filters = [], levels = null) {
       case 'bw': u.bw = Math.max(u.bw, f.amount ?? 1); break;
       case 'blur': u.blur += f.amount ?? 8; break;
       case 'aberration': u.aberr += f.amount ?? 0.35; break;
+      case 'match': if (f.mul && f.add) { // later matches stack on earlier ones
+        const k = f.amount ?? 1;
+        for (let i = 0; i < 3; i++) { const m = 1 + (f.mul[i] - 1) * k, a = f.add[i] * k; u.mAdd[i] = u.mAdd[i] * m + a; u.mMul[i] *= m; }
+      } break;
+      case 'grade': {
+        const L = wheelRgb(f.lift), G = wheelRgb(f.gamma), H = wheelRgb(f.gain);
+        for (let i = 0; i < 3; i++) {
+          u.lift[i] += L[i] * 0.15 + (f.lift?.l || 0) * 0.15;
+          u.gam[i] *= Math.max(0.2, 1 + G[i] * 0.35 + (f.gamma?.l || 0) * 0.4);
+          u.gain[i] *= Math.max(0, 1 + H[i] * 0.35 + (f.gain?.l || 0) * 0.4);
+        }
+        break;
+      }
       case 'chroma': u.key = { color: f.color || '#00d000', tol: f.tolerance ?? 0.12, soft: f.softness ?? 0.08, spill: f.spill ?? 0.6 }; break;
       default: break;
     }
@@ -106,8 +126,9 @@ export function filterParams(filters = [], levels = null) {
 }
 const levelsOn = u => u.inBlack !== 0 || u.inWhite !== 1 || u.gammaV !== 1 || u.outBlack !== 0 || u.outWhite !== 1 || u.brightness !== 0;
 /** Does this stack need the GPU pass (blur alone is done by the 2D canvas)? */
+const graded = u => [0, 1, 2].some(i => u.mMul[i] !== 1 || u.mAdd[i] !== 0 || u.lift[i] !== 0 || u.gam[i] !== 1 || u.gain[i] !== 1);
 export function needsGl(u, matte) {
-  return !!(matte || levelsOn(u) || u.key || u.lut || u.aberr || u.sharpen || u.vignette || u.bw || u.exposure || u.contrast || u.saturation || u.vibrance || u.temperature || u.tint || u.highlights || u.shadows);
+  return !!(matte || (u.mMul && graded(u)) || levelsOn(u) || u.key || u.lut || u.aberr || u.sharpen || u.vignette || u.bw || u.exposure || u.contrast || u.saturation || u.vibrance || u.temperature || u.tint || u.highlights || u.shadows);
 }
 
 /** Built-in looks (our own colour settings, not copies of anyone's LUTs). */
@@ -121,6 +142,17 @@ export const LOOKS = {
   vintage: { temperature: 0.3, saturation: -0.3, contrast: -0.1, shadows: 0.2, tint: 0.08 },
   crisp: { contrast: 0.12, sharpen: 0.35, vibrance: 0.15 },
 };
+
+/**
+ * A colour wheel's position ({ x, y } in −1…1, the dot's offset from the centre) as a push on red, green and blue
+ * that adds up to nothing (so it changes the colour, not the brightness). Right is red, up-left green, down-left blue.
+ */
+export function wheelRgb(w) {
+  const x = w?.x || 0, y = w?.y || 0, r = Math.min(1, Math.hypot(x, y));
+  if (r < 1e-4) return [0, 0, 0];
+  const a = Math.atan2(y, x);
+  return [0, 1, 2].map(i => r * Math.cos(a - (i * 2 * Math.PI) / 3));
+}
 
 const hexRgb = h => { const n = parseInt(String(h).replace('#', ''), 16) || 0; return [(n >> 16 & 255) / 255, (n >> 8 & 255) / 255, (n & 255) / 255]; };
 
@@ -143,7 +175,7 @@ export class GlFx {
     const loc = gl.getAttribLocation(prog, 'p');
     gl.enableVertexAttribArray(loc); gl.vertexAttribPointer(loc, 2, gl.FLOAT, false, 0, 0);
     this.u = {};
-    for (const n of ['inBlack', 'inWhite', 'gammaV', 'outBlack', 'outWhite', 'brightness', 'img', 'mask', 'lut', 'texel', 'exposure', 'contrast', 'saturation', 'vibrance', 'temperature', 'tint', 'highlights', 'shadows', 'sharpen', 'vignette', 'bw', 'lutAmount', 'lutSize', 'useMask', 'maskFeather', 'key', 'keyOn', 'keyTol', 'keySoft', 'keySpill', 'aberr']) this.u[n] = gl.getUniformLocation(prog, n);
+    for (const n of ['inBlack', 'inWhite', 'gammaV', 'outBlack', 'outWhite', 'brightness', 'img', 'mask', 'lut', 'texel', 'exposure', 'contrast', 'saturation', 'vibrance', 'temperature', 'tint', 'highlights', 'shadows', 'sharpen', 'vignette', 'bw', 'lutAmount', 'lutSize', 'useMask', 'maskFeather', 'key', 'keyOn', 'keyTol', 'keySoft', 'keySpill', 'aberr', 'mMul', 'mAdd', 'lift', 'gam', 'gain']) this.u[n] = gl.getUniformLocation(prog, n);
     this.tex = [0, 1, 2].map(i => { const t = gl.createTexture(); gl.activeTexture(gl.TEXTURE0 + i); gl.bindTexture(gl.TEXTURE_2D, t); gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MIN_FILTER, gl.LINEAR); gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MAG_FILTER, gl.LINEAR); gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_S, gl.CLAMP_TO_EDGE); gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_T, gl.CLAMP_TO_EDGE); return t; });
     gl.uniform1i(this.u.img, 0); gl.uniform1i(this.u.mask, 1); gl.uniform1i(this.u.lut, 2);
     gl.pixelStorei(gl.UNPACK_PREMULTIPLY_ALPHA_WEBGL, false);
@@ -174,6 +206,8 @@ export class GlFx {
     for (const k of ['exposure', 'contrast', 'saturation', 'vibrance', 'temperature', 'tint', 'highlights', 'shadows', 'sharpen', 'vignette', 'bw', 'brightness', 'inBlack', 'outBlack', 'aberr']) f(k, u[k] || 0);
     for (const k of ['inWhite', 'gammaV', 'outWhite']) f(k, u[k] ?? 1);
     gl.uniform2f(this.u.texel, 1 / w, 1 / h);
+    gl.uniform3fv(this.u.mMul, u.mMul || [1, 1, 1]); gl.uniform3fv(this.u.mAdd, u.mAdd || [0, 0, 0]);
+    gl.uniform3fv(this.u.lift, u.lift || [0, 0, 0]); gl.uniform3fv(this.u.gam, u.gam || [1, 1, 1]); gl.uniform3fv(this.u.gain, u.gain || [1, 1, 1]);
     f('lutAmount', u.lut && lut ? u.lutAmount : 0); f('lutSize', u.lut && lut ? lut.size : 0);
     f('useMask', mask ? 1 : 0); f('maskFeather', maskFeather);
     if (u.key) { gl.uniform3f(this.u.key, ...hexRgb(u.key.color)); f('keyOn', 1); f('keyTol', u.key.tol); f('keySoft', u.key.soft); f('keySpill', u.key.spill); } else f('keyOn', 0);

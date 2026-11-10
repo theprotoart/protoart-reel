@@ -1,7 +1,8 @@
 // Inspector: properties of the selected clip (or the project when nothing is selected).
 // When a zoom & pan action is selected, position/scale/crop edits change that action's target.
 import { el, section, slider, selectRow, colorRow, checkRow } from './ui.js';
-import { mediaById, fmtTime, ANIMATABLE, propsAt, paramAt, setParam, putKey, removeKey, keysOf, hasKeys, anyKeys, clamp, KEY_EASES, LABELS, setSpeed, SPEED_MIN, SPEED_MAX } from './model.js';
+import { retimeSection } from './retimeui.js';
+import { applyCut, clipEnd, mediaById, fmtTime, ANIMATABLE, propsAt, paramAt, setParam, putKey, removeKey, keysOf, hasKeys, anyKeys, clamp, KEY_EASES, LABELS, setSpeed, SPEED_MIN, SPEED_MAX } from './model.js';
 import { effectsSection, addPluginToClip } from './fx.js';
 import { TEXT_ANIMS } from './compositor.js';
 import { styleRow } from './titles.js';
@@ -21,7 +22,7 @@ export const TRANSITIONS = [['none', 'None'], ['fade', 'Fade'], ['dip-black', 'D
   ['zoom-through', 'Zoom through (cut)'], ['spin-through', 'Spin through (cut)'], ['whip-through', 'Whip through (cut)'], ['blur-through', 'Blur through (cut)'],
   ['light-leak', 'Light leak'], ['film-burn', 'Film burn'], ['flash-cut', 'Flash (cut)'], ['glitch-cut', 'Glitch (cut)'], ['shake-cut', 'Shake (cut)'],
   ['cine-fade', 'Cinematic fade'], ['dip-film', 'Dip to film'], ['dreamy', 'Dreamy glow'], ['letterbox', 'Letterbox close'],
-  ['lens-defocus', 'Lens defocus (cut)'], ['exposure-burn', 'Exposure burn (cut)'], ['flare-sweep', 'Lens flare sweep (cut)'], ['punch-zoom', 'Punch zoom (cut)'], ['chroma-split', 'Chromatic split (cut)']];
+  ['lens-defocus', 'Lens defocus (cut)'], ['exposure-burn', 'Exposure burn (cut)'], ['flare-sweep', 'Lens flare sweep (cut)'], ['punch-zoom', 'Punch zoom (cut)'], ['chroma-split', 'Chromatic split (cut)'], ['text-reveal', 'Text reveal (cut)']];
 const FONTS = ['Avenir Next', 'Avenir Next Condensed', 'Futura', 'Helvetica Neue', 'SF Pro Display', 'Impact', 'Arial Black', 'Gill Sans', 'Didot', 'Georgia', 'American Typewriter', 'Marker Felt', 'Menlo', 'Rockwell', 'Poppins'];
 const CANVAS = [['1920x1080', '1920 × 1080 (HD)'], ['2560x1440', '2560 × 1440 (QHD)'], ['3840x2160', '3840 × 2160 (4K)'], ['1280x720', '1280 × 720'], ['1080x1920', '1080 × 1920 (vertical)'], ['1080x1350', '1080 × 1350 (4:5 portrait)'], ['1080x1080', '1080 × 1080 (square)'], ['1440x900', '1440 × 900 (Mac 16:10)'], ['2880x1800', '2880 × 1800 (Retina 16:10)']];
 
@@ -223,8 +224,18 @@ export class Inspector {
     if (c.type === 'media' && m && m.kind === 'image') {
       head.append(this.sl('Duration', () => c.duration, v => { c.duration = v; }, { min: 0.5, max: 60, step: 0.1, fmt: v => v.toFixed(1) + 's' }));
     }
+    // picture in picture, one click away for any video or picture
+    if (c.type === 'media' && m && (m.kind === 'video' || m.kind === 'image') && !act) {
+      const p = c.props || {}, small = (p.scale ?? 1) < 0.5;
+      const at = k => small && Math.abs((p.x ?? 0.5) - (k[1] === 'r' ? 0.85 : 0.15)) < 0.02 && Math.abs((p.y ?? 0.5) - (k[0] === 'b' ? 0.8 : 0.2)) < 0.02;
+      head.append(el('div', { class: 'pip-row', title: 'Picture in picture: this clip small in a corner, rounded with a shadow, over the video on the tracks below' },
+        el('span', { class: 'engr', text: 'PICTURE IN PICTURE' }),
+        ...[['tl', '↖'], ['tr', '↗'], ['bl', '↙'], ['br', '↘']].map(([k, a]) => el('button', { class: 'tool' + (at(k) ? ' lit' : ''), text: a, title: { tl: 'Top left', tr: 'Top right', bl: 'Bottom left', br: 'Bottom right' }[k], onclick: () => app.pictureInPicture(k) })),
+        el('button', { class: 'tool' + (!small ? ' lit' : ''), text: 'FULL', title: 'Full frame (no picture in picture)', onclick: () => app.pictureInPicture('off') })));
+    }
     this.root.append(head);
     if (speedSec) this.root.append(speedSec);
+    if (c.type === 'media' && m && m.kind !== 'image' && !c.reversed && !act) this.root.append(retimeSection(app, this, c, m));
 
     if (c.type === 'text') this.textPanel(c);
     if (c.type === 'callout') this.calloutPanel(c);
@@ -278,7 +289,18 @@ export class Inspector {
       this.actionsPanel(c, local);
       this.root.append(section('Transitions',
         el('div', { class: 'btn-row' }, el('button', { class: 'tool tp-insp', text: '⧓ PICK WITH PREVIEWS & FADES…', title: 'The transitions and fades panel: animated previews, fade in / out, apply to every cut', onclick: () => this.app.cmd('transitions') })),
-        selectRow('In', c.transIn.type, TRANSITIONS, v => this.edit(() => { if (c.transIn.type === 'none') c.transIn.dur = Math.min(c.duration / 2, Number(pref('transDur')) || 0.5); c.transIn.type = v; })),
+        selectRow('In', c.transIn.type, TRANSITIONS, v => this.edit(() => {
+          // the text reveal needs the clip before it to go on playing underneath: it's set up on the cut
+          const prev = app.doc.clips.find(o => o !== c && o.track === c.track && Math.abs(clipEnd(o) - c.start) < 0.05);
+          if (v === 'text-reveal' && prev) { applyCut(prev, c, v, 0.8); return; }
+          if (c.transIn.type === 'text-reveal' && prev) { delete prev.xfadeOut; delete c.xfadeIn; }
+          if (c.transIn.type === 'none') c.transIn.dur = Math.min(c.duration / 2, Number(pref('transDur')) || 0.5); c.transIn.type = v;
+        })),
+        c.transIn.type === 'text-reveal' ? (() => {
+          const i = el('input', { type: 'text', value: c.transIn.text || 'NEXT', maxlength: 40, placeholder: 'NEXT' });
+          i.addEventListener('change', () => this.edit(() => { c.transIn.text = i.value.trim().slice(0, 40) || 'NEXT'; }));
+          return el('div', { class: 'row', title: 'The words this clip shows through. Short and bold works best: one word, or two.' }, el('label', { text: 'Reveal text' }), i);
+        })() : null,
         this.sl('In length', () => c.transIn.dur, v => { c.transIn.dur = v; }, { min: 0.1, max: Math.max(0.2, Math.min(5, c.duration / 2)), step: 0.05, fmt: v => v.toFixed(2) + 's' }),
         selectRow('Out', c.transOut.type, TRANSITIONS, v => this.edit(() => { if (c.transOut.type === 'none') c.transOut.dur = Math.min(c.duration / 2, Number(pref('transDur')) || 0.5); c.transOut.type = v; })),
         this.sl('Out length', () => c.transOut.dur, v => { c.transOut.dur = v; }, { min: 0.1, max: Math.max(0.2, Math.min(5, c.duration / 2)), step: 0.05, fmt: v => v.toFixed(2) + 's' }),
@@ -559,7 +581,8 @@ function elementPanel(insp, c) {
   const kind = el('select', {}, ...Object.entries(groups).map(([g, list]) => el('optgroup', { label: g }, ...list.map(([k, n]) => el('option', { value: k, text: n, selected: k === e.kind })))));
   kind.addEventListener('change', () => insp.edit(() => { c.element = { kind: kind.value }; c.name = ELEMENTS[kind.value].name; }));
   const txt = (key, label) => {
-    const i = el('input', { type: 'text', value: d[key] ?? '' });
+    const multi = key === 'text' && def.multiline; // a list: one item per line
+    const i = multi ? el('textarea', { class: 'big', rows: 5, value: d[key] ?? '', title: 'One item per line' }) : el('input', { type: 'text', value: d[key] ?? '' });
     // live: the picture follows each key you type (one undo step for the whole edit)
     let typing = false;
     i.addEventListener('input', () => {

@@ -1806,3 +1806,78 @@ body.rec-paused #keypanel #btn-record .dot { animation: rk-blink 2s steps(2, sta
 
 /* drag-to-select box on the home screen's projects */
 .marquee { position: fixed; z-index: 3000; pointer-events: none; border: 1px solid var(--amber); background: rgba(var(--glow-a), .12); border-radius: 3px; }
+
+/* picture in picture: one click away at the top of the inspector */
+.pip-row { display: flex; align-items: center; gap: 4px; flex-wrap: wrap; margin-top: 8px; }
+.pip-row .engr { font-size: 10px; margin-right: 4px; flex-basis: 100%; }
+.pip-row .tool { min-width: 34px; padding: 4px 8px; }
+
+/* Thumbnail Studio: pick a frame */
+.ts-pick-head { margin-top: 8px; }
+.ts-strip { display: grid; grid-template-columns: repeat(4, 1fr); gap: 6px; margin: 6px 0 8px; }
+.ts-strip .note { grid-column: 1 / -1; margin: 0; }
+.ts-frame { padding: 0; border: 2px solid transparent; border-radius: 5px; background: #000; cursor: pointer; position: relative; overflow: hidden; line-height: 0; }
+.ts-frame canvas { width: 100%; height: auto; display: block; }
+.ts-frame span { position: absolute; left: 3px; bottom: 3px; font: 600 10px/1.2 var(--ui-font, system-ui); color: #fff; background: rgba(0,0,0,.6); padding: 1px 4px; border-radius: 3px; }
+.ts-frame:hover { border-color: rgba(var(--glow-a), .6); }
+.ts-frame.lit { border-color: var(--amber); box-shadow: 0 0 10px rgba(var(--glow-a), .45); }
+.ts-steps .tool { padding: 4px 8px; }
+
+/* colour wheels */
+.cw-row { display: grid; grid-template-columns: repeat(3, 1fr); gap: 6px; justify-items: center; margin: 6px 0; }
+.cw { display: flex; flex-direction: column; align-items: center; gap: 4px; min-width: 0; }
+.cw .engr { font-size: 9px; }
+.cw-wheel { cursor: crosshair; touch-action: none; max-width: 100%; }
+.cw input[type=range] { width: 100%; max-width: 92px; }
+
+/* transform box like DaVinci's: round white handles, a rotation handle on a stem, a centre dot */
+#overlay .sel-box .h { width: 11px; height: 11px; background: #f4f4f4; border: 1px solid rgba(0,0,0,.75); border-radius: 50%; box-shadow: 0 1px 3px rgba(0,0,0,.5); }
+#overlay .sel-box .h:hover { background: var(--amber); }
+#overlay .sel-box .h.t, #overlay .sel-box .h.b { left: calc(50% - 6px); }
+#overlay .sel-box .h.l, #overlay .sel-box .h.r { top: calc(50% - 6px); }
+#overlay .sel-box .rot-stem { position: absolute; left: calc(50% - 1px); top: -34px; width: 2px; height: 28px; background: #f4f4f4; box-shadow: 0 0 0 1px rgba(0,0,0,.45); pointer-events: none; }
+#overlay .sel-box .h.rot { left: calc(50% - 7px); top: -46px; width: 14px; height: 14px; cursor: grab; }
+#overlay .sel-box .h.rot:active { cursor: grabbing; }
+#overlay .sel-box .anchor { position: absolute; left: calc(50% - 8px); top: calc(50% - 8px); width: 16px; height: 16px; border-radius: 50%; background: rgba(244,244,244,.92); border: 1px solid rgba(0,0,0,.7); box-shadow: 0 1px 4px rgba(0,0,0,.5); cursor: move; }
+#overlay .sel-box[data-deg]::before { content: attr(data-deg); position: absolute; left: 50%; top: -74px; transform: translateX(-50%); padding: 2px 6px; border-radius: 3px; background: rgba(0,0,0,.75); color: #fff; font: 600 11px/1.3 system-ui; white-space: nowrap; }
+#overlay.crop-mode .sel-box.croppable .rot-stem, #overlay.crop-mode .sel-box.croppable .h.rot, #overlay.crop-mode .sel-box.croppable .anchor { display: none; }
+#overlay .sel-box.rot-in .rot-stem { top: 6px; }
+#overlay .sel-box.rot-in .h.rot { top: 32px; }
+
+/* QA 1.5.9: clip badges clear of the ⧓ at a cut (it straddles the clip's start) and of the ⚙ on a selected clip */
+.clip .cbadges { left: 14px; }
+.clip.selected .cbadges { left: 34px; }
+/* the transitions panel fits short windows (13" MacBook): its body scrolls instead of running off the bottom */
+.tp-panel { max-height: calc(100vh - 70px); display: flex; flex-direction: column; }
+.tp-panel .fx-ed-body { overflow-y: auto; min-height: 0; }
+.pref-page h3.engr:not(:first-child) { margin-top: 22px; }
+
+/* Elastic Wave: markers on an audio clip, and the speed of each stretched part */
+.clip.elastic { box-shadow: inset 0 0 0 1px rgba(127, 208, 255, .55); }
+.clip .ew-mark { position: absolute; top: 0; bottom: 0; width: 9px; margin-left: -4px; z-index: 7; cursor: ew-resize; }
+.clip .ew-mark::before { content: ""; position: absolute; left: 4px; top: 0; bottom: 0; width: 1px; background: #7fd0ff; box-shadow: 0 0 3px rgba(0,0,0,.6); }
+.clip .ew-mark::after { content: ""; position: absolute; left: 0; top: 0; width: 0; height: 0; border-left: 4.5px solid transparent; border-right: 4.5px solid transparent; border-top: 7px solid #7fd0ff; }
+.clip .ew-speed { position: absolute; top: 19px; z-index: 5; text-align: center; font: 600 9px/12px var(--font-mono, Menlo, monospace); pointer-events: none; color: #cfefff; text-shadow: 0 1px 1px rgba(0,0,0,.7); }
+.clip .ew-speed.fast { color: #ffd08a; }
+/* retime curve */
+.rt-curve { display: block; margin: 6px 0 4px; border-radius: 6px; border: 1px solid #000; background: #121214; cursor: crosshair; touch-action: none; max-width: 100%; }
+.rt-presets .mini { margin: 2px 3px 2px 0; }
+
+/* ♪ handle: drag the end of a music clip to re-fit the song */
+.clip .mf-handle { position: absolute; right: 7px; top: 50%; transform: translateY(-50%); z-index: 8; width: 16px; height: 22px; border-radius: 4px; background: rgba(20,20,22,.85); border: 1px solid rgba(255,176,42,.75); color: var(--amber); cursor: ew-resize; display: grid; place-items: center; font-size: 12px; line-height: 1; box-shadow: 0 1px 3px rgba(0,0,0,.5); }
+.clip .mf-handle:hover { background: var(--amber); color: #111; }
+.clip .mf-len { position: absolute; right: 20px; top: -4px; white-space: nowrap; padding: 2px 6px; border-radius: 3px; background: rgba(0,0,0,.8); color: #fff; font: 600 11px/1.3 var(--font-mono, Menlo, monospace); pointer-events: none; }
+.clip.mf-dragging { outline: 1px dashed var(--amber); outline-offset: -1px; z-index: 9; }
+.clip.mf-working { opacity: .6; }
+
+/* QA: layering. Dialogs sit above the floating panels (Takes, Voice over, an effect's editor), so a panel left open
+   never covers a dialog; menus, notices and the recording countdown stay on top of dialogs. */
+#modal-root .backdrop { z-index: 950; }
+.pop-menu, .seltool-pop { z-index: 1100; }
+#countdown { z-index: 1150; }
+#toast { z-index: 1200; }
+/* Spectral: long fix names wrap onto two lines instead of being cut off */
+.spectral .sp-mod { white-space: normal; text-overflow: clip; overflow: visible; line-height: 1.15; min-height: 30px; }
+/* QA: a long menu (a clip's right-click menu, INSERT) never runs off the window: it scrolls inside instead */
+.pop-menu { max-height: calc(100vh - 16px); overflow-y: auto; overscroll-behavior: contain; }
+.pop-menu > * { flex: none; }

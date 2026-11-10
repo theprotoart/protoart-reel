@@ -145,7 +145,8 @@ export async function openSettings(app, page = 'general') {
     if (k === 'playBuffer') { app.player.setMonitor({ latency: pref(k) }); app.player.resetAudio?.(); }
     if (p.apply === 'prefs' || k === 'timeDisplay') { app.applyPrefs(); if (app.doc) app.renderAll(); }
     if (p.apply === 'resize') app.player.resize();
-    if (k === 'proxyMode' || k === 'proxySize') app.proxies?.kick?.();
+    if (k === 'proxySize' || k === 'proxyMode') { app.proxies?.cancel?.(); if (app.doc) for (const m of app.doc.media) delete m.proxyFailed; }
+    if (k === 'proxyMode' || k === 'proxySize' || k === 'proxyIdle') app.proxies?.kick?.();
   };
   const control = (k, p) => {
     const cur = p.get();
@@ -168,6 +169,35 @@ export async function openSettings(app, page = 'general') {
     return page;
   };
   const extra = Object.fromEntries(PAGES.map(([id, t]) => [id, [t, schemaPage(id, t)]]));
+  // Media & Storage › proxy media and cache (like an editor's "Optimized media and render cache" settings)
+  {
+    const fmt = b => (b >= 1e9 ? `${(b / 1e9).toFixed(1)} GB` : `${Math.max(0, Math.round(b / 1e6))} MB`);
+    const info = el('div', { class: 'cache-info' }, el('p', { class: 'note', text: app.doc ? 'Measuring this project’s cache…' : 'Open a project to see its cache.' }));
+    const showCache = async () => {
+      if (!app.doc || !app.token) return;
+      const c = await api.cacheInfo(app.token).catch(() => null);
+      if (!c) { info.replaceChildren(); return; }
+      const clear = el('button', { class: 'hw', text: 'DELETE PROXIES…', disabled: !c.proxies.n, onclick: async () => {
+        if (!(await ask('Delete this project’s proxies?', `${c.proxies.n} proxy file${c.proxies.n === 1 ? '' : 's'} (${fmt(c.proxies.bytes)}) go to the Trash. Your originals aren’t touched. Reel makes new proxies in the background (if proxies are on), at the size set above.`, 'Delete proxies'))) return;
+        app.proxies.cancel();
+        for (const m of app.doc.media) { delete m.proxy; delete m.proxyFailed; }
+        await app.save?.();
+        const n = await api.cacheClearProxies(app.token).catch(() => 0);
+        for (const m of app.doc.media) app.player.reloadMedia?.(m.id);
+        toast(`${n} proxy file${n === 1 ? '' : 's'} moved to the Trash.`); showCache(); app.proxies.kick();
+      } });
+      info.replaceChildren(
+        row('This project', el('span', { class: 'pref-fixed', text: `Media ${fmt(c.media.bytes)} · Proxies ${fmt(c.proxies.bytes)} (${c.proxies.n}) · Rendered plug-in sound ${fmt(c.renders.bytes)} (${c.renders.n})` })),
+        el('div', { class: 'row' }, el('label'), clear));
+    };
+    storagePage.append(
+      el('h3', { class: 'engr', text: 'Proxy media & render cache' }),
+      ...Object.entries(PREFS).filter(([, p]) => p.page === 'cache').flatMap(([k, p]) => [control(k, p), p.help ? el('p', { class: 'note pref-help', text: p.help }) : null].filter(Boolean)),
+      row('Proxy format', el('span', { class: 'pref-fixed', text: 'H.264 (MP4): small and quick to scrub. Export always uses the originals.' })),
+      row('Plug-in renders', el('span', { class: 'pref-fixed', text: 'Kept in the project and reused while the plug-in settings stay the same (Processing › Your plug-ins on tracks).' })),
+      info);
+    showCache();
+  }
   const resetBtn2 = el('button', { class: 'hw', text: 'RESET ALL SETTINGS…', onclick: async () => {
     if (!(await ask('Reset all settings?', 'Every setting goes back to how Reel came. Your projects, media and audio device choice are not touched.', 'Reset'))) return;
     try { for (const k of Object.keys(localStorage)) if (/^reel\.(pref\.|smpte|trackH|scrubAudio|proxy|spectral|voiceover|smartZoom|timelapse|presetSound|theme|unlockHeavy|exportLast)/.test(k)) localStorage.removeItem(k); } catch { /* fine */ }

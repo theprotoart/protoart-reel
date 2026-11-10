@@ -49,7 +49,7 @@ export function parseWriter(text, nChapters) {
 }
 
 /** Which writer models there are, and whether one is ready. */
-async function status(app) { try { return await app.api.aiWriterStatus(); } catch { return { python: false, reason: 'The writer isn’t available.', models: {} }; } }
+async function status(app) { const none = { python: false, reason: 'The writer isn’t available.', models: {} }; try { return (await app.api.aiWriterStatus()) || none; } catch { return none; } }
 export async function writerReady(app) { const st = await status(app); return st.python && Object.values(st.models || {}).some(m => m.ready && m.allowed); }
 
 /** Names chapters (keeping their times) with the writer; returns the chapters unchanged if it can't. */
