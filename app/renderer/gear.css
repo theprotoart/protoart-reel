@@ -1839,3 +1839,7 @@ body.rec-paused #keypanel #btn-record .dot { animation: rk-blink 2s steps(2, sta
 .kit-busy.hidden { display: none; }
 .kit-spin { flex: none; width: 14px; height: 14px; border-radius: 50%; border: 2px solid rgba(255,255,255,.25); border-top-color: #c9a6ff; animation: kit-spin .8s linear infinite; }
 @keyframes kit-spin { to { transform: rotate(360deg); } }
+
+/* pop-up windows keep clear of the Mac's window buttons (red, yellow, green) in the top-left corner */
+#modal-root .backdrop { box-sizing: border-box; padding: 44px 12px 12px; }
+#modal-root .backdrop > .modal { max-height: calc(100vh - 56px); max-width: calc(100vw - 24px); }
