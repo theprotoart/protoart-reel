@@ -8,8 +8,8 @@ no accounts, no uploads, no network connections.
 
 ## Download
 
-Get the DMG from [Releases](https://github.com/theprotoart/protoart-reel/releases) or
-[Hugging Face](https://huggingface.co/brushpenbob/protoart-reel). Apple silicon Macs (M1 or newer). It isn't
+Get the DMG from the [latest release](https://github.com/theprotoart/protoart-reel/releases/latest).
+Apple silicon Macs (M1 or newer). It isn't
 notarised yet: the first time, open it from **System Settings → Privacy & Security → Open Anyway**.
 
 ## Features
@@ -56,8 +56,10 @@ notarised yet: the first time, open it from **System Settings → Privacy & Secu
 - A Mac with Apple Silicon (M1 or newer), macOS 13 or newer (computer audio needs macOS 13).
 - For ERNIE thumbnails and smart prompts: Protoart Studio installed on the same Mac with its fast
   engine and ERNIE-Image Turbo (fast engine) downloaded. LoRA styles are read from Protoart Studio's
-  ERNIE LoRA folder. Reel doesn't install or download models itself;
-  without them, the Thumbnail Studio still works with video frames and titles.
+  ERNIE LoRA folder. Without them, the Thumbnail Studio still works with video frames and titles.
+- For Kitten voices (natural speech and cloning your own voice): Python 3.10 or newer on the Mac
+  (Protoart Studio's, or python.org's 3.12). Reel downloads the voices once (about 3 GB) when you press
+  GET KITTEN VOICES; FLUX and the writer's Qwen models download only when you press their GET buttons.
 
 ## About the audio features
 
