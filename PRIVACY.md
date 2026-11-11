@@ -4,7 +4,8 @@ ProtoArt Reel works entirely on your Mac. It has no accounts and no analytics, a
 connections, except downloads you start yourself: GET FLUX downloads the FLUX.2 [klein] model
 once from Hugging Face (the same copy Protoart Studio uses), on a Mac where Studio hasn't already; GET (in the
 writer) downloads a Qwen model; and GET KITTEN VOICES downloads KittenTTS from GitHub, its Python packages from the
-Python Package Index (PyPI) and its model from Hugging Face, once. Nothing about you or your projects is sent. Recordings, projects, thumbnails and exports stay where you save them.
+Python Package Index (PyPI) and its model from Hugging Face, once; GET in 👻 Isolate a sound does the same for
+mlx-audio and Meta's SAM-Audio model. Sound you separate is processed on your Mac and never uploaded. Nothing about you or your projects is sent. Recordings, projects, thumbnails and exports stay where you save them.
 
 - The screen, camera, microphone and computer audio are recorded only while a recording is running,
   and only the sources you turn on. macOS asks for permission the first time.

@@ -16,6 +16,7 @@ import { Library } from './library.js';
 import { Overlay } from './overlay.js';
 import { openRecorder } from './recorder.js';
 import { openMusicFit } from './musicfit.js';
+import { openGhost } from './ghost.js';
 import { openExport } from './exporter.js';
 import { openThumbnailStudio } from './thumbs.js';
 import { openMatchColour } from './colormatch.js';
@@ -1104,6 +1105,7 @@ class App {
       case 'remove-background': return this.removeBackground();
       case 'pip': return this.pictureInPicture();
       case 'match-colour': return openMatchColour(this);
+      case 'ghost': return openGhost(this);
       case 'music-fit': return openMusicFit(this);
       case 'colour-wheels': { const c = this._visualClip('choose Colour wheels'); if (!c) return; if (!(c.filters || []).some(f => f.type === 'grade')) this.commit(() => { c.filters ||= []; c.filters.push({ id: uid('f'), type: 'grade' }); }); this.revealSection('Filters'); return; }
       case 'copy-effects': return ops.copyEffects(this);

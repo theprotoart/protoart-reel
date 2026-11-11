@@ -247,4 +247,4 @@ async function deleteVoice(id, trash) {
   return true;
 }
 
-module.exports = { setUserData, status, setup, cancelSetup, remove, speak, cancel, stop, myVoices, myVoice, saveVoice, deleteVoice, COMMIT, basePython };
+module.exports = { setUserData, status, setup, cancelSetup, remove, speak, cancel, stop, myVoices, myVoice, saveVoice, deleteVoice, COMMIT, basePython, run };

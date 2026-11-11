@@ -1,5 +1,15 @@
 # Changelog
 
+## 1.6.1 — Isolate or remove a sound by describing it
+
+- **👻 Isolate a sound** (AUDIO ▾, right-click a clip, or the AUDIO tab in the panel on the right): type what you hear
+  ("dog barking", "keyboard typing", "music", "voice") and Reel pulls just that sound out of the clip, or takes it
+  out and keeps everything else. The result goes on a new track under the clip, in step and grouped with it, and the
+  clip's own sound is muted (unmute it to compare; ⌘Z undoes). The idea of AudioGhost AI, using Meta's SAM-Audio
+  on this Mac's graphics chip through mlx-audio (AudioGhost itself needs an NVIDIA card). One-time GET: Small
+  (any Apple silicon Mac, about 2 GB) or Large (32 GB Macs, about 7 GB); then offline, nothing uploaded. Fast or
+  Best quality; long clips are done in 10-second parts with a progress bar.
+
 ## 1.6.0 — Two lines of work together: clap notes, colour match, retime, fit music, voices
 
 Brings together the two versions that were both called 1.5.9: the one with Kitten voices (released as 1.5.9 and

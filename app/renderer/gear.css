@@ -1925,3 +1925,8 @@ body.rec-paused #keypanel #btn-record .dot { animation: rk-blink 2s steps(2, sta
 
 /* fade handle drag: length and curve, shown by the pointer */
 .fade-tip { position: fixed; z-index: 5000; pointer-events: none; padding: 4px 8px; border-radius: 4px; background: rgba(15,15,18,.92); color: #fff; font: 600 11px/1.2 var(--font-engrave, system-ui); letter-spacing: .04em; box-shadow: 0 2px 8px rgba(0,0,0,.5); white-space: nowrap; }
+
+/* 👻 Isolate a sound */
+.gh .gh-prompt { width: 100%; box-sizing: border-box; font-size: 15px; padding: 9px 11px; margin: 4px 0 8px; }
+.gh .gh-chips { display: flex; flex-wrap: wrap; gap: 5px; margin-bottom: 10px; }
+.gh .seg { display: inline-flex; }

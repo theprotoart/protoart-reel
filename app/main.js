@@ -15,6 +15,7 @@ const validate = require('./validate');
 const store = require('./store');
 const ai = require('./engine/ai');
 const kitten = require('./engine/kitten');
+const ghost = require('./engine/ghost');
 const audio = require('./engine/audio');
 const fx = require('./engine/fx');
 
@@ -1486,6 +1487,34 @@ handle('tts:make', async (token, text, voice, rate) => {
   } finally { await fs.promises.rm(tmp, { recursive: true, force: true }).catch(() => {}); }
 });
 
+// Sound separation (SAM-Audio on this Mac, like AudioGhost AI): pull a described sound out of a clip, or take it out
+handle('ghost:status', async () => ghost.status());
+handle('ghost:setup', async key => ghost.setup(String(key || 'small'), kittenEvent));
+handle('ghost:setupCancel', async () => ghost.cancelSetup());
+handle('ghost:cancel', async () => ghost.cancel());
+handle('ghost:separate', async (token, req) => {
+  const p = projectOf(token);
+  const r = req && typeof req === 'object' ? req : {};
+  if (!validate.mediaName(r.source)) throw new Error('Bad source');
+  const prompt = typeof r.prompt === 'string' ? r.prompt.replace(/\s+/g, ' ').trim().slice(0, 200) : '';
+  if (!prompt) throw new Error('Describe the sound first (like “dog barking”).');
+  const from = Math.max(0, Number(r.from) || 0), to = Number(r.to) || 0;
+  if (!(to > from + 0.2)) throw new Error('That clip is too short.');
+  const stem = validate.fileStem(prompt.slice(0, 30)).replace(/\s+/g, '-') || 'sound';
+  const tName = await freeMediaName(p, `${stem}-only.wav`), rName = await freeMediaName(p, `without-${stem}.wav`);
+  const target = path.join(mediaDir(p), tName), residual = path.join(mediaDir(p), rName);
+  try {
+    const out = await ghost.separate({ src: path.join(mediaDir(p), r.source), from, to, prompt, size: r.size, quality: r.quality === 'best' ? 'best' : 'fast', target, residual },
+      ev => kittenEvent({ type: 'ghostRun', f: Number(ev.f) || 0, msg: typeof ev.msg === 'string' ? ev.msg.slice(0, 120) : '' }));
+    return { model: out.model,
+      target: { file: tName, name: `${prompt.slice(0, 40)} (only)`, role: 'separated', ...(await probeMedia(target)) },
+      residual: { file: rName, name: `Without ${prompt.slice(0, 40)}`, role: 'separated', ...(await probeMedia(residual)) } };
+  } catch (e) {
+    for (const f of [target, residual]) await fs.promises.rm(f, { force: true }).catch(() => {});
+    throw e;
+  }
+});
+
 // Kitten voices (KittenTTS 2 on this Mac): natural speech, emotion, and voices cloned from the person's recordings
 const kittenEvent = ev => { if (win && !win.isDestroyed()) win.webContents.send('ai-event', ev); };
 handle('kitten:status', async () => ({ ...kitten.status(), mine: await kitten.myVoices() }));
@@ -1994,6 +2023,7 @@ app.whenReady().then(() => {
   audio.loadRules(path.join(app.getPath('userData'), 'audio-rules.json'));
   ai.setUserData(app.getPath('userData'));
   kitten.setUserData(app.getPath('userData'));
+  ghost.setUserData(app.getPath('userData'));
   lockDownSession();
   buildMenu();
   createWindow();

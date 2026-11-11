@@ -8,6 +8,7 @@ import { TEXT_ANIMS } from './compositor.js';
 import { styleRow } from './titles.js';
 import { roleButton } from './automix.js';
 import { canFit, musicSection } from './musicfit.js';
+import { canSeparate } from './ghost.js';
 import { captionPanel, captionStylePanel, annotationPanel } from './textops.js';
 import { filtersSection, matteSection, stabilizeSection } from './filters.js';
 import { MOTION_PRESETS, applyMotion, clearMotion } from './motion.js';
@@ -329,6 +330,9 @@ export class Inspector {
     }
     if (c.type === 'media' && m && (m.hasAudio || m.kind === 'audio')) this.audioPanel(c, m);
     if (canFit(this.doc, c)) this.root.append(musicSection(app, c, section));
+    if (canSeparate(this.doc, c)) this.root.append(section('Audio: isolate a sound',
+      el('p', { class: 'note', text: c.separated ? `Separated from its clip: ${c.separated.which === 'target' ? 'only' : 'without'} “${c.separated.prompt}”.` : 'Type what you hear (dog barking, keyboard typing, music…) and pull just that sound out of this clip, or take it out and keep the rest.' }),
+      el('button', { class: 'hw amber', text: '👻 ISOLATE OR REMOVE A SOUND…', onclick: () => app.cmd('ghost') })));
     if (!visual) this.keyframesPanel(c);
     if (c.type === 'media' && m && m.cursor) this.cursorPanel(c);
     const isVideo = c.type === 'media' && m && m.kind === 'video' && !c.audioOnly;

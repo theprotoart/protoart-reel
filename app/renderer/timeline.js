@@ -225,6 +225,7 @@ export class Timeline {
       audioish && !c.reversed ? [c.elastic ? '✓ Elastic Wave (double-click the clip to add a marker)' : '〰 Elastic Wave: stretch parts without changing pitch', () => app.commit(() => { if (c.elastic) delete c.elastic; else c.elastic = true; })] : null,
       c.type === 'media' && m?.kind !== 'image' && !c.reversed ? ['⤳ Retime curve…', () => { app.select([c.id], null); app.revealSection('Retime curve'); }] : null,
       c.retime ? ['Remove Elastic Wave / retime (back to an even speed)', () => app.commit(() => { delete c.retime; c.speed = Math.abs((c.speed || 1) - 1) < 1e-3 ? 1 : c.speed; })] : null,
+      audioish ? ['👻 Isolate or remove a sound (describe it)…', () => { app.select([c.id], null); app.cmd('ghost'); }] : null,
       audioish ? ['🎵 Fit the music to a length (extend or shorten)…', () => { app.select([c.id], null); app.cmd('music-fit'); }] : null,
       audioish && (c.adrOriginal || app.selection.clips.length === 2) ? [c.adrOriginal ? 'Restore original take' : 'Align to guide (ADR)…', () => app.cmd('adr-align'), '⌥⌘A'] : null,
       audioish ? [c.spectral ? `Spectral edit… (${c.spectral.edits?.length || 0} edits)` : 'Spectral edit…', () => { app.select([c.id], null); app.cmd('spectral'); }, '⌥⌘S'] : null,
