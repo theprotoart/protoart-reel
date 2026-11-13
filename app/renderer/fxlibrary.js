@@ -495,7 +495,7 @@ export function openStyle(app, id) {
       close();
       if (panel) { panel.remove(); panel = null; } // out of the way, so the result shows in the preview
       app.player.seek?.(0);
-      toast(`${st.name}: ${r.cuts} cut${r.cuts === 1 ? '' : 's'}${r.snapped ? ` (${r.snapped} moved onto the beat)` : ''}, the look, ${r.added.length} title${r.added.length === 1 ? '' : 's'} and graphic${r.added.length === 1 ? '' : 's'} on the Style track${sounds.checked ? ', sounds' : ''}. ⌘Z undoes it.`, 7000);
+      toast(`${st.name}: ${r.cuts} cut${r.cuts === 1 ? '' : 's'}${r.snapped ? ` (${r.snapped} moved onto the beat)` : ''}, the look, titles and graphics (${r.added.length} on the Style track)${sounds.checked ? ', sounds' : ''}. ⌘Z undoes it.`, 7000);
     } },
   ]);
   void mainTrack;
