@@ -10,6 +10,7 @@ const ROWS = [
   ['', ['btn-record']],
   ['', ['btn-takes', 'btn-import', 'btn-autoedit']],
   ['', ['btn-voices', 'btn-clonevoice']],
+  ['', ['btn-styles', 'btn-filmcuts']],
   ['', ['btn-automix', 'btn-sound', 'btn-spectral']],
   ['', ['btn-aiimage', 'btn-thumb']],
   ['', ['btn-export']],
@@ -30,6 +31,9 @@ export function initKeyPanel(app) {
   if (!document.getElementById('btn-clonevoice')) {
     deck.append(el('button', { id: 'btn-clonevoice', class: 'hw role-voice', text: '🎙 CLONE MY VOICE', title: 'CLONE MY VOICE: read a short passage into your microphone (or first select a clip of you talking, to use that). Reel saves your voice so 🗣 VOICES can say any text in it: fix a line without re-recording.', onclick: () => app.cmd('clone-voice') }));
   }
+  // STYLE PACKS and FILM CUTS: keys of their own
+  if (!document.getElementById('btn-styles')) deck.append(el('button', { id: 'btn-styles', class: 'hw role-style', text: '🎬 STYLE PACKS', title: 'STYLE PACKS: give the whole edit a look in one click: Nature Documentary, Fizz Commercial, Movie Trailer, Retro VHS, Sports Highlight, Travel Vlog, Breaking News', onclick: () => app.cmd('styles') }));
+  if (!document.getElementById('btn-filmcuts')) deck.append(el('button', { id: 'btn-filmcuts', class: 'hw role-style', text: '✂ FILM CUTS', title: 'FILM CUTS: L-cut, J-cut, smash cut, jump cut, cut on action, cutaway and cross-cut, at the playhead', onclick: () => app.cmd('film-cuts') }));
   const more = el('button', { class: 'hw keys-more', text: 'MORE ▾', title: 'The studio tools SIMPLE keeps out of the way (or switch to FULL)' });
   more.addEventListener('click', () => {
     const r = more.getBoundingClientRect();

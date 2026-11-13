@@ -1,5 +1,28 @@
 # Changelog
 
+## 1.7.0 — Style packs, film cuts and Randomize
+
+- **🎬 Style packs**: a whole look in one click, with live previews: **Nature Documentary**, **Fizz Commercial**,
+  **Movie Trailer**, **Retro VHS**, **Sports Highlight**, **Travel Vlog** and **Breaking News**.
+  - Each sets the transitions on every cut, a colour look (with grain or letterbox), camera moves, titles and title
+    cards, graphics, and sound effects.
+  - Optionally it snaps the cuts to the music's beat, as roll edits so nothing else moves.
+  - Applying another style replaces it. **Remove style** takes it off; ⌘Z undoes it.
+- New graphics, used by the packs and also in Presets › Elements:
+  - a documentary lower third with a gold rule;
+  - a typed location stamp;
+  - a map pin and a travel route map with a moving plane;
+  - fizz bubbles, the VHS screen (tracking lines, PLAY ▶, date and tape counter);
+  - a score bug, a replay badge, and a news ticker.
+- New sound: **Tape stop**.
+- **✂ Film cuts** (a key on the right, Presets › FILM CUTS, File › Film Cuts):
+  - **L-cut**, **J-cut**, **Smash cut**, **Jump cut** (with punch-in), **Cut on action**, **Cutaway / insert** and
+    **Cross-cut** (two scenes turn about, ever faster).
+  - **⚡ Auto L & J cuts** puts them, taking turns, on every cut between clips with sound.
+  - The L / J sound overlap is adjustable (0.5–3 s).
+- **🎲 Randomize** for transitions on every cut (Auto packs, style packs, Settings › Timeline): from "in order"
+  through "same feel" to "surprise me", with lengths varied a little too.
+
 ## 1.6.3 — Eight more transitions
 
 - In the transition presets, the ⧓ picker on every cut and the clip's Transitions:

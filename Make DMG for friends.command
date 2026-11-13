@@ -53,6 +53,11 @@ FIRST RECORDING
   (or ⌥⇧⌘M, ⌥⇧⌘2 and ⇧⌘2).
 
 NEW IN THIS BUILD — PLEASE TRY
+- 🎬 STYLE PACKS (key on the right): Nature Documentary, Fizz Commercial, Movie Trailer,
+  Retro VHS, Sports Highlight, Travel Vlog, Breaking News. One click: transitions, colour,
+  titles, graphics, sounds, cuts on the beat. ⌘Z undoes.
+- ✂ FILM CUTS: L-cut, J-cut, smash cut, jump cut, cut on action, cutaway, cross-cut, and
+  Auto L & J cuts. 🎲 Randomize slider for transitions.
 - 8 new transitions: Fast wipe, Glitch blocks, Warp zoom, Slide + shake, Vintage film burn,
   Movement and Graphic match cuts, Vertigo ramp. Plus Radial shutter (camera iris).
 - 👻 Isolate a sound (AUDIO ▾): type what you hear ("dog barking", "music") and pull it

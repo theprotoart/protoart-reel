@@ -1,7 +1,7 @@
 {
   "name": "protoart-reel",
   "productName": "ProtoArt Reel",
-  "version": "1.6.3",
+  "version": "1.7.0",
   "description": "Record your screen, camera and sound, edit, make ERNIE thumbnails, export. macOS (Apple Silicon).",
   "private": true,
   "license": "Apache-2.0",

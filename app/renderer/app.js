@@ -46,7 +46,7 @@ import { loadMachine } from './capability.js';
 import { applyTheme, toggleTheme } from './theme.js';
 import { pref, setPref } from './prefs.js';
 import { autoCaptions, textEditor } from './transcript.js';
-import { openPresetBrowser, autoTransitions, PACKS, speedJump } from './fxlibrary.js';
+import { openPresetBrowser, autoTransitions, PACKS, speedJump, doFilmCut } from './fxlibrary.js';
 import { openVoiceOver } from './voiceover.js';
 import { openSpectral } from './spectral.js';
 import { convertInEditor, conversionDialog } from './conform.js';
@@ -1059,6 +1059,10 @@ class App {
       case 'auto-edit': return openAutoEdit(this);
       case 'transitions': return openTransitions(this);
       case 'presets': return openPresetBrowser(this);
+      case 'styles': return openPresetBrowser(this, 'style');
+      case 'film-cuts': return openPresetBrowser(this, 'film');
+      case 'l-cut': case 'j-cut': case 'smash-cut': case 'jump-cut': case 'cut-on-action': case 'cutaway': case 'cross-cut':
+        return doFilmCut(this, { 'smash-cut': 'smash', 'jump-cut': 'jump', 'cut-on-action': 'action', 'cross-cut': 'cross' }[name] || name);
       case 'callouts': return calloutsMenu(this);
       case 'callouts-plan': return openCalloutPlanner(this);
       case 'callouts-browser': return openPresetBrowser(this, 'element');

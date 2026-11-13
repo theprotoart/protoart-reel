@@ -8,7 +8,7 @@ import { analyseMusic, beatGrid, planFit } from './lib/musicfit.js';
 
 const RATE = 22050;
 const cache = new Map();
-async function analyse(app, m, from, len, onStatus) {
+export async function analyse(app, m, from, len, onStatus) {
   const key = `${m.file}|${from.toFixed(2)}|${len.toFixed(2)}`;
   if (cache.has(key)) return cache.get(key);
   onStatus?.('Listening to the music…');

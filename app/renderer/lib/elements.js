@@ -469,6 +469,148 @@ export const ELEMENTS = {
       ctx.fillStyle = e.color; roundRect(ctx, -420, -18, Math.max(36, 840 * k), 36, 18); ctx.fill();
       ctx.fillStyle = '#fff'; ctx.font = font(700, 34); ctx.textBaseline = 'bottom'; ctx.fillText(`${e.text} ${Math.round(k * 100)}%`, -420, -30);
     } },
+  // ---------------------------------------------------------------- style packs (1.7.0)
+  docLower: { name: 'Lower third — documentary', group: 'Lower thirds', box: [900, 170], defaults: { text: 'Serengeti, Tanzania', sub: 'THE GREAT MIGRATION', color: '#ffffff', accent: '#d4a64a' },
+    draw(ctx, e, t, d) {
+      const [ki, ko] = io(t, d, 1.4, 0.6), out = easeInOut(ko);
+      const line = easeInOut(clamp(ki * 1.5, 0, 1)), txt = easeOut(clamp((ki - 0.3) / 0.7, 0, 1));
+      ctx.globalAlpha *= out;
+      ctx.shadowColor = 'rgba(0,0,0,0.55)'; ctx.shadowBlur = 14;
+      ctx.fillStyle = e.accent; ctx.fillRect(-430, -2, 640 * line, 3);
+      ctx.save(); ctx.globalAlpha *= txt;
+      ctx.fillStyle = e.color; ctx.font = `italic 400 64px Georgia, 'Times New Roman', serif`; ctx.textBaseline = 'alphabetic'; ctx.fillText(e.text, -430, -22 + (1 - txt) * 14);
+      ctx.fillStyle = e.accent; ctx.font = font(600, 26); ctx.textBaseline = 'top';
+      let x = -430; for (const ch of String(e.sub)) { ctx.fillText(ch, x, 20 - (1 - txt) * 10); x += ctx.measureText(ch).width + 5; } // spaced small caps
+      ctx.restore();
+    } },
+  locStamp: { name: 'Location stamp (typed)', group: 'Info', box: [820, 150], defaults: { text: 'NAIROBI, KENYA', sub: '14 MARCH 2026', color: '#ffffff', accent: '#d4a64a' },
+    draw(ctx, e, t, d) {
+      const [, ko] = io(t, d, 0.5, 0.5); ctx.globalAlpha *= easeInOut(ko);
+      const a = String(e.text), b = String(e.sub), n = Math.floor(t * 20), na = Math.min(a.length, n), nb = clamp(n - a.length - 4, 0, b.length);
+      ctx.shadowColor = 'rgba(0,0,0,0.6)'; ctx.shadowBlur = 10;
+      ctx.fillStyle = e.accent; ctx.fillRect(-400, -46, 8, na ? 96 : 0);
+      ctx.font = `600 46px Menlo, 'Courier New', monospace`; ctx.textBaseline = 'alphabetic'; ctx.fillStyle = e.color;
+      ctx.fillText(a.slice(0, na), -372, -4);
+      ctx.font = `500 30px Menlo, 'Courier New', monospace`; ctx.fillStyle = e.accent; ctx.fillText(b.slice(0, nb), -372, 42);
+      const blink = Math.floor(t * 2.5) % 2 === 0, typingA = na < a.length;
+      if (blink || n < a.length + b.length + 4) {
+        ctx.font = `600 ${typingA ? 46 : 30}px Menlo, monospace`;
+        const x = -372 + ctx.measureText(typingA ? a.slice(0, na) : b.slice(0, nb)).width + 4;
+        ctx.fillStyle = e.color; ctx.fillRect(x, typingA ? -40 : 14, typingA ? 24 : 16, typingA ? 42 : 30);
+      }
+    } },
+  mapPin: { name: 'Map pin', group: 'Call-outs', box: [520, 420], defaults: { text: 'Base camp', sub: '', color: '#ff3b30', accent: '#ffffff' },
+    draw(ctx, e, t, d) {
+      const [ki, ko] = io(t, d, 0.7), k = back(clamp(ki, 0, 1)), out = easeInOut(ko);
+      ctx.globalAlpha *= out;
+      const ring = (t * 0.9) % 1; // pulse on the ground
+      ctx.strokeStyle = hexAlpha(e.color, 0.8 * (1 - ring)); ctx.lineWidth = 5;
+      ctx.beginPath(); ctx.ellipse(0, 110, 20 + ring * 90, (20 + ring * 90) * 0.35, 0, 0, Math.PI * 2); ctx.stroke();
+      ctx.save(); ctx.translate(0, -260 * (1 - k));
+      ctx.shadowColor = 'rgba(0,0,0,0.45)'; ctx.shadowBlur = 16; ctx.shadowOffsetY = 6;
+      ctx.fillStyle = e.color; ctx.beginPath(); ctx.arc(0, -10, 52, Math.PI * 0.82, Math.PI * 2.18); ctx.lineTo(0, 108); ctx.closePath(); ctx.fill();
+      ctx.shadowColor = 'transparent'; ctx.fillStyle = e.accent; ctx.beginPath(); ctx.arc(0, -10, 20, 0, Math.PI * 2); ctx.fill();
+      ctx.restore();
+      if (e.text) {
+        const lk = clamp((ki - 0.5) / 0.5, 0, 1); ctx.globalAlpha *= lk;
+        ctx.font = font(800, 40); const w = ctx.measureText(e.text).width + 44;
+        ctx.fillStyle = 'rgba(15,15,18,0.82)'; roundRect(ctx, 76, -80, w, 64, 32); ctx.fill();
+        ctx.fillStyle = e.accent; ctx.textBaseline = 'middle'; ctx.fillText(e.text, 98, -47);
+      }
+    } },
+  routeMap: { name: 'Travel route map', group: 'Info', box: [1240, 720], defaults: { text: 'Lisbon', sub: 'Marrakesh', color: '#f1e5c8', accent: '#e5484d' },
+    draw(ctx, e, t, d) {
+      const [ki, ko] = io(t, d, 0.6, 0.5), out = easeInOut(ko), s = 0.92 + 0.08 * easeOut(ki);
+      ctx.globalAlpha *= Math.min(easeOut(ki), out); ctx.scale(s, s);
+      ctx.shadowColor = 'rgba(0,0,0,0.4)'; ctx.shadowBlur = 30; ctx.shadowOffsetY = 10;
+      ctx.fillStyle = e.color; roundRect(ctx, -600, -340, 1200, 680, 28); ctx.fill(); ctx.shadowColor = 'transparent';
+      ctx.save(); roundRect(ctx, -600, -340, 1200, 680, 28); ctx.clip();
+      ctx.fillStyle = '#b9d7e0'; ctx.fillRect(-600, -340, 1200, 680); // sea
+      ctx.fillStyle = e.color; // land: a few soft blobs, the same every time
+      for (let i = 0; i < 7; i++) { const x = -560 + rnd(i, 21) * 1120, y = -300 + rnd(i, 22) * 600, r = 120 + rnd(i, 23) * 170; ctx.beginPath(); ctx.ellipse(x, y, r, r * (0.55 + rnd(i, 24) * 0.4), rnd(i, 25) * 3, 0, Math.PI * 2); ctx.fill(); }
+      ctx.strokeStyle = 'rgba(80,70,50,0.12)'; ctx.lineWidth = 2;
+      for (let x = -600; x <= 600; x += 100) { ctx.beginPath(); ctx.moveTo(x, -340); ctx.lineTo(x, 340); ctx.stroke(); }
+      for (let y = -340; y <= 340; y += 100) { ctx.beginPath(); ctx.moveTo(-600, y); ctx.lineTo(600, y); ctx.stroke(); }
+      ctx.restore();
+      const A = [-380, 120], B = [390, -110], C = [0, -300], k = easeInOut(clamp((t - 0.5) / Math.max(0.6, Math.min(2.4, d - 1.2)), 0, 1));
+      const at = u => [(1 - u) ** 2 * A[0] + 2 * (1 - u) * u * C[0] + u * u * B[0], (1 - u) ** 2 * A[1] + 2 * (1 - u) * u * C[1] + u * u * B[1]];
+      ctx.strokeStyle = e.accent; ctx.lineWidth = 7; ctx.setLineDash([18, 14]); ctx.lineCap = 'round';
+      ctx.beginPath(); for (let i = 0; i <= 60; i++) { const u = (i / 60) * k, [x, y] = at(u); i ? ctx.lineTo(x, y) : ctx.moveTo(x, y); } ctx.stroke(); ctx.setLineDash([]);
+      const dot = (p, label, on) => {
+        ctx.globalAlpha *= on; ctx.fillStyle = e.accent; ctx.beginPath(); ctx.arc(p[0], p[1], 16, 0, Math.PI * 2); ctx.fill();
+        ctx.fillStyle = '#fff'; ctx.beginPath(); ctx.arc(p[0], p[1], 6, 0, Math.PI * 2); ctx.fill();
+        ctx.font = font(800, 38); ctx.fillStyle = '#2a2318'; ctx.textAlign = 'center'; ctx.textBaseline = 'top'; ctx.fillText(label, p[0], p[1] + 26); ctx.textAlign = 'left';
+        ctx.globalAlpha /= on || 1;
+      };
+      dot(A, e.text, 1); dot(B, e.sub, clamp(k * 4 - 3, 0.001, 1));
+      if (k > 0 && k < 1) { const [x, y] = at(k), [x2, y2] = at(Math.min(1, k + 0.01)); ctx.save(); ctx.translate(x, y); ctx.rotate(Math.atan2(y2 - y, x2 - x));
+        ctx.fillStyle = '#2a2318'; ctx.beginPath(); ctx.moveTo(26, 0); ctx.lineTo(-18, -16); ctx.lineTo(-10, 0); ctx.lineTo(-18, 16); ctx.closePath(); ctx.fill(); ctx.restore(); }
+    } },
+  bubbles: { name: 'Fizz bubbles', group: 'Particles', box: [1920, 1080], defaults: { text: '', sub: '', color: '#ffffff', accent: '#bfe9ff' },
+    draw(ctx, e, t, d, _img, FW = 1920, FH = 1080) {
+      const [ki, ko] = io(t, d, 0.3, 0.4); ctx.globalAlpha *= Math.min(ki, ko);
+      for (let i = 0; i < 70; i++) {
+        const r = 4 + rnd(i, 31) ** 2 * 26, sp = 140 + rnd(i, 32) * 320, y = FH / 2 + 40 - ((t * sp + rnd(i, 33) * (FH + 80)) % (FH + 80));
+        const x = (rnd(i, 34) - 0.5) * FW + Math.sin(t * (2 + rnd(i, 35) * 3) + i) * 12;
+        ctx.strokeStyle = hexAlpha(e.color, 0.75); ctx.lineWidth = Math.max(1.5, r * 0.12);
+        ctx.fillStyle = hexAlpha(e.accent, 0.12); ctx.beginPath(); ctx.arc(x, y, r, 0, Math.PI * 2); ctx.fill(); ctx.stroke();
+        ctx.fillStyle = hexAlpha(e.color, 0.85); ctx.beginPath(); ctx.arc(x - r * 0.35, y - r * 0.35, r * 0.22, 0, Math.PI * 2); ctx.fill();
+      }
+    } },
+  vhs: { name: 'VHS tape look', group: 'Overlays', box: [1920, 1080], defaults: { text: 'PLAY ▶', sub: 'AM 10:24  NOV 13 1996', color: '#ffffff', accent: '#000000' },
+    draw(ctx, e, t, d, _img, FW = 1920, FH = 1080) {
+      const L = -FW / 2, T = -FH / 2;
+      ctx.fillStyle = 'rgba(0,0,0,0.13)'; for (let y = T; y < -T; y += 4) ctx.fillRect(L, y, FW, 2); // scan lines
+      const band = ((t * 0.23) % 1.3 - 0.15) * FH + T; // the tracking band rolls down
+      for (let i = 0; i < 26; i++) { const y = band + rnd(i, Math.floor(t * 30)) * 70, w = FW * (0.2 + rnd(i, 41) * 0.8);
+        ctx.fillStyle = `rgba(255,255,255,${0.05 + rnd(i, 42 + Math.floor(t * 30)) * 0.22})`; ctx.fillRect(L + rnd(i, 43) * (FW - w), y, w, 2); }
+      ctx.font = `700 64px 'VCR OSD Mono', Menlo, monospace`; ctx.textBaseline = 'top'; ctx.shadowColor = 'rgba(0,0,0,0.8)'; ctx.shadowBlur = 0; ctx.shadowOffsetX = 4; ctx.shadowOffsetY = 4;
+      ctx.fillStyle = e.color;
+      if (t < 3 || Math.floor(t * 1.5) % 2 === 0) ctx.fillText(e.text, L + 80, T + 64);
+      ctx.font = `700 48px 'VCR OSD Mono', Menlo, monospace`; ctx.textBaseline = 'bottom'; ctx.fillText(e.sub, L + 80, -T - 64);
+      const s = Math.floor(t), clock = `SP ${Math.floor(s / 3600)}:${String(Math.floor(s / 60) % 60).padStart(2, '0')}:${String(s % 60).padStart(2, '0')}`;
+      ctx.textAlign = 'right'; ctx.fillText(clock, -L - 80, -T - 64); ctx.textAlign = 'left';
+    } },
+  scoreBug: { name: 'Score bug', group: 'Info', box: [820, 96], defaults: { text: 'HOME 2', sub: 'AWAY 1', color: '#0a2a66', accent: '#ffcc00' },
+    draw(ctx, e, t, d) {
+      const [ki, ko] = io(t, d, 0.5, 0.4), k = Math.min(easeOut(ki), easeInOut(ko));
+      const team = s => { const m = /^(.*?)\s*(\d+)$/.exec(String(s).trim()); return m ? [m[1] || '—', m[2]] : [String(s), '0']; };
+      const [n1, s1] = team(e.text), [n2, s2] = team(e.sub);
+      ctx.save(); ctx.beginPath(); ctx.rect(-410, -48, 820 * k, 96); ctx.clip();
+      ctx.fillStyle = e.color; ctx.fillRect(-410, -40, 820, 80);
+      ctx.font = font(800, 38); ctx.textBaseline = 'middle';
+      ctx.fillStyle = '#fff'; ctx.fillText(n1.slice(0, 10), -390, 0); ctx.fillText(n2.slice(0, 10), -60, 0);
+      ctx.fillStyle = e.accent; ctx.fillRect(-150, -40, 74, 80); ctx.fillRect(180, -40, 74, 80);
+      ctx.fillStyle = '#111'; ctx.textAlign = 'center'; ctx.font = font(900, 46); ctx.fillText(s1, -113, 2); ctx.fillText(s2, 217, 2);
+      const s = 12 * 60 - Math.floor(t); ctx.fillStyle = '#000'; ctx.fillRect(254, -40, 156, 80);
+      ctx.fillStyle = '#fff'; ctx.font = font(700, 36); ctx.fillText(`${Math.floor(s / 60)}:${String(s % 60).padStart(2, '0')}`, 332, 2);
+      ctx.restore();
+    } },
+  replayBug: { name: 'Replay badge', group: 'Overlays', box: [440, 150], defaults: { text: 'REPLAY', sub: '', color: '#ffffff', accent: '#e5484d' },
+    draw(ctx, e, t, d) {
+      const [ki, ko] = io(t, d, 0.35, 0.3), k = Math.min(easeOut(ki), easeInOut(ko));
+      ctx.globalAlpha *= k; ctx.translate((1 - k) * 200, 0); ctx.transform(1, 0, -0.22, 1, 0, 0);
+      ctx.fillStyle = e.accent; ctx.fillRect(-200, -50, 400, 100);
+      ctx.save(); ctx.beginPath(); ctx.rect(-200, -50, 400, 100); ctx.clip(); ctx.fillStyle = 'rgba(255,255,255,0.18)';
+      for (let i = -6; i < 8; i++) { const x = i * 60 + ((t * 160) % 60); ctx.fillRect(x, -50, 24, 100); } ctx.restore();
+      ctx.fillStyle = e.color; ctx.font = font(900, 62); ctx.textAlign = 'center'; ctx.textBaseline = 'middle'; ctx.fillText(e.text, 0, 3);
+      if (Math.floor(t * 2) % 2 === 0) { ctx.fillStyle = e.color; ctx.beginPath(); ctx.arc(-168, 0, 9, 0, Math.PI * 2); ctx.fill(); }
+    } },
+  newsTicker: { name: 'News ticker', group: 'Lower thirds', box: [1920, 190], defaults: { text: 'BREAKING NEWS', sub: 'Your headline goes here  •  More details scroll along the bottom  •  Stay with us for updates', color: '#d71920', accent: '#ffffff' },
+    draw(ctx, e, t, d, _img, FW = 1920) {
+      const [ki, ko] = io(t, d, 0.6, 0.4), k = Math.min(easeOut(ki), easeInOut(ko)), L = -FW / 2;
+      ctx.save(); ctx.beginPath(); ctx.rect(L, -100, FW * k, 200); ctx.clip();
+      ctx.font = font(900, 52); const lw = ctx.measureText(e.text).width + 70;
+      ctx.fillStyle = e.color; ctx.fillRect(L + 60, -82, lw, 82);
+      ctx.fillStyle = e.accent; ctx.fillRect(L + 60 + lw, -82, Math.min(FW - 120 - lw, 900), 82);
+      ctx.fillStyle = e.accent; ctx.textBaseline = 'middle'; ctx.fillText(e.text, L + 95, -40);
+      ctx.fillStyle = e.color; ctx.font = font(800, 38); ctx.fillText('LIVE', L + 90 + lw, -40);
+      ctx.fillStyle = '#0d1424'; ctx.fillRect(L, 6, FW, 64);
+      ctx.fillStyle = e.accent; ctx.font = font(600, 36);
+      const msg = `${e.sub}     •     `, mw = Math.max(200, ctx.measureText(msg).width), off = (t * 170) % mw;
+      for (let x = L + FW * 0.3 - off; x < -L; x += mw) ctx.fillText(msg, x, 39);
+      ctx.restore();
+    } },
   emojiPop: { name: 'Emoji pop', group: 'Social', box: [300, 300], defaults: { text: '🔥', sub: '', color: '#ffffff', accent: '#ffffff' },
     draw(ctx, e, t, d) {
       const [ki, ko] = io(t, d, 0.5), k = Math.min(elastic(ki), easeInOut(ko));
@@ -489,7 +631,7 @@ export function drawElement(ctx, el, p, t, d, W, H, img = null) {
   if (p.rotation) ctx.rotate((p.rotation * Math.PI) / 180);
   ctx.scale(u, u);
   ctx.textAlign = 'left';
-  try { def.draw(ctx, e, t, d, img); } finally { ctx.restore(); }
+  try { def.draw(ctx, e, t, d, img, W / u, H / u); } finally { ctx.restore(); } // the last two: the frame, in element units
 }
 /** Size of an element's box on a W×H frame (for the selection box). */
 export function elementBox(el, p, W, H) {
@@ -500,5 +642,8 @@ export function elementBox(el, p, W, H) {
 /** Where an element sits by default (lower thirds low on the left; the rest in the middle). */
 export function elementHome(kind) {
   const g = ELEMENTS[kind]?.group;
+  const at = { bubbles: { x: 0.5, y: 0.5, scale: 1 }, vhs: { x: 0.5, y: 0.5, scale: 1 }, scoreBug: { x: 0.27, y: 0.09, scale: 0.8 }, replayBug: { x: 0.84, y: 0.12, scale: 0.8 },
+    newsTicker: { x: 0.5, y: 0.86, scale: 1 }, locStamp: { x: 0.28, y: 0.12, scale: 0.8 }, routeMap: { x: 0.5, y: 0.5, scale: 0.85 }, docLower: { x: 0.31, y: 0.82 } }[kind];
+  if (at) return { ...at };
   return kind === 'noteCard' ? { x: 0.76, y: 0.42, scale: 0.85 } : g === 'Lower thirds' ? { x: 0.3, y: 0.82 } : ['subscribe', 'likeButton', 'bell', 'likeSubscribe', 'follow', 'commentPrompt'].includes(kind) ? { x: 0.5, y: 0.8 } : kind === 'progressBar' ? { x: 0.5, y: 0.88 } : { x: 0.5, y: 0.5 };
 }

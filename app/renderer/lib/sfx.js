@@ -15,6 +15,7 @@ export const SFX = {
   shutter: { name: 'Camera shutter', len: 0.35, hint: 'Freeze frames, screenshots' },
   typing: { name: 'Typing', len: 1.6, hint: 'Keyboard, for typewriter text' },
   sparkle: { name: 'Sparkle', len: 1.2, hint: 'Magic, reveals' },
+  tapestop: { name: 'Tape stop', len: 1.1, hint: 'A tape or record slowing to a halt' },
   scratch: { name: 'Record scratch', len: 0.7, hint: 'Wait, what?' },
 };
 
@@ -74,6 +75,18 @@ export function makeSfx(id, rate = 48000) {
     }
     case 'sparkle': for (let i = 0; i < n; i++) { const t = T(i); let v = 0; for (let k = 0; k < 6; k++) { const st = k * 0.09; if (t > st) v += Math.sin(2 * Math.PI * (1800 + k * 420) * (t - st)) * env(t - st, 0.002, 0.25) * 0.15; } L[i] = v; R[i] = v * (0.6 + 0.4 * Math.sin(t * 20)); } break;
     case 'scratch': for (let i = 0; i < n; i++) { const t = T(i), f = 300 + 900 * Math.abs(Math.sin(t * 9)); L[i] = R[i] = (rn() * 0.4 + Math.sin(2 * Math.PI * f * t) * 0.4) * env(t, 0.01, 0.25) * 0.8; } break;
+    case 'tapestop': { // a chord whose pitch and speed sag to nothing, with a little wobble and hiss
+      let ph = 0;
+      for (let i = 0; i < n; i++) {
+        const t = T(i), k = t / def.len, sp = Math.max(0, (1 - k) ** 1.7);
+        ph += (2 * Math.PI * 220 * sp * (1 + 0.004 * Math.sin(t * 40))) / rate;
+        const v = Math.sin(ph) * 0.5 + Math.sin(ph * 1.5) * 0.3 + Math.sin(ph * 2) * 0.2 + rn() * 0.04 * sp;
+        L[i] = v * sp * Math.min(1, t / 0.01);
+      }
+      filt(L, rate, t => 300 + 5000 * Math.max(0, 1 - t / def.len) ** 2);
+      for (let i = 0; i < n; i++) R[i] = L[i];
+      break;
+    }
     default: break;
   }
   // gentle limit and fade-out so nothing clicks

@@ -44,6 +44,8 @@ export const PREFS = {
   remix: { page: 'timeline', label: 'REMIX on: dragging the end of a music clip extends or shortens the song seamlessly (off: plain trimming)', type: 'check', ...own('remix', true) },
   smoothCuts: { page: 'timeline', label: 'Smooth every cut (a short crossfade where clips meet, a short fade by a gap)', type: 'select', ...own('smoothCuts', 0.1), options: [[0, 'Off'], [0.1, 'Short (0.1 s)'], [0.25, 'Medium (0.25 s)'], [0.5, 'Long (0.5 s)']] },
   autoCloseGaps: { page: 'timeline', label: 'Delete closes the gap (like RIPPLE), so no empty space is left', type: 'check', ...own('autoCloseGaps', false) },
+  transRandom: { page: 'timeline', label: 'Randomize transitions (packs and style packs): 0 in order … 1 a surprise mix', type: 'select', ...own('transRandom', 0), options: [[0, 'Off'], [0.25, 'A little'], [0.5, 'Some'], [0.75, 'Lots'], [1, 'Surprise me']] },
+  filmLead: { page: 'timeline', label: 'L-cut and J-cut: how long the sound leads or trails the picture', type: 'select', ...own('filmLead', 1), options: [[0.5, '0.5 s'], [1, '1 s'], [1.5, '1.5 s'], [2, '2 s'], [2.5, '2.5 s'], [3, '3 s']] },
   transDur: { page: 'timeline', label: 'Default transition length', type: 'select', ...own('transDur', 0.5), options: [[0.25, '0.25 s'], [0.5, '0.5 s'], [0.75, '0.75 s'], [1, '1 s'], [1.5, '1.5 s'], [2, '2 s']] },
   imageDur: { page: 'timeline', label: 'Pictures added for', type: 'select', ...own('imageDur', 5), options: [[2, '2 s'], [3, '3 s'], [5, '5 s'], [8, '8 s'], [10, '10 s']] },
   textDur: { page: 'timeline', label: 'Titles added for', type: 'select', ...own('textDur', 4), options: [[2, '2 s'], [3, '3 s'], [4, '4 s'], [6, '6 s'], [8, '8 s']] },
