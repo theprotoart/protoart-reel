@@ -24,6 +24,20 @@ const isVideo = (doc, c) => c?.type === 'media' && !c.audioOnly && mediaById(doc
 const hasSound = (doc, c) => isVideo(doc, c) && !!mediaById(doc, c.media)?.hasAudio;
 const visual = (doc, c) => c && c.type === 'media' && !c.audioOnly && mediaById(doc, c.media)?.kind !== 'audio';
 
+const isSound = (doc, c) => !!c && c.type === 'media' && !c.disabled && (c.audioOnly || mediaById(doc, c.media)?.kind === 'audio');
+/**
+ * The sound that belongs with a picture clip: its detached sound, or (Reel's own recordings, where the microphone is a
+ * clip of its own under the screen) a sound clip on another track lined up with it: same start and end, else the same
+ * start (edge 'start') or the same end (edge 'end').
+ */
+export function partnerSound(doc, c, edge = 'start') {
+  if (c.detached) return doc.clips.find(x => x.id === c.detached) || null;
+  const list = doc.clips.filter(x => x !== c && x.track !== c.track && isSound(doc, x));
+  return list.find(x => Math.abs(x.start - c.start) <= EPS && Math.abs(clipEnd(x) - clipEnd(c)) <= EPS)
+    || list.find(x => (edge === 'start' ? Math.abs(x.start - c.start) <= EPS : Math.abs(clipEnd(x) - clipEnd(c)) <= EPS)) || null;
+}
+const withSound = (doc, c) => hasSound(doc, c) || (isVideo(doc, c) && !!partnerSound(doc, c));
+
 /** Timeline seconds of source left after the clip's end (Infinity for pictures). */
 export function tailRoom(doc, c) {
   const m = mediaById(doc, c.media);
@@ -71,9 +85,13 @@ function soundTrack(doc, sa, sb) {
  * sound's edit point moves `lead` seconds after (L) or before (J) the picture's, with a short equal-power blend.
  */
 export function splitEdit(doc, a, b, kind = 'l-cut', lead = 1) {
-  if (!hasSound(doc, a) || !hasSound(doc, b)) return { error: 'Both clips at the cut need to be video with sound.' };
   if (Math.abs(b.start - clipEnd(a)) > EPS) return { error: 'The two clips need to touch (one ends where the next begins).' };
-  const sa = soundOf(doc, a), sb = soundOf(doc, b), cut = b.start;
+  // each picture's sound: its own (put on a clip of its own), or the microphone clip lined up under it
+  const own = hasSound(doc, a) && hasSound(doc, b);
+  const sa = own ? soundOf(doc, a) : partnerSound(doc, a, 'start'), sb = own ? soundOf(doc, b) : partnerSound(doc, b, 'end'), cut = b.start;
+  if (!sa || !sb || sa === sb) return { error: 'Both clips at the cut need sound: video with sound, or a sound clip under each one that’s cut at the same place.' };
+  if (!own && sa.track !== sb.track) return { error: 'The sounds under these two clips are on different tracks; put them on one track first.' };
+  const sbEnd0 = clipEnd(sb);
   delete sa.xfadeOut; delete sb.xfadeIn;
   if (Math.abs(sb.start - clipEnd(sa)) > EPS) return { error: 'The two sounds don’t meet any more; move them back together first.' };
   rollSound(sa, sb, cut); // back to a straight cut first (so it can be changed from L to J and back)
@@ -84,12 +102,10 @@ export function splitEdit(doc, a, b, kind = 'l-cut', lead = 1) {
     // no spare sound past the clips' ends (whole clips, as recorded): make the room from the pictures instead
     tight = true;
     const end = clipEnd(b);
-    const later = doc.clips.filter(c => c.track === b.track && c !== b && c.start >= end - EPS);
-    const closeUp = () => { for (const c of later) { // what follows on that track moves up to close the gap (with its own sound)
-      c.start -= d;
-      const snd = c.detached && doc.clips.find(x => x.id === c.detached);
-      if (snd) snd.start -= d;
-    } };
+    const later = new Set(doc.clips.filter(c => c.track === b.track && c !== b && c.start >= end - EPS));
+    for (const c of [...later]) { const snd = c.detached && doc.clips.find(x => x.id === c.detached); if (snd) later.add(snd); }
+    for (const c of doc.clips) if (c.track === sb.track && c !== sb && c !== sa && c.start >= sbEnd0 - EPS) later.add(c); // and the sound that follows
+    const closeUp = () => { for (const c of later) c.start -= d; }; // what follows moves up to close the gap
     if (kind === 'j-cut') {
       d = Math.min(lead, b.duration - 0.3, sa.duration - 0.3);
       if (!(d >= 0.1)) return { error: 'These clips are too short for a J-cut.' };
@@ -108,7 +124,7 @@ export function splitEdit(doc, a, b, kind = 'l-cut', lead = 1) {
   const xf = 0.24;
   if (tailRoom(doc, sa) >= xf / 2 && headRoom(sb) >= xf / 2) { sa.xfadeOut = xf; sb.xfadeIn = xf; }
   else { sa.audio = { ...sa.audio, fadeOut: 0.08 }; sb.audio = { ...sb.audio, fadeIn: 0.08 }; }
-  sa.track = sb.track = soundTrack(doc, sa, sb);
+  if (own) sa.track = sb.track = soundTrack(doc, sa, sb);
   sa.filmCut = sb.filmCut = kind;
   return { lead: d, tight, sounds: [sa.id, sb.id] };
 }
@@ -127,20 +143,24 @@ export function smashCut(doc, a, b) {
  */
 export function jumpCut(doc, c, t, skip = 0.4, punch = 1.12) {
   if (!visual(doc, c) || t <= c.start + 0.2 || t >= clipEnd(c) - 0.2) return { error: 'Put the playhead inside a video clip, where it should jump.' };
-  const end0 = clipEnd(c), later = doc.clips.filter(x => x.track === c.track && x !== c && x.start >= end0 - EPS);
+  const snd0 = partnerSound(doc, c, 'start');
+  const end0 = clipEnd(c), later = new Set(doc.clips.filter(x => x.track === c.track && x !== c && x.start >= end0 - EPS));
+  for (const x of [...later]) { const sd = x.detached && doc.clips.find(y => y.id === x.detached); if (sd) later.add(sd); }
+  if (snd0) for (const x of doc.clips) if (x.track === snd0.track && x !== snd0 && x.start >= clipEnd(snd0) - EPS) later.add(x);
   const [rid] = split(doc, t, [c.id]); const r = doc.clips.find(x => x.id === rid); if (!r) return { error: 'Couldn’t cut there.' };
   // a moment is cut out: the rest of the shot starts `skip` later in its source and everything after moves up
   const s = Math.min(skip, r.duration - 0.2);
   if (s > 0.01) {
     advanceStart(r, s); r.duration -= s;
-    for (const x of later) { x.start -= s; const snd = x.detached && doc.clips.find(y => y.id === x.detached); if (snd) snd.start -= s; }
+    for (const x of later) x.start -= s;
   }
   const base = c.props?.scale ?? 1;
   r.props.scale = base > 1.06 ? base / punch : base * punch;
   r.hardCut = true;
-  if (c.detached) { // its sound jumps too
-    const snd = doc.clips.find(x => x.id === c.detached);
-    if (snd && t > snd.start + 0.05 && t < clipEnd(snd) - 0.05) { const [sid] = split(doc, t, [snd.id]); const sr = doc.clips.find(x => x.id === sid); if (sr && s > 0.01) { advanceStart(sr, s); sr.duration -= s; } r.detached = sid; }
+  if (snd0 && t > snd0.start + 0.05 && t < clipEnd(snd0) - 0.05) { // its sound jumps too
+    const [sid] = split(doc, t, [snd0.id]); const sr = doc.clips.find(x => x.id === sid);
+    if (sr && s > 0.01) { advanceStart(sr, s); sr.duration -= s; }
+    if (c.detached) r.detached = sid;
   }
   return { ids: [rid], skipped: s };
 }
@@ -150,7 +170,7 @@ export function cutOnAction(doc, a, b, overlap = 0.08) {
   const o = Math.min(overlap, headRoom(b));
   if (o > 0.01) {
     advanceStart(b, -o);
-    const snd = b.detached && doc.clips.find(x => x.id === b.detached);
+    const snd = partnerSound(doc, b, 'start');
     if (snd && Math.abs(snd.start - b.start) < EPS && headRoom(snd) >= o) advanceStart(snd, -o);
   }
   applyCut(a, b, 'blur-through', 0.2);
@@ -191,14 +211,15 @@ export function crossCut(doc, a, b, piece = 2.5, faster = 0.15) {
   if (!visual(doc, a) || !visual(doc, b) || a.track !== b.track || Math.abs(b.start - clipEnd(a)) > EPS) return { error: 'Select two clips that follow each other on one track (scene A, then scene B).' };
   const t0 = a.start;
   const chop = c => {
-    const out = [c]; const snd = c.detached && doc.clips.find(x => x.id === c.detached);
-    const sounds = snd ? [snd] : [];
+    const out = [c]; const snd = partnerSound(doc, c, 'start');
+    const lined = snd && Math.abs(snd.start - c.start) <= EPS && Math.abs(clipEnd(snd) - clipEnd(c)) <= EPS ? snd : null;
+    const sounds = lined ? [lined] : [];
     let at = c.start;
     for (const L of piecesOf(c.duration, piece, faster).slice(0, -1)) {
       at += L;
       const last = out[out.length - 1], [rid] = split(doc, at, [last.id]);
       const r = doc.clips.find(x => x.id === rid); if (r) out.push(r);
-      if (sounds.length) { const ls = sounds[sounds.length - 1]; const [sid] = split(doc, at, [ls.id]); const sr = doc.clips.find(x => x.id === sid); if (sr) { sounds.push(sr); if (r) r.detached = sid; } }
+      if (sounds.length) { const ls = sounds[sounds.length - 1]; const [sid] = split(doc, at, [ls.id]); const sr = doc.clips.find(x => x.id === sid); if (sr) { sounds.push(sr); if (r && c.detached) r.detached = sid; } }
     }
     return out.map(p => ({ p, snd: sounds.find(s => Math.abs(s.start - p.start) < 1e-6) || null }));
   };
@@ -219,7 +240,7 @@ export function crossCut(doc, a, b, piece = 2.5, faster = 0.15) {
  */
 export function autoSplitEdits(doc, trackId, lead = 1, vary = 0, rng = Math.random) {
   const pairs = []; // the cuts first: detaching changes the list
-  const list = doc.clips.filter(c => c.track === trackId && hasSound(doc, c)).sort((a, b) => a.start - b.start);
+  const list = doc.clips.filter(c => c.track === trackId && withSound(doc, c)).sort((a, b) => a.start - b.start);
   for (let i = 0; i + 1 < list.length; i++) if (Math.abs(list[i + 1].start - clipEnd(list[i])) <= EPS) pairs.push([list[i].id, list[i + 1].id]);
   let n = 0, turn = 0;
   for (const [ai, bi] of pairs) {

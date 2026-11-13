@@ -80,3 +80,30 @@ test('auto L & J cuts take turns on every cut with sound', async () => {
   const kinds = d.clips.filter(c => c.audioOnly).map(c => c.filmCut);
   assert.ok(kinds.includes('j-cut') && kinds.includes('l-cut'));
 });
+
+test('Reel recordings (screen + a microphone clip under it): L-cut, J-cut and jump cut use the microphone clips', async () => {
+  const { splitEdit: se, jumpCut: jc, crossCut: cc } = await import('../app/renderer/lib/filmcuts.js');
+  const rec = () => ({
+    canvas: { width: 1920, height: 1080 }, tracks: [{ id: 'v' }, { id: 'm' }],
+    media: [{ id: 'scr', kind: 'video', hasAudio: false, duration: 40 }, { id: 'mic', kind: 'audio', duration: 40 }],
+    clips: [
+      { id: 'a', type: 'media', media: 'scr', track: 'v', start: 0, duration: 6, in: 0, speed: 1, props: {}, transIn: { type: 'none' }, transOut: { type: 'none' } },
+      { id: 'b', type: 'media', media: 'scr', track: 'v', start: 6, duration: 6, in: 10, speed: 1, props: {}, transIn: { type: 'none' }, transOut: { type: 'none' } },
+      { id: 'ma', type: 'media', media: 'mic', track: 'm', start: 0, duration: 6, in: 0, speed: 1, props: {}, audio: {} },
+      { id: 'mb', type: 'media', media: 'mic', track: 'm', start: 6, duration: 6, in: 10, speed: 1, props: {}, audio: {} },
+    ] });
+  let d = rec();
+  const l = se(d, get(d, 'a'), get(d, 'b'), 'l-cut', 1);
+  assert.ok(!l.error, l.error); assert.deepEqual(l.sounds, ['ma', 'mb']);
+  assert.equal(clipEnd(get(d, 'ma')), 7); assert.equal(get(d, 'mb').start, 7);
+  assert.ok(!get(d, 'a').detached, 'nothing new is detached');
+  d = rec();
+  const j = jc(d, get(d, 'a'), 3, 0.4);
+  assert.ok(!j.error);
+  const mics = d.clips.filter(c => c.track === 'm').sort((p, q) => p.start - q.start);
+  assert.equal(mics.length, 3, 'the microphone is cut too');
+  assert.ok(Math.abs(mics[1].in - 3.4) < 1e-9 && Math.abs(get(d, 'mb').start - 5.6) < 1e-9, 'and jumps with the picture');
+  d = rec();
+  assert.ok(cc(d, get(d, 'a'), get(d, 'b'), 2, 0).pieces >= 4);
+  for (const p of d.clips.filter(c => c.track === 'v')) assert.ok(d.clips.some(s => s.track === 'm' && Math.abs(s.start - p.start) < 1e-9 && Math.abs(s.in - p.in) < 1e-9), 'each piece keeps its sound');
+});
