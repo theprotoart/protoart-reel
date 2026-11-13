@@ -87,7 +87,7 @@ export function makeSfx(id, rate = 48000) {
 export const SFX_FOR = {
   'whip-left': 'whoosh', 'whip-right': 'whoosh', 'whip-through': 'whoosh', 'push-left': 'swish', 'push-right': 'swish', 'slide-left': 'swish', 'slide-right': 'swish',
   'zoom-through': 'whoosh', 'spin-through': 'whoosh', 'spin': 'swish', 'flash': 'hit', 'flash-cut': 'hit', 'glitch': 'glitch', 'glitch-cut': 'glitch',
-  'light-leak': 'sparkle', 'film-burn': 'riser', 'drop': 'hit', 'pop': 'pop', 'elastic': 'pop', 'shake-cut': 'boom', 'iris': 'swish', 'clock': 'swish',
+  'light-leak': 'sparkle', 'film-burn': 'riser', 'drop': 'hit', 'pop': 'pop', 'elastic': 'pop', 'shake-cut': 'boom', 'iris': 'swish', 'clock': 'swish', 'shutter': 'shutter',
   // softer ones too, so every pack can have sound when it's switched on
   'blur-through': 'swish', 'blur': 'swish', 'dip-black': 'swish', 'dip-white': 'sparkle', 'zoom': 'whoosh', 'zoom-out': 'whoosh', 'rise': 'swish',
   'wipe-left': 'swish', 'wipe-right': 'swish', 'wipe-up': 'swish', 'wipe-down': 'swish', 'barn': 'swish', 'blinds': 'swish', 'diagonal': 'swish',

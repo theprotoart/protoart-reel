@@ -24,7 +24,7 @@ export const TRANSITIONS = [['none', 'None'], ['fade', 'Fade'], ['dip-black', 'D
   ['zoom-through', 'Zoom through (cut)'], ['spin-through', 'Spin through (cut)'], ['whip-through', 'Whip through (cut)'], ['blur-through', 'Blur through (cut)'],
   ['light-leak', 'Light leak'], ['film-burn', 'Film burn'], ['flash-cut', 'Flash (cut)'], ['glitch-cut', 'Glitch (cut)'], ['shake-cut', 'Shake (cut)'],
   ['cine-fade', 'Cinematic fade'], ['dip-film', 'Dip to film'], ['dreamy', 'Dreamy glow'], ['letterbox', 'Letterbox close'],
-  ['lens-defocus', 'Lens defocus (cut)'], ['exposure-burn', 'Exposure burn (cut)'], ['flare-sweep', 'Lens flare sweep (cut)'], ['punch-zoom', 'Punch zoom (cut)'], ['chroma-split', 'Chromatic split (cut)'], ['text-reveal', 'Text reveal (cut)']];
+  ['lens-defocus', 'Lens defocus (cut)'], ['exposure-burn', 'Exposure burn (cut)'], ['flare-sweep', 'Lens flare sweep (cut)'], ['punch-zoom', 'Punch zoom (cut)'], ['chroma-split', 'Chromatic split (cut)'], ['shutter', 'Radial shutter (cut)'], ['text-reveal', 'Text reveal (cut)']];
 const FONTS = ['Avenir Next', 'Avenir Next Condensed', 'Futura', 'Helvetica Neue', 'SF Pro Display', 'Impact', 'Arial Black', 'Gill Sans', 'Didot', 'Georgia', 'American Typewriter', 'Marker Felt', 'Menlo', 'Rockwell', 'Poppins'];
 const CANVAS = [['1920x1080', '1920 × 1080 (HD)'], ['2560x1440', '2560 × 1440 (QHD)'], ['3840x2160', '3840 × 2160 (4K)'], ['1280x720', '1280 × 720'], ['1080x1920', '1080 × 1920 (vertical)'], ['1080x1350', '1080 × 1350 (4:5 portrait)'], ['1080x1080', '1080 × 1080 (square)'], ['1440x900', '1440 × 900 (Mac 16:10)'], ['2880x1800', '2880 × 1800 (Retina 16:10)']];
 

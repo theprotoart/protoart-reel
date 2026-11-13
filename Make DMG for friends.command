@@ -54,6 +54,7 @@ FIRST RECORDING
 
 NEW IN THIS BUILD — PLEASE TRY (1.6.0: both 1.5.9 lines together)
 - 🎵 REMIX (next to SNAP): drag the ♪ end of any music clip to make the song longer or
+- Radial shutter transition: camera-iris blades close over one clip and open on the next.
   shorter seamlessly (off: trim as normal). Or MUSIC tab › FIT TO THE VIDEO.
 - 📝 Clap notes: clap, then say what should appear on screen (AUTO EDIT › Claps).
 - 🎨 Match colour and ◐ colour wheels; ⤳ Retime curve; 〰 Elastic Wave.

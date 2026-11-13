@@ -33,7 +33,7 @@ export const TOPICS = [
     'Where two clips meet after a cut (a delete, ripple, Close Gaps or Auto Edit joined them), Reel adds a short **crossfade** so the sound doesn’t click and the picture doesn’t jar; next to a gap the sound fades out and in. A plain split of continuous footage needs nothing.',
     'Change it in **Settings › Timeline › Smooth every cut**: Off, Short (0.1 s), Medium, Long.',
     '**Drag one clip over another** on the same track and Reel crossfades them across the overlap. A cut set to **NONE** in Transitions stays a hard cut.'], 'how'],
-  ['Transitions', 'transition transitions dissolve wipe none cut every all one this apply', [
+  ['Transitions', 'transition transitions dissolve wipe none cut every all one this apply shutter radial iris aperture camera', [
     'Click the **⧓** on any cut, or EFFECTS ▾ › Transitions & fades. The **APPLY TO** switch at the top says where a click goes: **THIS CUT** or **EVERY CUT**.',
     '**NONE (Cut)** with EVERY CUT takes every transition off.'], 'how'],
   ['Undo and redo', 'undo redo history back mistake', [
@@ -92,7 +92,7 @@ export const TOPICS = [
   ['Copy and paste effects', 'copy paste effects zooms actions filters sound effects plug-ins pointer reuse apply same', [
     'Right-click a clip › **Copy effects** copies its zoom and pan actions, picture filters, sound effects (built-in and your plug-ins) and pointer effects. Select other clips › right-click › **Paste effects**. Right-click one action on a clip › **Copy this action**, then **Paste action at playhead** on any clip. Pasted sound effects show **FX !** until you press RENDER EFFECTS.'], 'how'],
   ['Cinematic transitions and filters', 'cinematic film transitions fade lens defocus exposure burn flare letterbox grain halation chromatic aberration split dreamy dip punch zoom movie look', [
-    'Transitions: **Cinematic fade**, **Dip to film**, **Dreamy glow**, **Letterbox close**, and on cuts **Lens defocus**, **Exposure burn**, **Lens flare sweep**, **Punch zoom** and **Chromatic split**, beside the light leaks and film burns. Auto Edit’s packs include **Filmic** and **Social (fast)**.',
+    'Transitions: **Cinematic fade**, **Dip to film**, **Dreamy glow**, **Letterbox close**, and on cuts **Lens defocus**, **Exposure burn**, **Lens flare sweep**, **Punch zoom**, **Chromatic split** and **Radial shutter** (a camera iris: seven metal blades close over the clip going out and open on the next, with a shutter click if sounds are on), beside the light leaks and film burns. Auto Edit’s packs include **Filmic** and **Social (fast)**.',
     'Filters (clip settings › Filters › Add): **Film grain**, **Letterbox bars** (2.39, 2, 1.85, 2.76 : 1), **Halation glow** and **Chromatic aberration**.'], 'how'],
   ['Device frames, motion backgrounds and audio visualizers', 'device frame browser window mac window phone laptop mockup motion background animated background gradient bokeh grid waves audio visualizer bars wave ring spectrum', [
     '**Frame** (clip settings › Position) puts a picture inside a **Browser window** (with an address), a **Mac window** (with a title), a **Phone** or a **Laptop**, dark or light.',

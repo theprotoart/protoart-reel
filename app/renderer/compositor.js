@@ -35,9 +35,11 @@ export function drawFrame(ctx, doc, t, sources, opts = {}) {
     const p = propsAt(c, local);
     if (p.opacity <= 0.001 && !p.dip) continue;
     const masked = p.mask && p.mask.k < 1;
+    const shut = p.shutter != null && p.shutter < 1; // radial shutter: the picture inside the iris, blades around it
     // text reveal: the clip is drawn on a layer of its own, then cut to the shape of the words
     const dc = p.textMask ? revealLayer(W, H) : ctx;
     if (masked) { dc.save(); maskPath(dc, p.mask, W, H); dc.clip(); }
+    if (shut) { dc.save(); dc.beginPath(); shutterPoly(dc, p.shutter, W, H); dc.clip(); }
     try {
       if (c.type === 'media') drawMedia(dc, doc, c, p, local, sources, W, H, sx);
       else if (c.type === 'text') drawText(dc, c, p, local, W, H, sx);
@@ -47,6 +49,7 @@ export function drawFrame(ctx, doc, t, sources, opts = {}) {
       else if (c.type === 'element') drawElement(dc, c.element, p, local, c.duration, W, H, sources.image ? id => (id ? sources.image(id) : null) : null);
     } catch (e) { if (opts.onError) opts.onError(c, e); }
     if (masked) dc.restore();
+    if (shut) { dc.restore(); shutterBlades(dc, p.shutter, W, H); }
     if (p.textMask) { try { finishReveal(ctx, dc, p.textMask, W, H); } catch (e) { if (opts.onError) opts.onError(c, e); } }
     if (p.glitch > 0.05) glitchBars(ctx, p.glitch, W, H, t);
     if (p.leak > 0.01) lightLeak(ctx, p.leak, W, H, t, p.burn);
@@ -93,6 +96,62 @@ export function mediaRect(doc, m, p, W, H, srcW, srcH) {
   const cw = srcW * (1 - p.crop[0] - p.crop[2]), ch = srcH * (1 - p.crop[1] - p.crop[3]);
   const fit = Math.min(W / Math.max(1, cw), H / Math.max(1, ch));
   return { cx: p.x * W, cy: p.y * H, w: cw * fit * p.scale, h: ch * fit * p.scale };
+}
+
+/**
+ * Radial shutter (a camera's iris): seven blades turning around the middle. k is how open it is (0 shut, 1 gone).
+ * shutterPoly traces the opening; shutterBlades draws the metal blades everywhere outside it.
+ */
+const SHUTTER_N = 7;
+function shutterGeom(k, W, H) {
+  const e = Math.max(0, Math.min(1, k)), s = e * e * (3 - 2 * e);
+  const cx = W / 2, cy = H / 2, full = Math.hypot(W, H) / 2 / Math.cos(Math.PI / SHUTTER_N) * 1.04;
+  const r = full * s, rot = -Math.PI / 2 + (1 - s) * (2 * Math.PI / SHUTTER_N) * 1.6; // the blades turn as they open
+  const v = [];
+  for (let i = 0; i < SHUTTER_N; i++) { const a = rot + i * 2 * Math.PI / SHUTTER_N; v.push([cx + r * Math.cos(a), cy + r * Math.sin(a)]); }
+  return { v, r, cx, cy, far: Math.hypot(W, H) * 1.5, rot };
+}
+export function shutterPoly(ctx, k, W, H) {
+  const { v } = shutterGeom(k, W, H);
+  v.forEach(([x, y], i) => (i ? ctx.lineTo(x, y) : ctx.moveTo(x, y))); ctx.closePath();
+}
+export function shutterBlades(ctx, k, W, H) {
+  const { v, r, cx, cy, far, rot } = shutterGeom(k, W, H), n = SHUTTER_N;
+  // each blade's straight edge runs along one side of the opening and on past its corner, out of the frame
+  const edge = i => { const a = v[i], b = v[(i + 1) % n]; let dx = b[0] - a[0], dy = b[1] - a[1], l = Math.hypot(dx, dy);
+    if (l < 1e-3) { const ang = rot + (i + 0.5) * 2 * Math.PI / n + Math.PI / 2; dx = Math.cos(ang); dy = Math.sin(ang); l = 1; } // shut: the edges fan out like a pinwheel
+    return [b, [b[0] + dx / l * far, b[1] + dy / l * far]]; };
+  ctx.save();
+  // only outside the opening
+  ctx.beginPath(); ctx.rect(0, 0, W, H); shutterPoly(ctx, k, W, H); ctx.clip('evenodd');
+  const g = ctx.createRadialGradient(cx, cy, r * 0.9, cx, cy, Math.hypot(W, H) / 2);
+  g.addColorStop(0, '#3a3a3e'); g.addColorStop(0.45, '#1f1f22'); g.addColorStop(1, '#0b0b0d');
+  ctx.fillStyle = g; ctx.fillRect(0, 0, W, H);
+  // every blade a slightly different shade of brushed metal, so they read as overlapping leaves
+  for (let i = 0; i < n; i++) {
+    const [p0, f0] = edge(i), [, f1] = edge((i + 1) % n), p1 = v[(i + 2) % n];
+    ctx.beginPath(); ctx.moveTo(p0[0], p0[1]); ctx.lineTo(f0[0], f0[1]); ctx.lineTo(f1[0], f1[1]); ctx.lineTo(p1[0], p1[1]); ctx.closePath();
+    const t = (i % 2 ? 0.06 : 0) + (i % 3) * 0.025;
+    const lg = ctx.createLinearGradient(p0[0], p0[1], f0[0], f0[1]);
+    lg.addColorStop(0, `rgba(255,255,255,${0.1 + t})`); lg.addColorStop(1, 'rgba(255,255,255,0.01)');
+    ctx.fillStyle = lg; ctx.fill();
+  }
+  // the blade edges: a dark seam with a fine highlight beside it
+  const lw = Math.max(1, Math.min(W, H) / 360);
+  for (let i = 0; i < n; i++) {
+    const [a, b] = edge(i);
+    ctx.beginPath(); ctx.moveTo(a[0], a[1]); ctx.lineTo(b[0], b[1]);
+    ctx.strokeStyle = 'rgba(0,0,0,0.75)'; ctx.lineWidth = lw * 2.2; ctx.stroke();
+    ctx.strokeStyle = 'rgba(255,255,255,0.22)'; ctx.lineWidth = lw * 0.8; ctx.stroke();
+  }
+  ctx.restore();
+  // a soft shadow just inside the rim of the opening, as the blades sit above the picture
+  if (r > 2) {
+    ctx.save(); ctx.beginPath(); shutterPoly(ctx, k, W, H); ctx.clip();
+    ctx.beginPath(); shutterPoly(ctx, k, W, H);
+    ctx.strokeStyle = 'rgba(0,0,0,0.55)'; ctx.lineWidth = lw * 10; ctx.filter = `blur(${lw * 4}px)`; ctx.stroke();
+    ctx.restore();
+  }
 }
 
 /** The shape a mask transition reveals the picture through, at progress k (0 hidden … 1 whole). */

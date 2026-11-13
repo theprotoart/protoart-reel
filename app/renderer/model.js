@@ -155,6 +155,7 @@ function applyTransition(p, tr, k, dir) {
     case 'letterbox': p.bars = Math.max(p.bars || 0, 1 - k); break;
     case 'flare-sweep': p.flare = { k: dir === 'out' ? (1 - k) * 0.5 : 0.5 + k * 0.5, amt: 1 - k, dir }; break; // the streak crosses the cut left to right
     case 'punch-zoom': { const e = 1 - k; p.scale *= dir === 'out' ? 1 + e * e * 0.35 : 1 + e ** 3 * 0.25; p.blur = e * e * 20; break; }
+    case 'shutter': p.shutter = k; break; // radial shutter: the iris closes over the clip going out and opens on the next
     case 'chroma-split': { const e = 1 - k; p.split = e; p.x += Math.sin(k * 40) * 0.006 * e; break; }
     // the transition pack: masks (the picture is revealed through a moving shape)
     case 'wipe-left': case 'wipe-right': case 'wipe-up': case 'wipe-down': case 'iris': case 'clock': case 'barn': case 'blinds': case 'diagonal':
@@ -826,7 +827,7 @@ export function setSpeed(doc, c, sp, anchor = 'start') {
 /** The cut transitions: one look applied to both sides of a cut. */
 export const CUT_TRANSITIONS = [['zoom-through', 'Zoom through'], ['spin-through', 'Spin through'], ['whip-through', 'Whip through'], ['blur-through', 'Blur through'],
   ['light-leak', 'Light leak'], ['film-burn', 'Film burn'], ['flash-cut', 'Flash'], ['glitch-cut', 'Glitch'], ['shake-cut', 'Shake'],
-  ['lens-defocus', 'Lens defocus'], ['exposure-burn', 'Exposure burn'], ['flare-sweep', 'Lens flare sweep'], ['punch-zoom', 'Punch zoom'], ['chroma-split', 'Chromatic split'], ['text-reveal', 'Text reveal']];
+  ['lens-defocus', 'Lens defocus'], ['exposure-burn', 'Exposure burn'], ['flare-sweep', 'Lens flare sweep'], ['punch-zoom', 'Punch zoom'], ['chroma-split', 'Chromatic split'], ['shutter', 'Radial shutter'], ['text-reveal', 'Text reveal']];
 /** Clips meeting at a cut on one track: [outgoing, incoming] for the cut nearest time t (within `near` s). */
 export function cutAt(doc, trackId, t, near = 1.5) {
   const list = clipsOnTrack(doc, trackId).filter(c => c.type !== 'caption');

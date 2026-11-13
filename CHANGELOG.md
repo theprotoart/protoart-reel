@@ -1,5 +1,11 @@
 # Changelog
 
+## 1.6.2 — Radial shutter transition
+
+- **Radial shutter** (a camera's iris), in the transition presets, the ⧓ picker on every cut and the clip's
+  Transitions: seven metal blades turn and close over the clip going out until they meet in the middle, then open
+  on the next clip. With sounds on, it gets a camera shutter click.
+
 ## 1.6.1 — Isolate or remove a sound by describing it
 
 - **👻 Isolate a sound** (AUDIO ▾, right-click a clip, or the AUDIO tab in the panel on the right): type what you hear
