@@ -431,7 +431,7 @@ export function doFilmCut(app, id, withSound = true, pair = null) {
     const c = sel[0] || doc.clips.filter(c => visual(doc, c) && c.start < t && clipEnd(c) > t).sort((p, q) => doc.tracks.findIndex(x => x.id === p.track) - doc.tracks.findIndex(x => x.id === q.track))[0];
     if (!c) { toast('Put the playhead inside a video clip, where it should jump.'); return; }
     const r = tryEdit(app, d => jumpCut(d, d.clips.find(x => x.id === c.id), t));
-    done(r, `Jump cut: ${r?.skipped?.toFixed(1)} s skipped, with a punch-in. Do it again further on to punch back out.`);
+    done(r, `Jump cut: ${r?.skipped?.toFixed(1)} s cut out, with a punch-in (what follows on that track moved up). Do it again further on to punch back out.`);
     return;
   }
   if (id === 'cutaway') {
@@ -495,7 +495,7 @@ export function openStyle(app, id) {
       close();
       if (panel) { panel.remove(); panel = null; } // out of the way, so the result shows in the preview
       app.player.seek?.(0);
-      toast(`${st.name}: ${r.cuts} cut${r.cuts === 1 ? '' : 's'}${r.snapped ? ` (${r.snapped} moved onto the beat)` : ''}, the look, ${r.added.length} title${r.added.length === 1 ? '' : 's'} and graphics${sounds.checked ? ', sounds' : ''}. ⌘Z undoes it.`, 7000);
+      toast(`${st.name}: ${r.cuts} cut${r.cuts === 1 ? '' : 's'}${r.snapped ? ` (${r.snapped} moved onto the beat)` : ''}, the look, ${r.added.length} title${r.added.length === 1 ? '' : 's'} and graphic${r.added.length === 1 ? '' : 's'} on the Style track${sounds.checked ? ', sounds' : ''}. ⌘Z undoes it.`, 7000);
     } },
   ]);
   void mainTrack;

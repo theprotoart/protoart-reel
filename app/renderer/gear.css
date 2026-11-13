@@ -1952,3 +1952,4 @@ body.rec-paused #keypanel #btn-record .dot { animation: rk-blink 2s steps(2, sta
 #recent .empty-note { grid-column: 1 / -1; max-width: 680px; }
 /* the clip's name starts clear of the fade handles in its top corners */
 .clip .cname { left: 14px; right: 14px; }
+.clip .cbadges > * { white-space: nowrap; flex-shrink: 0; }

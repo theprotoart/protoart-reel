@@ -55,6 +55,7 @@ test('smash cut, cut on action, jump cut, cutaway', () => {
   cutOnAction(d, a, b); assert.ok(Math.abs(b.in - 4.92) < 1e-9); assert.equal(b.transIn.type, 'blur-through');
   const j = jumpCut(d, a, 3, 0.4); const r = get(d, j.ids[0]);
   assert.equal(r.start, 3); assert.ok(Math.abs(r.in - 8.4) < 1e-9); assert.ok(r.props.scale > 1.1);
+  assert.ok(Math.abs(clipEnd(r) - 5.6) < 1e-9, 'the moment is cut out'); assert.ok(Math.abs(b.start - 5.6) < 1e-9, 'the next clip moved up');
   const before = d.tracks.length, cw = cutaway(d, a, b, 1, 2.5), c = get(d, cw.ids[0]);
   assert.equal(c.duration, 2.5); assert.ok(c.audio.mute); assert.equal(d.tracks.length, before + 1); assert.equal(d.tracks[0].id, c.track);
 });

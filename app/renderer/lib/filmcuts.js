@@ -59,6 +59,9 @@ function rollSound(sa, sb, T) {
 function soundTrack(doc, sa, sb) {
   const s0 = Math.min(sa.start, sb.start), s1 = Math.max(clipEnd(sa), clipEnd(sb)), ids = [sa.id, sb.id];
   if (sa.track === sb.track && isFree(doc, sa.track, s0, s1 - s0, ids)) return sa.track;
+  // a dialogue track first (Voice, Dialogue…), then any free track from the bottom up
+  const talk = doc.tracks.find(t => (t.role === 'dialogue' || /voice|dialog|vo\b|speech/i.test(t.name || '')) && isFree(doc, t.id, s0, s1 - s0, ids));
+  if (talk) return talk.id;
   for (let i = doc.tracks.length - 1; i >= 0; i--) if (isFree(doc, doc.tracks[i].id, s0, s1 - s0, ids)) return doc.tracks[i].id;
   const t = addTrack(doc); t.name = 'Sound'; return t.id;
 }
@@ -124,15 +127,20 @@ export function smashCut(doc, a, b) {
  */
 export function jumpCut(doc, c, t, skip = 0.4, punch = 1.12) {
   if (!visual(doc, c) || t <= c.start + 0.2 || t >= clipEnd(c) - 0.2) return { error: 'Put the playhead inside a video clip, where it should jump.' };
+  const end0 = clipEnd(c), later = doc.clips.filter(x => x.track === c.track && x !== c && x.start >= end0 - EPS);
   const [rid] = split(doc, t, [c.id]); const r = doc.clips.find(x => x.id === rid); if (!r) return { error: 'Couldn’t cut there.' };
-  const s = Math.min(skip, tailRoom(doc, r));
-  if (s > 0.01) advanceStart(r, s);
+  // a moment is cut out: the rest of the shot starts `skip` later in its source and everything after moves up
+  const s = Math.min(skip, r.duration - 0.2);
+  if (s > 0.01) {
+    advanceStart(r, s); r.duration -= s;
+    for (const x of later) { x.start -= s; const snd = x.detached && doc.clips.find(y => y.id === x.detached); if (snd) snd.start -= s; }
+  }
   const base = c.props?.scale ?? 1;
   r.props.scale = base > 1.06 ? base / punch : base * punch;
   r.hardCut = true;
   if (c.detached) { // its sound jumps too
     const snd = doc.clips.find(x => x.id === c.detached);
-    if (snd && t > snd.start + 0.05 && t < clipEnd(snd) - 0.05) { const [sid] = split(doc, t, [snd.id]); const sr = doc.clips.find(x => x.id === sid); if (sr && s > 0.01) advanceStart(sr, s); r.detached = sid; }
+    if (snd && t > snd.start + 0.05 && t < clipEnd(snd) - 0.05) { const [sid] = split(doc, t, [snd.id]); const sr = doc.clips.find(x => x.id === sid); if (sr && s > 0.01) { advanceStart(sr, s); sr.duration -= s; } r.detached = sid; }
   }
   return { ids: [rid], skipped: s };
 }
