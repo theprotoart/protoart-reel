@@ -53,7 +53,8 @@ FIRST RECORDING
   (or ⌥⇧⌘M, ⌥⇧⌘2 and ⇧⌘2).
 
 NEW IN THIS BUILD — PLEASE TRY
-- Radial shutter transition: camera-iris blades close over one clip and open on the next.
+- 8 new transitions: Fast wipe, Glitch blocks, Warp zoom, Slide + shake, Vintage film burn,
+  Movement and Graphic match cuts, Vertigo ramp. Plus Radial shutter (camera iris).
 - 👻 Isolate a sound (AUDIO ▾): type what you hear ("dog barking", "music") and pull it
   out of a clip, or take it out. Press GET once (about 2 GB); works offline.
 - 🎵 REMIX (next to SNAP): drag the ♪ end of any music clip to make the song longer or

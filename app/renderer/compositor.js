@@ -51,6 +51,10 @@ export function drawFrame(ctx, doc, t, sources, opts = {}) {
     if (masked) dc.restore();
     if (shut) { dc.restore(); shutterBlades(dc, p.shutter, W, H); }
     if (p.textMask) { try { finishReveal(ctx, dc, p.textMask, W, H); } catch (e) { if (opts.onError) opts.onError(c, e); } }
+    if (p.vertigo && p.vertigo.amt > 0.01) vertigoHold(ctx, p.vertigo, W, H);
+    if (p.blocks > 0.03) glitchBlocks(ctx, p.blocks, W, H, t);
+    if (p.streak && p.streak.amt > 0.02) wipeStreak(ctx, p.streak, W, H);
+    if (p.holes > 0.02) filmHoles(ctx, p.holes, W, H, t);
     if (p.glitch > 0.05) glitchBars(ctx, p.glitch, W, H, t);
     if (p.leak > 0.01) lightLeak(ctx, p.leak, W, H, t, p.burn);
     // cinematic overlays: film grain, a lens flare streak, letterbox bars (from transitions or the clip's filters)
@@ -165,6 +169,7 @@ function maskPath(ctx, m, W, H) {
     case 'wipe-down': ctx.rect(0, 0, W, H * e); break;
     case 'iris': ctx.arc(W / 2, H / 2, Math.hypot(W, H) / 2 * e, 0, Math.PI * 2); break;
     case 'clock': ctx.moveTo(W / 2, H / 2); ctx.arc(W / 2, H / 2, Math.hypot(W, H), -Math.PI / 2, -Math.PI / 2 + Math.PI * 2 * e); ctx.closePath(); break;
+    case 'fast-wipe': { const sl = W * 0.08, x = (W + sl) * k; ctx.moveTo(0, 0); ctx.lineTo(x, 0); ctx.lineTo(x - sl, H); ctx.lineTo(0, H); ctx.closePath(); break; }
     case 'barn': ctx.rect(W / 2 * (1 - e), 0, W * e, H); break;
     case 'blinds': { const n = 8, h = H / n; for (let i = 0; i < n; i++) ctx.rect(0, i * h, W, h * e); break; }
     case 'diagonal': { // the frame cut by a moving diagonal line: keep where x/W + y/H ≤ 2e
@@ -179,6 +184,66 @@ function maskPath(ctx, m, W, H) {
     }
     default: ctx.rect(0, 0, W, H);
   }
+}
+const hash2 = (a, b) => { const r = Math.sin(a * 12.9898 + b * 78.233) * 43758.5453; return r - Math.floor(r); };
+let scratch = null;
+function scratchCanvas(W, H) {
+  if (!scratch) scratch = typeof OffscreenCanvas !== 'undefined' ? new OffscreenCanvas(W, H) : document.createElement('canvas');
+  if (scratch.width !== W || scratch.height !== H) { scratch.width = W; scratch.height = H; }
+  return scratch;
+}
+/** Glitch blocks: rectangles of the picture jump sideways, some tinted, a few frames a second (Glitch blocks). */
+function glitchBlocks(ctx, amt, W, H, t) {
+  const f = Math.floor(t * 18), n = 4 + Math.floor(amt * 14);
+  ctx.save();
+  for (let i = 0; i < n; i++) {
+    const w = W * (0.08 + hash2(f, i) * 0.35 * amt), h = H * (0.03 + hash2(i, f + 1) * 0.14);
+    const x = hash2(f + 2, i) * (W - w), y = hash2(i + 3, f) * (H - h), dx = (hash2(f, i + 7) - 0.5) * W * 0.22 * amt;
+    try { ctx.drawImage(ctx.canvas, x, y, w, h, x + dx, y, w, h); } catch { /* a canvas that can't be read back */ }
+    const c = hash2(i, f + 9);
+    if (c > 0.55) { ctx.globalCompositeOperation = 'screen'; ctx.globalAlpha = 0.35 * amt; ctx.fillStyle = c > 0.8 ? '#ff2a6d' : '#05d9e8'; ctx.fillRect(x + dx, y, w, h); }
+    else if (c < 0.12 && amt > 0.5) { ctx.globalCompositeOperation = 'source-over'; ctx.globalAlpha = 0.85; ctx.fillStyle = c < 0.06 ? '#000' : '#fff'; ctx.fillRect(x + dx, y, w, h * 0.3); }
+    ctx.globalCompositeOperation = 'source-over'; ctx.globalAlpha = 1;
+  }
+  ctx.restore();
+}
+/** The bright, soft edge that leads a Fast wipe. */
+function wipeStreak(ctx, s, W, H) {
+  const sl = W * 0.08, x = (W + sl) * s.x - sl / 2, bw = W * 0.06;
+  ctx.save(); ctx.globalCompositeOperation = 'screen';
+  const g = ctx.createLinearGradient(x - bw, 0, x + bw, 0);
+  g.addColorStop(0, 'rgba(255,255,255,0)'); g.addColorStop(0.5, `rgba(255,255,255,${0.7 * s.amt})`); g.addColorStop(1, 'rgba(255,255,255,0)');
+  ctx.fillStyle = g; ctx.beginPath(); ctx.moveTo(x - bw + sl / 2, 0); ctx.lineTo(x + bw + sl / 2, 0); ctx.lineTo(x + bw - sl / 2, H); ctx.lineTo(x - bw - sl / 2, H); ctx.closePath(); ctx.fill();
+  ctx.restore();
+}
+/** Old film burning in the projector gate: holes with white-hot middles and orange, charred edges (Vintage film burn). */
+function filmHoles(ctx, amt, W, H, t) {
+  const R = Math.max(W, H);
+  ctx.save();
+  for (let i = 0; i < 3; i++) {
+    const grow = Math.max(0, amt * 1.25 - i * 0.18); if (grow <= 0) continue;
+    const x = (0.2 + 0.6 * hash2(i, 4.1)) * W, y = (0.15 + 0.7 * hash2(5.3, i)) * H, r = R * grow * (0.35 + 0.25 * hash2(i, 9)) * (1 + Math.sin(t * 23 + i) * 0.04);
+    const g = ctx.createRadialGradient(x, y, 0, x, y, r);
+    g.addColorStop(0, 'rgba(255,250,235,1)'); g.addColorStop(0.45, 'rgba(255,214,140,0.98)'); g.addColorStop(0.7, 'rgba(255,120,30,0.85)');
+    g.addColorStop(0.86, 'rgba(110,30,5,0.6)'); g.addColorStop(1, 'rgba(40,10,0,0)');
+    ctx.fillStyle = g; ctx.fillRect(0, 0, W, H);
+  }
+  if (hash2(Math.floor(t * 24), 1) > 0.7) { ctx.globalAlpha = 0.12 * amt; ctx.fillStyle = '#fff'; ctx.fillRect(0, 0, W, H); } // projector flicker
+  ctx.restore();
+}
+/** Vertigo ramp: the frame has been drawn zoomed in by v.s; the middle is put back at its own size, so it holds
+ *  still while everything around it rushes towards you (a dolly zoom). */
+function vertigoHold(ctx, v, W, H) {
+  const R = Math.min(W, H) * 0.36, s = v.s; if (s <= 1.001) return;
+  const big = R * s, cx = W / 2, cy = H / 2;
+  const sc = scratchCanvas(W, H), x = sc.getContext('2d');
+  x.setTransform(1, 0, 0, 1, 0, 0); x.globalCompositeOperation = 'source-over'; x.clearRect(0, 0, W, H);
+  try { x.drawImage(ctx.canvas, cx - big, cy - big, big * 2, big * 2, cx - R, cy - R, R * 2, R * 2); } catch { return; }
+  x.globalCompositeOperation = 'destination-in';
+  const g = x.createRadialGradient(cx, cy, R * 0.55, cx, cy, R);
+  g.addColorStop(0, 'rgba(0,0,0,1)'); g.addColorStop(1, 'rgba(0,0,0,0)');
+  x.fillStyle = g; x.fillRect(0, 0, W, H);
+  ctx.save(); ctx.globalAlpha = Math.min(1, v.amt * 3); ctx.drawImage(sc, 0, 0); ctx.restore();
 }
 /** Warm light washing over the frame (Light leak, Film burn). */
 function lightLeak(ctx, amt, W, H, t, burn) {

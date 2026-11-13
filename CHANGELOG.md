@@ -1,5 +1,20 @@
 # Changelog
 
+## 1.6.3 — Eight more transitions
+
+- In the transition presets, the ⧓ picker on every cut and the clip's Transitions:
+  - **Fast wipe**: a hard, quick sweep with a bright slanted edge.
+  - **Glitch blocks**: pieces of the picture jump sideways and flash in colour.
+  - **Warp zoom**: rushes into one point of the frame; the next shot zooms back out from it.
+  - **Slide + shake** (like CapCut): the new shot pushes the old one off, then lands with a quick shake.
+  - **Vintage film burn**: burning holes, projector flicker, grain and faded colour.
+  - **Movement match cut**: both shots keep moving the same way and hand over mid-move.
+  - **Graphic match cut**: the shots' middles line up and the old one melts into the new.
+  - **Vertigo ramp**: a dolly zoom that speeds up; the middle holds still while the edges rush in.
+- Fast wipe, Slide + shake and the two match cuts show both shots at once, so they use a little of each clip past
+  the cut (like a crossfade).
+- Auto Edit packs: **Trending** (slide + shake, fast wipes, warp zooms, glitch blocks) and **Vintage**.
+
 ## 1.6.2 — Radial shutter transition
 
 - **Radial shutter** (a camera's iris), in the transition presets, the ⧓ picker on every cut and the clip's

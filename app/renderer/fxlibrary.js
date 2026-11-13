@@ -23,6 +23,8 @@ export const PACKS = {
   glitchy: { name: 'Glitchy', hint: 'Digital glitches — tech, gaming', list: ['glitch-cut', 'flash-cut', 'glitch-cut', 'whip-through'], dur: 0.35 },
   cinematic: { name: 'Cinematic', hint: 'Light leaks, film burns, lens defocus and flares — trailers, stories', list: ['light-leak', 'lens-defocus', 'film-burn', 'flare-sweep', 'blur-through'], dur: 0.8 },
   filmic: { name: 'Filmic', hint: 'Lens defocus, exposure burns and soft flares — short films, music videos', list: ['lens-defocus', 'exposure-burn', 'flare-sweep', 'lens-defocus'], dur: 0.9 },
+  capcut: { name: 'Trending', hint: 'Slide + shake, fast wipes, warp zooms and glitch blocks — CapCut-style edits', list: ['slide-shake', 'fast-wipe', 'warp-zoom', 'glitch-blocks', 'slide-shake'], dur: 0.45 },
+  vintage: { name: 'Vintage', hint: 'Old-film burns, vertigo ramps and graphic match cuts — retro, documentary', list: ['film-burn-vintage', 'match-graphic', 'vertigo', 'film-burn-vintage'], dur: 0.8 },
   social: { name: 'Social (fast)', hint: 'Punch zooms, chromatic splits and flashes — TikTok, Reels, Shorts', list: ['punch-zoom', 'chroma-split', 'flash-cut', 'punch-zoom', 'whip-through'], dur: 0.3 },
 };
 

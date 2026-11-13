@@ -97,17 +97,71 @@ export function propsAt(c, local) {
   const d = c.duration;
   const tin = c.transIn && c.transIn.type !== 'none' ? c.transIn : null;
   const tout = c.transOut && c.transOut.type !== 'none' ? c.transOut : null;
-  p.dip = null; p.mask = null; p.glitch = 0; p.leak = 0; p.burn = 0; p.textMask = null;
-  if (tin && local < tin.dur) applyTransition(p, tin, EASES.ease(clamp(local / tin.dur, 0, 1)), 'in');
-  if (tout && local > d - tout.dur) applyTransition(p, tout, EASES.ease(clamp((d - local) / tout.dur, 0, 1)), 'out');
+  p.dip = null; p.mask = null; p.glitch = 0; p.leak = 0; p.burn = 0; p.textMask = null; p.blocks = 0; p.holes = 0; p.vertigo = null; p.streak = null;
+  const xi = c.xfadeIn || 0, xo = c.xfadeOut || 0;
+  // transitions that play while both shots are on screen (match cuts, fast wipe, slide + shake) ride on the crossfade
+  const ovIn = !!(tin && OVERLAP_CUTS.has(tin.type) && tin.type !== 'text-reveal' && xi > 0);
+  const ovOut = !!(tout && OVERLAP_CUTS.has(tout.type) && tout.type !== 'text-reveal' && xo > 0);
+  if (tin && !ovIn && local < tin.dur) applyTransition(p, tin, EASES.ease(clamp(local / tin.dur, 0, 1)), 'in');
+  if (tout && !ovOut && local > d - tout.dur) applyTransition(p, tout, EASES.ease(clamp((d - local) / tout.dur, 0, 1)), 'out');
+  if (ovOut && local > d - xo / 2) overlapCut(p, tout.type, clamp((local - (d - xo / 2)) / xo, 0, 1), 'out');
+  if (ovIn && tin.type === 'slide-shake' && local >= xi / 2) shakeAfter(p, local - xi / 2);
   // crossfade in: the incoming picture fades up over the outgoing one (which stays solid underneath)
-  const xi = c.xfadeIn || 0;
-  if (tin?.type === 'text-reveal') {
+  if (ovIn) { if (local < xi / 2) overlapCut(p, tin.type, clamp((local + xi / 2) / xi, 0, 1), 'in'); } else if (tin?.type === 'text-reveal') {
     // the picture shows through the words, from the start of the crossfade to its end (no fade)
     const k = xi > 0 ? (local + xi / 2) / xi : local / Math.max(0.1, tin.dur * 2);
     if (k < 1) p.textMask = { k: clamp(k, 0, 1), text: tin.text || 'NEXT', font: tin.font || '' };
   } else if (xi > 0 && local < xi / 2) p.opacity *= clamp((local + xi / 2) / xi, 0, 1);
   return p;
+}
+
+/** Cut transitions that need both shots on screen at once: they ride on a crossfade of their full length. */
+export const OVERLAP_CUTS = new Set(['text-reveal', 'fast-wipe', 'slide-shake', 'match-move', 'match-graphic']);
+const smooth = u => u * u * (3 - 2 * u);
+const expoInOut = u => (u <= 0 ? 0 : u >= 1 ? 1 : u < 0.5 ? 2 ** (20 * u - 10) / 2 : (2 - 2 ** (-20 * u + 10)) / 2);
+
+/**
+ * The both-shots-at-once transitions. u runs 0 → 1 across the whole crossfade on both clips (the same moment has
+ * the same u on each side); the incoming clip is drawn over the outgoing one.
+ */
+function overlapCut(p, type, u, dir) {
+  const inn = dir === 'in', bell = Math.sin(Math.PI * u);
+  switch (type) {
+    case 'fast-wipe': { // a hard, fast sweep left to right with a bright edge and a little motion blur
+      const e = expoInOut(u);
+      p.blur = bell * 10;
+      if (inn) { p.mask = { type: 'fast-wipe', k: e, dir }; p.x += 0.04 * (1 - e); p.streak = { x: e, amt: bell }; } else p.x -= 0.04 * e;
+      break;
+    }
+    case 'slide-shake': { // CapCut's slide: the new shot pushes the old one off, then lands with a quick shake
+      const e = u < 0.5 ? 4 * u ** 3 : 1 - (-2 * u + 2) ** 3 / 2;
+      if (inn) p.x += 1 - e; else p.x -= e;
+      p.blur = bell * 18;
+      break;
+    }
+    case 'match-move': { // a movement match cut: both shots carry on in one direction, handing over mid-move
+      const sh = 0.2, dx = inn ? sh * (1 - u) ** 2 : sh * u * u;
+      p.x += inn ? dx : -dx; p.scale *= 1 + 2.1 * dx; p.blur = bell * 18;
+      if (inn) p.opacity *= smooth(clamp((u - 0.35) / 0.3, 0, 1));
+      break;
+    }
+    case 'match-graphic': { // a graphic match cut: centres and shapes line up, the old shot melts into the new
+      const e = smooth(u);
+      p.scale *= inn ? 1.22 - 0.22 * e : 1 + 0.22 * e;
+      p.rotation = (p.rotation || 0) + (inn ? -5 * (1 - e) : 5 * e);
+      p.bright = (p.bright || 1) * (1 + bell * 0.12);
+      if (inn) p.opacity *= smooth(clamp((u - 0.3) / 0.4, 0, 1));
+      break;
+    }
+    default: break;
+  }
+}
+/** The quick landing shake after Slide + shake (a third of a second, dying away). */
+function shakeAfter(p, t) {
+  const D = 0.35; if (t >= D) return;
+  const s = t / D, a = (1 - s) ** 2 * 0.022;
+  p.x += Math.sin(s * 42) * a; p.y += Math.cos(s * 35) * a; p.scale *= 1 + a * 2.4;
+  p.rotation = (p.rotation || 0) + Math.sin(s * 31) * 1.4 * (1 - s);
 }
 
 function applyTransition(p, tr, k, dir) {
@@ -155,7 +209,27 @@ function applyTransition(p, tr, k, dir) {
     case 'letterbox': p.bars = Math.max(p.bars || 0, 1 - k); break;
     case 'flare-sweep': p.flare = { k: dir === 'out' ? (1 - k) * 0.5 : 0.5 + k * 0.5, amt: 1 - k, dir }; break; // the streak crosses the cut left to right
     case 'punch-zoom': { const e = 1 - k; p.scale *= dir === 'out' ? 1 + e * e * 0.35 : 1 + e ** 3 * 0.25; p.blur = e * e * 20; break; }
-    case 'shutter': p.shutter = k; break; // radial shutter: the iris closes over the clip going out and opens on the next
+    case 'shutter': p.shutter = k; break;
+    // 1.6.3: more cut transitions
+    case 'glitch-blocks': { const e = 1 - k, j = Math.sin(k * 211.3) * 43758.5453, r = j - Math.floor(j); p.blocks = e; p.x += e * (r - 0.5) * 0.03; if (e > 0.75 && r > 0.6) p.split = e; break; }
+    case 'warp-zoom': { // rushes into one point of the frame, then the next shot zooms back out from it
+      const e = (1 - k) ** 2, s = 1 + e * 2.6, px = tr.at?.[0] ?? 0.2, py = tr.at?.[1] ?? -0.14;
+      p.scale *= s; p.x += px * (1 - s); p.y += py * (1 - s);
+      p.rotation = (p.rotation || 0) + (dir === 'out' ? 1 : -1) * e * 8; p.blur = e * 34; p.split = e * 0.7; break;
+    }
+    case 'film-burn-vintage': { // old film catching fire in the gate: burning holes, warm flicker, grain, faded colour
+      const e = 1 - k, j = Math.sin(k * 173.9) * 43758.5453, r = j - Math.floor(j);
+      p.holes = e; p.leak = Math.max(p.leak || 0, e ** 1.3 * 0.8); p.burn = 1; p.grain = Math.max(p.grain || 0, 0.3 + e * 0.6);
+      p.sat = 1 - e * 0.55; p.bright = 1 + e * (0.15 + r * 0.25); p.y += Math.sin(k * 80) * 0.004 * e; break;
+    }
+    case 'vertigo': { // a dolly zoom that ramps: the middle holds still while everything around it rushes in
+      const e = (1 - k) ** 2.2; p.vertigo = { s: 1 + e * 0.8, amt: 1 - k }; p.scale *= 1 + e * 0.8; break;
+    }
+    // the both-at-once ones, on a clip without a crossfade (e.g. as a clip's own In / Out)
+    case 'fast-wipe': p.mask = { type: dir === 'in' ? 'wipe-right' : 'wipe-left', k, dir }; p.blur = (1 - k) * 8; break;
+    case 'slide-shake': { const e = 1 - k; p.x += (dir === 'in' ? 1 : -1) * e * e; p.blur = e * 30; break; }
+    case 'match-move': { const e = 1 - k; p.x += (dir === 'in' ? 1 : -1) * e * e * 0.2; p.scale *= 1 + e * 0.4; p.blur = e * 26; p.opacity *= k; break; }
+    case 'match-graphic': p.scale *= dir === 'in' ? 1 + (1 - k) * 0.22 : 1 + (1 - k) * 0.22; p.opacity *= k; break; // radial shutter: the iris closes over the clip going out and opens on the next
     case 'chroma-split': { const e = 1 - k; p.split = e; p.x += Math.sin(k * 40) * 0.006 * e; break; }
     // the transition pack: masks (the picture is revealed through a moving shape)
     case 'wipe-left': case 'wipe-right': case 'wipe-up': case 'wipe-down': case 'iris': case 'clock': case 'barn': case 'blinds': case 'diagonal':
@@ -827,7 +901,9 @@ export function setSpeed(doc, c, sp, anchor = 'start') {
 /** The cut transitions: one look applied to both sides of a cut. */
 export const CUT_TRANSITIONS = [['zoom-through', 'Zoom through'], ['spin-through', 'Spin through'], ['whip-through', 'Whip through'], ['blur-through', 'Blur through'],
   ['light-leak', 'Light leak'], ['film-burn', 'Film burn'], ['flash-cut', 'Flash'], ['glitch-cut', 'Glitch'], ['shake-cut', 'Shake'],
-  ['lens-defocus', 'Lens defocus'], ['exposure-burn', 'Exposure burn'], ['flare-sweep', 'Lens flare sweep'], ['punch-zoom', 'Punch zoom'], ['chroma-split', 'Chromatic split'], ['shutter', 'Radial shutter'], ['text-reveal', 'Text reveal']];
+  ['lens-defocus', 'Lens defocus'], ['exposure-burn', 'Exposure burn'], ['flare-sweep', 'Lens flare sweep'], ['punch-zoom', 'Punch zoom'], ['chroma-split', 'Chromatic split'], ['shutter', 'Radial shutter'],
+  ['fast-wipe', 'Fast wipe'], ['glitch-blocks', 'Glitch blocks'], ['warp-zoom', 'Warp zoom'], ['slide-shake', 'Slide + shake'], ['film-burn-vintage', 'Vintage film burn'],
+  ['match-move', 'Movement match cut'], ['match-graphic', 'Graphic match cut'], ['vertigo', 'Vertigo ramp'], ['text-reveal', 'Text reveal']];
 /** Clips meeting at a cut on one track: [outgoing, incoming] for the cut nearest time t (within `near` s). */
 export function cutAt(doc, trackId, t, near = 1.5) {
   const list = clipsOnTrack(doc, trackId).filter(c => c.type !== 'caption');
@@ -857,7 +933,13 @@ export function applyCut(a, b, type, dur = 0.5) {
     a.xfadeOut = full; b.xfadeIn = full; delete a.xfAuto; delete b.xfAuto;
     return;
   }
-  if (b.transIn?.type === 'text-reveal') { delete a.xfadeOut; delete b.xfadeIn; } // the reveal's crossfade goes with it
+  if (OVERLAP_CUTS.has(type)) { // both shots on screen at once: a crossfade of the transition's whole length
+    const full = Math.max(0.2, Math.min(Math.max(0.3, dur), a.duration, b.duration * 0.9));
+    a.transOut = { type, dur: full / 2 }; b.transIn = { type, dur: full / 2 };
+    a.xfadeOut = full; b.xfadeIn = full; delete a.xfAuto; delete b.xfAuto;
+    return;
+  }
+  if (OVERLAP_CUTS.has(b.transIn?.type)) { delete a.xfadeOut; delete b.xfadeIn; } // its crossfade goes with it
   const half = Math.max(0.08, Math.min(dur / 2, a.duration / 2, b.duration / 2));
   a.transOut = { type, dur: half }; b.transIn = { type, dur: half };
 }

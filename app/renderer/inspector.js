@@ -2,7 +2,7 @@
 // When a zoom & pan action is selected, position/scale/crop edits change that action's target.
 import { el, section, slider, selectRow, colorRow, checkRow } from './ui.js';
 import { retimeSection } from './retimeui.js';
-import { applyCut, clipEnd, mediaById, fmtTime, ANIMATABLE, propsAt, paramAt, setParam, putKey, removeKey, keysOf, hasKeys, anyKeys, clamp, KEY_EASES, LABELS, setSpeed, SPEED_MIN, SPEED_MAX } from './model.js';
+import { applyCut, OVERLAP_CUTS, clipEnd, mediaById, fmtTime, ANIMATABLE, propsAt, paramAt, setParam, putKey, removeKey, keysOf, hasKeys, anyKeys, clamp, KEY_EASES, LABELS, setSpeed, SPEED_MIN, SPEED_MAX } from './model.js';
 import { effectsSection, addPluginToClip } from './fx.js';
 import { TEXT_ANIMS } from './compositor.js';
 import { styleRow } from './titles.js';
@@ -24,7 +24,9 @@ export const TRANSITIONS = [['none', 'None'], ['fade', 'Fade'], ['dip-black', 'D
   ['zoom-through', 'Zoom through (cut)'], ['spin-through', 'Spin through (cut)'], ['whip-through', 'Whip through (cut)'], ['blur-through', 'Blur through (cut)'],
   ['light-leak', 'Light leak'], ['film-burn', 'Film burn'], ['flash-cut', 'Flash (cut)'], ['glitch-cut', 'Glitch (cut)'], ['shake-cut', 'Shake (cut)'],
   ['cine-fade', 'Cinematic fade'], ['dip-film', 'Dip to film'], ['dreamy', 'Dreamy glow'], ['letterbox', 'Letterbox close'],
-  ['lens-defocus', 'Lens defocus (cut)'], ['exposure-burn', 'Exposure burn (cut)'], ['flare-sweep', 'Lens flare sweep (cut)'], ['punch-zoom', 'Punch zoom (cut)'], ['chroma-split', 'Chromatic split (cut)'], ['shutter', 'Radial shutter (cut)'], ['text-reveal', 'Text reveal (cut)']];
+  ['lens-defocus', 'Lens defocus (cut)'], ['exposure-burn', 'Exposure burn (cut)'], ['flare-sweep', 'Lens flare sweep (cut)'], ['punch-zoom', 'Punch zoom (cut)'], ['chroma-split', 'Chromatic split (cut)'], ['shutter', 'Radial shutter (cut)'],
+  ['fast-wipe', 'Fast wipe (cut)'], ['glitch-blocks', 'Glitch blocks (cut)'], ['warp-zoom', 'Warp zoom (cut)'], ['slide-shake', 'Slide + shake (cut)'], ['film-burn-vintage', 'Vintage film burn (cut)'],
+  ['match-move', 'Movement match cut'], ['match-graphic', 'Graphic match cut'], ['vertigo', 'Vertigo ramp (cut)'], ['text-reveal', 'Text reveal (cut)']];
 const FONTS = ['Avenir Next', 'Avenir Next Condensed', 'Futura', 'Helvetica Neue', 'SF Pro Display', 'Impact', 'Arial Black', 'Gill Sans', 'Didot', 'Georgia', 'American Typewriter', 'Marker Felt', 'Menlo', 'Rockwell', 'Poppins'];
 const CANVAS = [['1920x1080', '1920 × 1080 (HD)'], ['2560x1440', '2560 × 1440 (QHD)'], ['3840x2160', '3840 × 2160 (4K)'], ['1280x720', '1280 × 720'], ['1080x1920', '1080 × 1920 (vertical)'], ['1080x1350', '1080 × 1350 (4:5 portrait)'], ['1080x1080', '1080 × 1080 (square)'], ['1440x900', '1440 × 900 (Mac 16:10)'], ['2880x1800', '2880 × 1800 (Retina 16:10)']];
 
@@ -314,8 +316,8 @@ export class Inspector {
         selectRow('In', c.transIn.type, TRANSITIONS, v => this.edit(() => {
           // the text reveal needs the clip before it to go on playing underneath: it's set up on the cut
           const prev = app.doc.clips.find(o => o !== c && o.track === c.track && Math.abs(clipEnd(o) - c.start) < 0.05);
-          if (v === 'text-reveal' && prev) { applyCut(prev, c, v, 0.8); return; }
-          if (c.transIn.type === 'text-reveal' && prev) { delete prev.xfadeOut; delete c.xfadeIn; }
+          if (OVERLAP_CUTS.has(v) && prev) { applyCut(prev, c, v, 0.8); return; }
+          if (OVERLAP_CUTS.has(c.transIn.type) && prev) { delete prev.xfadeOut; delete c.xfadeIn; if (prev.transOut?.type === c.transIn.type) prev.transOut.type = 'none'; }
           if (c.transIn.type === 'none') c.transIn.dur = Math.min(c.duration / 2, Number(pref('transDur')) || 0.5); c.transIn.type = v;
         })),
         c.transIn.type === 'text-reveal' ? (() => {
