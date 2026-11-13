@@ -119,3 +119,10 @@ html[data-theme="light"] :is(.box, .opt, .mx-row, .mod, .fx-item, .lora, .src) {
   box-shadow: 0 0 0 1px rgba(0,0,0,0.35), 0 2px 4px rgba(0,0,0,0.18), inset 0 1px 0 #fff; border: 0; }
 html[data-theme="light"] :is(.box, .opt, .mx-row, .mod, .fx-item, .lora, .src) :is(.engr, .row > label, label > span, .fx-name) { color: #2d2a25; text-shadow: 0 1px 0 rgba(255,255,255,0.7); }
 html[data-theme="light"] :is(.box, .opt, .mx-row, .mod, .fx-item, .lora, .src) .note { color: #4d473d; }
+/* presets window: switches, sliders and their readouts stay readable on the light panel */
+html[data-theme="light"] .pl-tools label.chk, html[data-theme="light"] .pl-scan, html[data-theme="light"] .pl-scan span,
+html[data-theme="light"] .pl-rand label, html[data-theme="light"] .sty .pl-rand label { color: #2d2a25; text-shadow: 0 1px 0 rgba(255,255,255,0.7); }
+html[data-theme="light"] .pl-rand-v { color: #7a4e00; }
+html[data-theme="light"] .pl-film-ic { background: #23211d; }
+/* transitions & fades panel: its words and labels readable on the light panel */
+html[data-theme="light"] .tp-panel :is(.tp-where, .row > label, .engr, .val) { color: #2d2a25; text-shadow: 0 1px 0 rgba(255,255,255,0.7); }

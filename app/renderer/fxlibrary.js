@@ -232,7 +232,10 @@ export function tile(kind, id, name, onApply, extra) {
   let raf = 0, t0 = 0, mini = null;
   const frame = t => { mini ||= miniDoc(kind, id); try { drawFrame(ctx, mini.doc, t % mini.len, mini.sources); } catch { /* preview only */ } };
   const still = () => frame(kind === 'cut' ? 1.15 : kind === 'trans' ? 0.45 : kind === 'element' ? 1.2 : kind === 'style' ? 1.5 : 1.0);
-  const t = el('div', { class: 'pl-tile', title: `${name} — click to apply${extra ? '' : ''}` }, cv, el('div', { class: 'pl-name', text: name }), extra || null);
+  const t = el('div', { class: 'pl-tile', role: 'button', tabindex: 0, 'aria-label': name, title: `${name} — click to apply${extra ? '' : ''}` }, cv, el('div', { class: 'pl-name', text: name }), extra || null);
+  t.addEventListener('keydown', e => { if ((e.key === 'Enter' || e.key === ' ') && e.target === t) { e.preventDefault(); onApply(e); } }); // the keyboard (and VoiceOver) can pick one too
+  t.addEventListener('focus', () => t.dispatchEvent(new Event('pointerenter')));
+  t.addEventListener('blur', () => t.dispatchEvent(new Event('pointerleave')));
   t.addEventListener('pointerenter', () => { cancelAnimationFrame(raf); t0 = performance.now(); const loop = n => { frame((n - t0) / 1000); raf = requestAnimationFrame(loop); }; raf = requestAnimationFrame(loop); });
   t.addEventListener('pointerleave', () => { cancelAnimationFrame(raf); still(); });
   t.addEventListener('click', e => { if (!e.target.closest('.pl-side')) onApply(e); });
@@ -417,8 +420,9 @@ export function doFilmCut(app, id, withSound = true, pair = null) {
     const fn = { 'l-cut': d => splitEdit(d, get(d, ai), get(d, bi), 'l-cut', lead), 'j-cut': d => splitEdit(d, get(d, ai), get(d, bi), 'j-cut', lead),
       smash: d => smashCut(d, get(d, ai), get(d, bi)), action: d => cutOnAction(d, get(d, ai), get(d, bi)) }[id];
     const r = tryEdit(app, fn);
-    done(r, id === 'l-cut' ? `L-cut: the first shot’s sound carries on ${r?.lead?.toFixed(1)} s under the next picture. Both sounds are now on their own clips; drag their edit point to change it.`
-      : id === 'j-cut' ? `J-cut: the next shot’s sound starts ${r?.lead?.toFixed(1)} s before its picture. Both sounds are now on their own clips; drag their edit point to change it.`
+    const room = r?.tight ? (id === 'l-cut' ? ` (there was no spare sound after the first clip, so its picture now ends ${r.lead.toFixed(1)} s sooner and what follows on that track moved up)` : ` (there was no spare sound before the next clip, so its picture now skips its first ${r.lead.toFixed(1)} s and what follows on that track moved up)`) : '';
+    done(r, id === 'l-cut' ? `L-cut: the first shot’s sound carries on ${r?.lead?.toFixed(1)} s under the next picture${room}. Both sounds are on clips of their own now; drag where they meet to change it.`
+      : id === 'j-cut' ? `J-cut: the next shot’s sound starts ${r?.lead?.toFixed(1)} s before its picture${room}. Both sounds are on clips of their own now; drag where they meet to change it.`
       : `${name} at ${fmtT(clipEnd(p[0]))}.`);
     return;
   }
@@ -489,6 +493,8 @@ export function openStyle(app, id) {
       let r = null;
       app.commit(d => { r = applyStyle(d, id, o); if (sounds.checked) placeSfx(d, r.sfx, medias, id); }); // one ⌘Z for all of it
       close();
+      if (panel) { panel.remove(); panel = null; } // out of the way, so the result shows in the preview
+      app.player.seek?.(0);
       toast(`${st.name}: ${r.cuts} cut${r.cuts === 1 ? '' : 's'}${r.snapped ? ` (${r.snapped} moved onto the beat)` : ''}, the look, ${r.added.length} title${r.added.length === 1 ? '' : 's'} and graphics${sounds.checked ? ', sounds' : ''}. ⌘Z undoes it.`, 7000);
     } },
   ]);

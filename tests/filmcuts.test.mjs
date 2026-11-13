@@ -29,9 +29,23 @@ test('L-cut: the first shot’s sound carries on under the next picture, in sync
   assert.equal(sourceTime(sb, 5.5), sourceTime(b, 5.5) );
 });
 
-test('J-cut needs sound before the next clip starts', () => {
-  const d = doc(); get(d, 'b').in = 0;
-  assert.ok(splitEdit(d, get(d, 'a'), get(d, 'b'), 'j-cut', 1).error);
+test('whole clips (no spare sound): J-cut skips the start of the next picture, L-cut moves the picture cut earlier', () => {
+  const d = doc(); const a = get(d, 'a'), b = get(d, 'b'); b.in = 0; d.media[1].duration = 6;
+  const j = splitEdit(d, a, b, 'j-cut', 1);
+  assert.ok(!j.error && j.tight, j.error);
+  const [sa, sb] = j.sounds.map(id => get(d, id));
+  assert.equal(b.start, 6); assert.equal(b.in, 1); assert.equal(clipEnd(b), 11);
+  assert.equal(sb.start, 5); assert.equal(clipEnd(sa), 5);
+  assert.ok(Math.abs(sourceTime(sb, 7) - sourceTime(b, 7)) < 1e-9, 'in step');
+
+  const e = doc(); const a2 = get(e, 'a'), b2 = get(e, 'b'); a2.in = 24; // a's media ends where the clip ends
+  e.clips.push({ ...structuredClone(b2), id: 'c', start: 12, in: 0 });
+  const l = splitEdit(e, a2, b2, 'l-cut', 1);
+  assert.ok(!l.error && l.tight, l.error);
+  const [la, lb] = l.sounds.map(id => get(e, id));
+  assert.equal(clipEnd(a2), 5); assert.equal(b2.start, 5); assert.equal(clipEnd(la), 6); assert.equal(lb.start, 6);
+  assert.ok(Math.abs(sourceTime(lb, 8) - sourceTime(b2, 8)) < 1e-9, 'in step');
+  assert.equal(get(e, 'c').start, 11, 'the next clip moved up');
 });
 
 test('smash cut, cut on action, jump cut, cutaway', () => {

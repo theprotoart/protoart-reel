@@ -75,15 +75,39 @@ export function splitEdit(doc, a, b, kind = 'l-cut', lead = 1) {
   if (Math.abs(sb.start - clipEnd(sa)) > EPS) return { error: 'The two sounds don’t meet any more; move them back together first.' };
   rollSound(sa, sb, cut); // back to a straight cut first (so it can be changed from L to J and back)
   const room = kind === 'j-cut' ? Math.min(headRoom(sb), sa.duration - 0.2) : Math.min(tailRoom(doc, sa), sb.duration - 0.2);
-  const d = Math.min(lead, room);
-  if (!(d >= 0.1)) return { error: kind === 'j-cut' ? 'The next clip has no extra sound before its start to bring in early (trim its start later first).' : 'The first clip has no extra sound after its end to carry on (trim its end earlier first).' };
-  rollSound(sa, sb, kind === 'j-cut' ? cut - d : cut + d);
+  let d = Math.min(lead, room), tight = false;
+  if (d >= 0.1) rollSound(sa, sb, kind === 'j-cut' ? cut - d : cut + d);
+  else {
+    // no spare sound past the clips' ends (whole clips, as recorded): make the room from the pictures instead
+    tight = true;
+    const end = clipEnd(b);
+    const later = doc.clips.filter(c => c.track === b.track && c !== b && c.start >= end - EPS);
+    const closeUp = () => { for (const c of later) { // what follows on that track moves up to close the gap (with its own sound)
+      c.start -= d;
+      const snd = c.detached && doc.clips.find(x => x.id === c.detached);
+      if (snd) snd.start -= d;
+    } };
+    if (kind === 'j-cut') {
+      d = Math.min(lead, b.duration - 0.3, sa.duration - 0.3);
+      if (!(d >= 0.1)) return { error: 'These clips are too short for a J-cut.' };
+      advanceStart(b, d); b.duration -= d; // the next shot's picture starts d into the shot, at the same place
+      sb.start = cut - d; // its sound starts from the top of the shot, d early: in step with the picture
+      setEnd(sa, sa.duration - d);
+      closeUp();
+    } else {
+      d = Math.min(lead, a.duration - 0.3, b.duration - 0.3);
+      if (!(d >= 0.1)) return { error: 'These clips are too short for an L-cut.' };
+      setEnd(a, a.duration - d); b.start -= d; // the picture changes d earlier
+      advanceStart(sb, d); sb.duration -= d; // the next sound stays at the old cut, in step with its picture
+      closeUp();
+    }
+  }
   const xf = 0.24;
   if (tailRoom(doc, sa) >= xf / 2 && headRoom(sb) >= xf / 2) { sa.xfadeOut = xf; sb.xfadeIn = xf; }
   else { sa.audio = { ...sa.audio, fadeOut: 0.08 }; sb.audio = { ...sb.audio, fadeIn: 0.08 }; }
   sa.track = sb.track = soundTrack(doc, sa, sb);
   sa.filmCut = sb.filmCut = kind;
-  return { lead: d, sounds: [sa.id, sb.id] };
+  return { lead: d, tight, sounds: [sa.id, sb.id] };
 }
 
 /** A straight, hard cut (no transition, no crossfade) with a hit on it. */

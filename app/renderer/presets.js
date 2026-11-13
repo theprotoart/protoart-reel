@@ -89,9 +89,10 @@ export function starterThumb(st, height = 120) {
 export function applyStarter(doc, s) {
   doc.canvas = { ...doc.canvas, width: s.w, height: s.h, fps: s.fps, background: '#000000' };
   const T = (name, extra = {}) => ({ id: uid('t'), name, ...extra });
-  const titles = T('Titles'), broll = T('B-roll / overlays'), main = T('Main video');
+  // a title and its second line on tracks of their own, so neither covers the other on the timeline
+  const lines = T('Title lines'), titles = T('Titles'), broll = T('B-roll / overlays'), main = T('Main video');
   const voice = T('Voice'), music = T('Music', { volume: 0.35 }), sfx = T('Sound FX', { volume: 0.8 });
-  doc.tracks = [titles, broll, main, voice, music, sfx];
+  doc.tracks = [lines, titles, broll, main, voice, music, sfx];
   doc.clips = [];
   const L = s.length;
   const text = (track, start, dur, content, o = {}) => {
@@ -107,7 +108,8 @@ export function applyStarter(doc, s) {
   };
   // opening title card
   text(titles, 0, 3, s.title, { name: 'Title card (replace the text)', text: { size: s.titleSize, weight: 900, anim: s.anim, animDur: 0.6, shadow: 18 }, props: { y: 0.45 }, transOut: { type: 'fade', dur: 0.5 } });
-  text(titles, 0.4, 2.6, s.tagline, { name: 'Title card subtitle', text: { size: s.subSize, color: s.accent, anim: 'fade', animDur: 0.5 }, props: { y: 0.45 + (s.titleSize * 1.15) / s.h } , transOut: { type: 'fade', dur: 0.5 } });
+  const g1 = uid('g'), g2 = uid('g');
+  text(lines, 0.4, 2.6, s.tagline, { name: 'Title card subtitle', text: { size: s.subSize, color: s.accent, anim: 'fade', animDur: 0.5 }, props: { y: 0.45 + (s.titleSize * 1.15) / s.h } , transOut: { type: 'fade', dur: 0.5 } });
   // placeholder where the main video goes
   text(main, 3, L - 7, 'DROP YOUR VIDEO ON THIS TRACK', {
     name: 'Placeholder: drop your video here, then delete this',
@@ -116,7 +118,9 @@ export function applyStarter(doc, s) {
   });
   // end card: fades the whole video out
   text(titles, L - 4, 4, s.end, { name: 'End card (replace the text)', text: { size: Math.round(s.titleSize * 0.8), weight: 900, anim: s.anim, animDur: 0.5 }, props: { y: 0.46 }, transIn: { type: 'fade', dur: 0.5 }, transOut: { type: 'fade', dur: 1.2 } });
-  text(titles, L - 3.6, 3.6, s.endSub, { name: 'End card subtitle', text: { size: s.subSize, color: s.accent }, props: { y: 0.46 + (s.titleSize * 0.95) / s.h }, transIn: { type: 'fade', dur: 0.5 }, transOut: { type: 'fade', dur: 1.2 } });
+  text(lines, L - 3.6, 3.6, s.endSub, { name: 'End card subtitle', text: { size: s.subSize, color: s.accent }, props: { y: 0.46 + (s.titleSize * 0.95) / s.h }, transIn: { type: 'fade', dur: 0.5 }, transOut: { type: 'fade', dur: 1.2 } });
+  // each card's title and second line move together
+  for (const c of doc.clips) if (c.type === 'text' && c.track !== main.id) c.group = c.start < 1 ? g1 : g2;
   doc.markers = [{ id: uid('k'), t: 3, label: 'Video starts' }, { id: uid('k'), t: L - 4, label: 'End card' }];
   return doc;
 }
@@ -143,14 +147,18 @@ export function openNewDocument(app) {
       const b = el('button', { class: 'starter', type: 'button', title: `${st.name}: Titles, B-roll, Main video, Voice, Music and Sound FX tracks, a title card and an end card that fades out` },
         el('span', { class: 'st-frame' }, starterThumb(st, 76)),
         el('b', { text: st.name }), el('small', { text: st.sub }));
-      b.addEventListener('click', () => { picked = picked === st ? null : st; for (const x of starters.children) x.classList.toggle('lit', x === b && !!picked); });
+      b.addEventListener('click', () => { picked = picked === st ? null : st; for (const x of starters.children) x.classList.toggle('lit', x === b && !!picked); blank.classList.toggle('nd-off', !!picked); });
       return b;
     }));
-    const body = el('div', { class: 'newdoc' },
+    // a picked template sets its own size: the blank-document settings go dim (click them to go back to blank)
+    const blank = el('div', { class: 'nd-blank', title: 'A blank document of this size. Picking a template below sets its own size.' },
       el('div', { class: 'engr', text: 'Blank document' }),
       el('div', { class: 'row' }, el('label', { text: 'Preset' }), sel),
       el('div', { class: 'row' }, el('label', { text: 'Width' }), w, el('label', { text: 'Height' }), h),
-      el('div', { class: 'row' }, el('label', { text: 'Frame rate' }), fps),
+      el('div', { class: 'row' }, el('label', { text: 'Frame rate' }), fps));
+    blank.addEventListener('pointerdown', () => { if (!picked) return; picked = null; for (const x of starters.children) x.classList.remove('lit'); blank.classList.remove('nd-off'); });
+    const body = el('div', { class: 'newdoc' },
+      blank,
       el('div', { class: 'engr', text: 'Or start from a template' }),
       el('p', { class: 'note', text: 'Each has Voice, Music and Sound FX tracks, Main video and B-roll tracks, a title card and an end card that fades the video out.' }),
       starters);

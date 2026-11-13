@@ -9,7 +9,8 @@ test('starters build complete documents', () => {
   for (const st of STARTERS) {
     const doc = applyStarter(normalize({ canvas: { width: 1920, height: 1080, fps: 30 }, tracks: [], clips: [], media: [] }), st);
     const n = normalize(JSON.parse(JSON.stringify(doc)));
-    assert.deepStrictEqual(n.tracks.map(t => t.name), ['Titles', 'B-roll / overlays', 'Main video', 'Voice', 'Music', 'Sound FX']);
+    assert.deepStrictEqual(n.tracks.map(t => t.name), ['Title lines', 'Titles', 'B-roll / overlays', 'Main video', 'Voice', 'Music', 'Sound FX']);
+    for (const t of n.tracks) { const cs = n.clips.filter(c => c.track === t.id).sort((a, b) => a.start - b.start); for (let i = 1; i < cs.length; i++) assert.ok(cs[i].start >= cs[i - 1].start + cs[i - 1].duration - 1e-9, `${st.id}: nothing overlaps on ${t.name}`); }
     assert.strictEqual(n.canvas.width, st.w); assert.strictEqual(n.canvas.height, st.h);
     assert.strictEqual(duration(n), st.length, st.id);
     const last = n.clips.filter(c => c.start + c.duration === st.length);
