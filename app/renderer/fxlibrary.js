@@ -396,10 +396,13 @@ function filmIcon(id) {
 }
 
 /** Runs an edit on a copy first, so one that can't be done changes nothing; then for real, as one undo step. */
-function tryEdit(app, fn) {
+async function tryEdit(app, fn, withSound = false) {
   const test = fn(structuredClone(app.doc));
   if (!test || test.error) { toast(test?.error || 'Couldn’t do that here.', 6000); return null; }
-  let r = null; app.commit(d => { r = fn(d); });
+  // its sound effects are made first, so the edit and its sounds are one ⌘Z
+  const medias = new Map();
+  if (withSound && test.sfx?.length) { try { for (const id of new Set(test.sfx.map(x => x.id))) medias.set(id, await sfxMedia(app, id)); } catch { /* the edit without its sound */ } }
+  let r = null; app.commit(d => { r = fn(d); if (medias.size && r?.sfx?.length) placeSfx(d, r.sfx, medias); });
   return r;
 }
 function nearestCut(app) {
@@ -409,9 +412,9 @@ function nearestCut(app) {
   for (const id of tracks) { const p = cutAt(doc, id, t, 3); if (p && visual(doc, p[0]) && visual(doc, p[1]) && Math.abs(clipEnd(p[0]) - t) < bd) { bd = Math.abs(clipEnd(p[0]) - t); best = p; } }
   return best;
 }
-export function doFilmCut(app, id, withSound = true, pair = null) {
+export async function doFilmCut(app, id, withSound = true, pair = null) {
   const doc = app.doc, name = FILM_CUTS.find(f => f[0] === id)?.[1] || id;
-  const done = (r, msg) => { if (!r) return; if (withSound && r.sfx?.length) addSounds(app, r.sfx); toast(msg, 6000); };
+  const done = (r, msg) => { if (r) toast(msg, 6000); };
   if (['l-cut', 'j-cut', 'smash', 'action'].includes(id)) {
     const p = pair || nearestCut(app);
     if (!p) { toast('Put the playhead near a cut: where one clip ends and the next begins on the same track.', 6000); return; }
@@ -419,7 +422,7 @@ export function doFilmCut(app, id, withSound = true, pair = null) {
     const lead = Number(pref('filmLead')) || 1;
     const fn = { 'l-cut': d => splitEdit(d, get(d, ai), get(d, bi), 'l-cut', lead), 'j-cut': d => splitEdit(d, get(d, ai), get(d, bi), 'j-cut', lead),
       smash: d => smashCut(d, get(d, ai), get(d, bi)), action: d => cutOnAction(d, get(d, ai), get(d, bi)) }[id];
-    const r = tryEdit(app, fn);
+    const r = await tryEdit(app, fn, withSound);
     const room = r?.tight ? (id === 'l-cut' ? ` (there was no spare sound after the first clip, so its picture now ends ${r.lead.toFixed(1)} s sooner and what follows on that track moved up)` : ` (there was no spare sound before the next clip, so its picture now skips its first ${r.lead.toFixed(1)} s and what follows on that track moved up)`) : '';
     const where = r?.own ? 'Both sounds are on clips of their own now; drag where they meet to change it.' : 'Drag where the sound clips meet to change it.';
     done(r, id === 'l-cut' ? `L-cut: the first shot’s sound carries on ${r?.lead?.toFixed(1)} s under the next picture${room}. ${where}`
@@ -431,7 +434,7 @@ export function doFilmCut(app, id, withSound = true, pair = null) {
     const t = app.player.time, sel = selected(app).filter(c => visual(doc, c) && c.start < t && clipEnd(c) > t);
     const c = sel[0] || doc.clips.filter(c => visual(doc, c) && c.start < t && clipEnd(c) > t).sort((p, q) => doc.tracks.findIndex(x => x.id === p.track) - doc.tracks.findIndex(x => x.id === q.track))[0];
     if (!c) { toast('Put the playhead inside a video clip, where it should jump.'); return; }
-    const r = tryEdit(app, d => jumpCut(d, d.clips.find(x => x.id === c.id), t));
+    const r = await tryEdit(app, d => jumpCut(d, d.clips.find(x => x.id === c.id), t), withSound);
     done(r, `Jump cut: ${r?.skipped?.toFixed(1)} s cut out, with a punch-in (what follows on that track moved up). Do it again further on to punch back out.`);
     return;
   }
@@ -439,14 +442,14 @@ export function doFilmCut(app, id, withSound = true, pair = null) {
     const shot = selected(app).find(c => visual(doc, c));
     if (!shot) { toast('Select the shot to cut away to, then put the playhead over the main shot where it should appear.', 6000); return; }
     const t = app.player.time, main = doc.clips.find(c => c !== shot && visual(doc, c) && c.start <= t && clipEnd(c) > t);
-    const r = tryEdit(app, d => cutaway(d, main && d.clips.find(x => x.id === main.id), d.clips.find(x => x.id === shot.id), t));
+    const r = await tryEdit(app, d => cutaway(d, main && d.clips.find(x => x.id === main.id), d.clips.find(x => x.id === shot.id), t), withSound);
     if (r) { app.select(r.ids, null); done(r, 'Cutaway: the shot plays over the main one for 2.5 s, muted, so the main sound carries on. The original clip is still where it was; delete it if you don’t need it.'); }
     return;
   }
   if (id === 'cross') {
     const two = selected(app).filter(c => visual(doc, c)).sort((p, q) => p.start - q.start);
     if (two.length !== 2) { toast('Select two clips that follow each other on one track (scene A, then scene B).', 6000); return; }
-    const r = tryEdit(app, d => crossCut(d, d.clips.find(x => x.id === two[0].id), d.clips.find(x => x.id === two[1].id), 2.5, 0.15));
+    const r = await tryEdit(app, d => crossCut(d, d.clips.find(x => x.id === two[0].id), d.clips.find(x => x.id === two[1].id), 2.5, 0.15), withSound);
     done(r, `Cross-cut: ${r?.pieces} pieces, turn about, each a little shorter. ⌘Z undoes.`);
   }
 }
