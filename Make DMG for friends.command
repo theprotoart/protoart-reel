@@ -52,15 +52,14 @@ FIRST RECORDING
 - While recording, the panel at the bottom of the screen has MARK, PAUSE and STOP
   (or ⌥⇧⌘M, ⌥⇧⌘2 and ⇧⌘2).
 
-NEW IN THIS BUILD — PLEASE TRY (1.6.0: both 1.5.9 lines together)
-- 🎵 REMIX (next to SNAP): drag the ♪ end of any music clip to make the song longer or
+NEW IN THIS BUILD — PLEASE TRY
 - Radial shutter transition: camera-iris blades close over one clip and open on the next.
+- 👻 Isolate a sound (AUDIO ▾): type what you hear ("dog barking", "music") and pull it
+  out of a clip, or take it out. Press GET once (about 2 GB); works offline.
+- 🎵 REMIX (next to SNAP): drag the ♪ end of any music clip to make the song longer or
   shorter seamlessly (off: trim as normal). Or MUSIC tab › FIT TO THE VIDEO.
-- 📝 Clap notes: clap, then say what should appear on screen (AUTO EDIT › Claps).
-- 🎨 Match colour and ◐ colour wheels; ⤳ Retime curve; 〰 Elastic Wave.
-- Text reveal transition; thumbnails from a frame; DaVinci-style picture handles.
-- 🗣 VOICES and 🎙 CLONE MY VOICE (natural Kitten voices on your Mac).
-- The panel on the right opens on AUDIO or VIDEO for what you pick.
+- Fade curves: drag a fade handle up or down to curve it, like Audition.
+- 📝 Clap notes, 🎨 Match colour, ⤳ Retime curve, 〰 Elastic Wave, 🗣 VOICES.
 
 EARLIER BUILDS
 - HEAR PLUG-INS LIVE: in the MIXER, click + effect on a track › ★ Your plug-ins, then press
