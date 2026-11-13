@@ -314,7 +314,7 @@ export function openPresetBrowser(app, page = 'cut') {
   search.addEventListener('input', () => show(page));
   const head = el('div', { class: 'fx-ed-head' }, el('b', { text: 'Presets' }), el('button', { class: 'mini', text: '×', title: 'Close', onclick: () => { panel.remove(); panel = null; } }));
   panel = el('div', { class: 'fx-editor pl-panel' }, head, tabs,
-    el('div', { class: 'row pl-tools' }, search, el('label', { class: 'chk' }, soundCb, el('span', { text: 'Add matching sound effects' }))),
+    el('div', { class: 'row pl-tools' }, search, el('label', { class: 'chk', title: 'Add matching sound effects with transitions and film cuts' }, soundCb, el('span', { text: 'Sound effects' }))),
     note, grid);
   document.body.append(panel);
   head.addEventListener('pointerdown', e => {
@@ -406,11 +406,11 @@ function nearestCut(app) {
   for (const id of tracks) { const p = cutAt(doc, id, t, 3); if (p && visual(doc, p[0]) && visual(doc, p[1]) && Math.abs(clipEnd(p[0]) - t) < bd) { bd = Math.abs(clipEnd(p[0]) - t); best = p; } }
   return best;
 }
-export function doFilmCut(app, id, withSound = true) {
+export function doFilmCut(app, id, withSound = true, pair = null) {
   const doc = app.doc, name = FILM_CUTS.find(f => f[0] === id)?.[1] || id;
   const done = (r, msg) => { if (!r) return; if (withSound && r.sfx?.length) addSounds(app, r.sfx); toast(msg, 6000); };
   if (['l-cut', 'j-cut', 'smash', 'action'].includes(id)) {
-    const p = nearestCut(app);
+    const p = pair || nearestCut(app);
     if (!p) { toast('Put the playhead near a cut: where one clip ends and the next begins on the same track.', 6000); return; }
     const [ai, bi] = [p[0].id, p[1].id], get = (d, x) => d.clips.find(c => c.id === x);
     const lead = Number(pref('filmLead')) || 1;
@@ -491,6 +491,6 @@ export function openStyle(app, id) {
       close();
       toast(`${st.name}: ${r.cuts} cut${r.cuts === 1 ? '' : 's'}${r.snapped ? ` (${r.snapped} moved onto the beat)` : ''}, the look, ${r.added.length} title${r.added.length === 1 ? '' : 's'} and graphics${sounds.checked ? ', sounds' : ''}. ⌘Z undoes it.`, 7000);
     } },
-  ], { wide: true });
+  ]);
   void mainTrack;
 }

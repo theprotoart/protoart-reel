@@ -1939,8 +1939,10 @@ body.rec-paused #keypanel #btn-record .dot { animation: rk-blink 2s steps(2, sta
 .pl-rand-v { min-width: 130px; font: 600 12px var(--font-ui, -apple-system, sans-serif); color: var(--lit-hi2, #ffc35a); }
 .sty { max-width: 560px; }
 .sty-prev .pl-tile { max-width: 420px; margin: 0 auto 8px; }
-/* 🎬 STYLE PACKS and ✂ FILM CUTS: teal keys in the tool deck */
-.hw.role-style, #title-actions .hw.role-style { color: #04221f; background: linear-gradient(#b8f2e6, #3fb8a3); text-shadow: 0 1px 0 rgba(255,255,255,.45);
+/* 🎬 STYLE PACKS and 🎞 FILM CUTS: rose keys in the tool deck */
+.hw.role-style, #title-actions .hw.role-style { color: #33081a; background: linear-gradient(#ffd3df, #e8789a); text-shadow: 0 1px 0 rgba(255,255,255,.45);
   box-shadow: 0 1px 0 #000, inset 0 1px 0 rgba(255,255,255,.55); }
-.hw.role-style:hover { background: linear-gradient(#cdf7ee, #55c9b4); }
+.hw.role-style:hover { background: linear-gradient(#ffe2ea, #ef8fab); }
 #keypanel #btn-styles, #keypanel #btn-filmcuts { font-size: 11.5px; letter-spacing: .08em; padding: 10px 4px; }
+.pl-tools input[type=search] { min-width: 0; }
+.pl-rand label { width: auto; min-width: 150px; white-space: nowrap; }

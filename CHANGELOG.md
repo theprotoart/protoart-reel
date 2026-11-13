@@ -15,7 +15,7 @@
   - fizz bubbles, the VHS screen (tracking lines, PLAY ▶, date and tape counter);
   - a score bug, a replay badge, and a news ticker.
 - New sound: **Tape stop**.
-- **✂ Film cuts** (a key on the right, Presets › FILM CUTS, File › Film Cuts):
+- **✂ Film cuts** (a key on the right, Presets › FILM CUTS, Clip › Film Cuts):
   - **L-cut**, **J-cut**, **Smash cut**, **Jump cut** (with punch-in), **Cut on action**, **Cutaway / insert** and
     **Cross-cut** (two scenes turn about, ever faster).
   - **⚡ Auto L & J cuts** puts them, taking turns, on every cut between clips with sound.

@@ -12,6 +12,7 @@ export function initToolbarGroups(app) {
     btn.addEventListener('click', () => {
       const r = btn.getBoundingClientRect();
       const items = [...box.children].map(n => {
+        if (n.tagName === 'HR') return null; // a divider between kinds of tools
         const input = n.querySelector('input[type=checkbox]');
         if (input) return [`${input.checked ? '✓ ' : ''}${label(n)}`, () => input.click()];
         if (n.id === 'btn-proxy') return [`Proxy editing: ${label(n).replace(/^PROXY\s*/, '').toLowerCase()} ▸`, () => app.proxyMenu(btn)];

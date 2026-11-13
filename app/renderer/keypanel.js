@@ -33,7 +33,7 @@ export function initKeyPanel(app) {
   }
   // STYLE PACKS and FILM CUTS: keys of their own
   if (!document.getElementById('btn-styles')) deck.append(el('button', { id: 'btn-styles', class: 'hw role-style', text: '🎬 STYLE PACKS', title: 'STYLE PACKS: give the whole edit a look in one click: Nature Documentary, Fizz Commercial, Movie Trailer, Retro VHS, Sports Highlight, Travel Vlog, Breaking News', onclick: () => app.cmd('styles') }));
-  if (!document.getElementById('btn-filmcuts')) deck.append(el('button', { id: 'btn-filmcuts', class: 'hw role-style', text: '✂ FILM CUTS', title: 'FILM CUTS: L-cut, J-cut, smash cut, jump cut, cut on action, cutaway and cross-cut, at the playhead', onclick: () => app.cmd('film-cuts') }));
+  if (!document.getElementById('btn-filmcuts')) deck.append(el('button', { id: 'btn-filmcuts', class: 'hw role-style', text: '🎞 FILM CUTS', title: 'FILM CUTS: L-cut, J-cut, smash cut, jump cut, cut on action, cutaway and cross-cut, at the playhead', onclick: () => app.cmd('film-cuts') }));
   const more = el('button', { class: 'hw keys-more', text: 'MORE ▾', title: 'The studio tools SIMPLE keeps out of the way (or switch to FULL)' });
   more.addEventListener('click', () => {
     const r = more.getBoundingClientRect();

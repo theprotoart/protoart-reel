@@ -3,7 +3,7 @@
 // fades (in from black, out to black, the whole video) are in the same panel.
 import { el, toast } from './ui.js';
 import { applyCut, cutsOn, clipEnd, mediaById } from './model.js';
-import { tile } from './fxlibrary.js';
+import { tile, doFilmCut } from './fxlibrary.js';
 import { pref } from './prefs.js';
 
 /** The transitions offered at a cut, most useful first (all play on both sides of the cut). */
@@ -120,6 +120,14 @@ export function openTransitions(app, cut = null) {
     b('NO FADES', 'Remove the fades from the selected clip', () => { fadeSel('in', false); fadeSel('out', false); }),
     b('FADE THE WHOLE VIDEO', 'Fade in from black at the very start and out to black at the very end', fadeWhole, 'hw role-add'));
 
+  // the editor's classic cuts, on the cut picked (else the one nearest the playhead)
+  const film = id => { const p = get(); doFilmCut(app, id, true, p && p[0] && p[1] ? p : null); drawWhere(); };
+  const filmRow = el('div', { class: 'tp-fades' },
+    b('L-CUT', 'The picture changes first; the sound of the shot before carries on under the next one', () => film('l-cut')),
+    b('J-CUT', 'The next shot’s sound starts before its picture', () => film('j-cut')),
+    b('SMASH CUT', 'A hard cut with a hit', () => film('smash')),
+    b('CUT ON ACTION', 'Hides the cut inside a movement', () => film('action')),
+    b('MORE…', 'Jump cut, cutaway, cross-cut, auto L & J cuts', () => app.cmd('film-cuts')));
   const head = el('div', { class: 'fx-ed-head' }, el('b', { text: 'TRANSITIONS & FADES' }), el('button', { class: 'mini', text: '×', title: 'Close', onclick: () => box.remove() }));
   const box = el('div', { class: 'fx-editor tp-panel' }, head,
     el('div', { class: 'fx-ed-body' },
@@ -127,7 +135,8 @@ export function openTransitions(app, cut = null) {
       scopeRow,
       el('div', { class: 'row tp-durrow' }, el('label', { text: 'Length' }), durIn, durVal),
       grid,
-      el('div', { class: 'engr', text: 'Fades' }), fades));
+      el('div', { class: 'engr', text: 'Fades' }), fades,
+      el('div', { class: 'engr', text: 'Film cuts' }), filmRow));
   document.body.append(box);
   // centred over the lower half of the window, always fully on screen (placed in pixels, so dragging it
   // from the title bar moves it smoothly instead of jumping)
