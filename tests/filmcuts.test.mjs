@@ -97,6 +97,12 @@ test('Reel recordings (screen + a microphone clip under it): L-cut, J-cut and ju
   assert.ok(!l.error, l.error); assert.deepEqual(l.sounds, ['ma', 'mb']);
   assert.equal(clipEnd(get(d, 'ma')), 7); assert.equal(get(d, 'mb').start, 7);
   assert.ok(!get(d, 'a').detached, 'nothing new is detached');
+  // three shots: both cuts get one (J then L), and an L can be turned into a J
+  const { autoSplitEdits: auto } = await import('../app/renderer/lib/filmcuts.js');
+  d = rec();
+  d.clips.push({ ...structuredClone(get(d, 'b')), id: 'c', start: 12, in: 20 }, { ...structuredClone(get(d, 'mb')), id: 'mc', start: 12, in: 20 });
+  assert.equal(auto(d, 'v', 0.8), 2);
+  assert.ok(!se(d, get(d, 'a'), get(d, 'b'), 'l-cut', 1).error);
   d = rec();
   const j = jc(d, get(d, 'a'), 3, 0.4);
   assert.ok(!j.error);

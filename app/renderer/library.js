@@ -42,6 +42,7 @@ export class Library {
     const usedSet = new Set(doc.clips.map(c => c.media));
     // newest first: a new recording (or anything just added) is at the top, where you'll find it
     const shown = doc.media.filter(m => !m.hidden // reversed copies live inside their clips
+      && !(m.sfx && !usedSet.has(m.id)) // Reel's own sound effects show only while they're in the edit (they're made again when needed)
       && (!this.query || m.name.toLowerCase().includes(this.query))
       && (this.filter === 'all' || (this.filter === 'unused' ? !usedSet.has(m.id) : m.kind === this.filter))).reverse();
     // what's arrived since this list was last drawn gets a NEW badge for a while, and the list goes back to the top

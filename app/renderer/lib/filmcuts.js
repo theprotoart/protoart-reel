@@ -33,8 +33,8 @@ const isSound = (doc, c) => !!c && c.type === 'media' && !c.disabled && (c.audio
 export function partnerSound(doc, c, edge = 'start') {
   if (c.detached) return doc.clips.find(x => x.id === c.detached) || null;
   const list = doc.clips.filter(x => x !== c && x.track !== c.track && isSound(doc, x));
-  return list.find(x => Math.abs(x.start - c.start) <= EPS && Math.abs(clipEnd(x) - clipEnd(c)) <= EPS)
-    || list.find(x => (edge === 'start' ? Math.abs(x.start - c.start) <= EPS : Math.abs(clipEnd(x) - clipEnd(c)) <= EPS)) || null;
+  const atStart = x => Math.abs(x.start - c.start) <= EPS, atEnd = x => Math.abs(clipEnd(x) - clipEnd(c)) <= EPS;
+  return list.find(x => atStart(x) && atEnd(x)) || list.find(edge === 'start' ? atStart : atEnd) || list.find(edge === 'start' ? atEnd : atStart) || null;
 }
 const withSound = (doc, c) => hasSound(doc, c) || (isVideo(doc, c) && !!partnerSound(doc, c));
 
@@ -88,7 +88,11 @@ export function splitEdit(doc, a, b, kind = 'l-cut', lead = 1) {
   if (Math.abs(b.start - clipEnd(a)) > EPS) return { error: 'The two clips need to touch (one ends where the next begins).' };
   // each picture's sound: its own (put on a clip of its own), or the microphone clip lined up under it
   const own = hasSound(doc, a) && hasSound(doc, b);
-  const sa = own ? soundOf(doc, a) : partnerSound(doc, a, 'start'), sb = own ? soundOf(doc, b) : partnerSound(doc, b, 'end'), cut = b.start;
+  // (a's sound is the one that ends at the cut, b's the one that starts there; after an L or J, the other ends of them)
+  let sa = own ? soundOf(doc, a) : partnerSound(doc, a, 'end'), sb = own ? soundOf(doc, b) : partnerSound(doc, b, 'start');
+  const cut = b.start;
+  if (!own && sa && !sb) sb = doc.clips.find(x => x !== sa && x.track === sa.track && isSound(doc, x) && Math.abs(x.start - clipEnd(sa)) <= EPS) || null; // the sound that meets it
+  if (!own && sb && !sa) sa = doc.clips.find(x => x !== sb && x.track === sb.track && isSound(doc, x) && Math.abs(clipEnd(x) - sb.start) <= EPS) || null;
   if (!sa || !sb || sa === sb) return { error: 'Both clips at the cut need sound: video with sound, or a sound clip under each one that’s cut at the same place.' };
   if (!own && sa.track !== sb.track) return { error: 'The sounds under these two clips are on different tracks; put them on one track first.' };
   const sbEnd0 = clipEnd(sb);
@@ -126,7 +130,7 @@ export function splitEdit(doc, a, b, kind = 'l-cut', lead = 1) {
   else { sa.audio = { ...sa.audio, fadeOut: 0.08 }; sb.audio = { ...sb.audio, fadeIn: 0.08 }; }
   if (own) sa.track = sb.track = soundTrack(doc, sa, sb);
   sa.filmCut = sb.filmCut = kind;
-  return { lead: d, tight, sounds: [sa.id, sb.id] };
+  return { lead: d, tight, own, sounds: [sa.id, sb.id] };
 }
 
 /** A straight, hard cut (no transition, no crossfade) with a hit on it. */

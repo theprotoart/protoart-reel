@@ -6,7 +6,7 @@ import { CUT_TRANSITIONS, cutsOn, applyCut, clipEnd, mediaById, uid, addTrack, i
   newTextClip, newShapeClip, newElementClip, TEXT_DEFAULTS, OVERLAP_CUTS } from '../model.js';
 import { SFX_FOR } from './sfx.js';
 import { applyMotion } from '../motion.js';
-import { elementHome } from './elements.js';
+import { elementHome, ELEMENTS } from './elements.js';
 import { tailRoom, headRoom } from './filmcuts.js';
 
 // ------------------------------------------------------------------ randomize
@@ -257,7 +257,7 @@ export function applyStyle(doc, id, opts = {}) {
       k.track = tr.id; doc.clips.push(k); added.push(k.id);
     }
     if (o.element) {
-      const e = newElementClip(null, at, o.element, elementHome(o.element), len); e.style = id; e.name = o.element;
+      const e = newElementClip(null, at, o.element, elementHome(o.element), len); e.style = id; e.name = ELEMENTS[o.element]?.name || o.element;
       if (o.opacity != null) e.props.opacity = o.opacity;
       put(e);
     }

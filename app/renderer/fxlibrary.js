@@ -421,8 +421,9 @@ export function doFilmCut(app, id, withSound = true, pair = null) {
       smash: d => smashCut(d, get(d, ai), get(d, bi)), action: d => cutOnAction(d, get(d, ai), get(d, bi)) }[id];
     const r = tryEdit(app, fn);
     const room = r?.tight ? (id === 'l-cut' ? ` (there was no spare sound after the first clip, so its picture now ends ${r.lead.toFixed(1)} s sooner and what follows on that track moved up)` : ` (there was no spare sound before the next clip, so its picture now skips its first ${r.lead.toFixed(1)} s and what follows on that track moved up)`) : '';
-    done(r, id === 'l-cut' ? `L-cut: the first shot’s sound carries on ${r?.lead?.toFixed(1)} s under the next picture${room}. Both sounds are on clips of their own now; drag where they meet to change it.`
-      : id === 'j-cut' ? `J-cut: the next shot’s sound starts ${r?.lead?.toFixed(1)} s before its picture${room}. Both sounds are on clips of their own now; drag where they meet to change it.`
+    const where = r?.own ? 'Both sounds are on clips of their own now; drag where they meet to change it.' : 'Drag where the sound clips meet to change it.';
+    done(r, id === 'l-cut' ? `L-cut: the first shot’s sound carries on ${r?.lead?.toFixed(1)} s under the next picture${room}. ${where}`
+      : id === 'j-cut' ? `J-cut: the next shot’s sound starts ${r?.lead?.toFixed(1)} s before its picture${room}. ${where}`
       : `${name} at ${fmtT(clipEnd(p[0]))}.`);
     return;
   }
