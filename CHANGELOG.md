@@ -2,6 +2,7 @@
 
 ## Unreleased
 
+- **✚ KEEP A PART is now called ✚ CLIPS** (the green key on the timeline tool bar and in Auto Edit).
 - **The tool panel** is modular: its keys sit in groups (Edit, Voice, Style, Sound, Picture) that fold away, drag
   into another order, or hide (⚙), with REC and EXPORT always there. Labels no longer get cut short.
 - **Dynamic zoom** frames work like Resolve's: one frame active at a time (a bar switches START and END), so they

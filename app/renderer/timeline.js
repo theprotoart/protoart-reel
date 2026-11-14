@@ -72,7 +72,7 @@ export class Timeline {
   }
 
   /** A (select) or T (blade, like ScreenFlow's split tool): click a clip with the blade to cut it there. */
-  /** KEEP A PART: while on, dragging across the timeline marks a part to keep for Auto Edit. */
+  /** ✚ CLIPS (keep a part): while on, dragging across the timeline marks a part to keep for Auto Edit. */
   setMarking(on) {
     this.marking = !!on;
     document.getElementById('timeline')?.classList.toggle('marking', this.marking);
@@ -1286,7 +1286,7 @@ export class Timeline {
       ]);
     });
     this.playheadEl.querySelector('.ph-head')?.addEventListener('pointerdown', e => { e.stopPropagation(); this._scrub(e); });
-    // KEEP A PART: drag anywhere over the ruler or the tracks to mark a part (before clips get the click)
+    // ✚ CLIPS: drag anywhere over the ruler or the tracks to mark a part (before clips get the click)
     this.scroll.addEventListener('pointerdown', e => {
       if (!this.marking || e.button !== 0 || e.target.closest('.part-tag, .part-h')) return;
       e.preventDefault(); e.stopPropagation();

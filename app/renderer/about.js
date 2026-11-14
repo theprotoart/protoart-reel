@@ -55,8 +55,8 @@ export const TOPICS = [
   ['Speed', 'speed fast slow faster time-lapse timelapse 100x 64x 16x', [
     'Click a clip’s speed badge (or Clip › Speed) to change it: slow motion down to a few percent, fast up to **100×** (buttons for 16×, 32× and 64×).',
     'The preview plays up to 16× and keeps up beyond that, without sound; the export uses the exact speed.'], 'how'],
-  ['Parts (keep only some of a long video)', 'part parts section sections keep region in out snap', [
-    '**✚ KEEP A PART** (the green key on the timeline tool bar, or in the Auto Edit window) and drag across each part you want. Part edges snap to other parts, clips, markers and the playhead, and two parts can meet exactly end to end. Auto Edit then blends the parts into one edit.'], 'how'],
+  ['Clips: keep only some parts of a long video', 'clips clip part parts section sections keep region in out snap', [
+    'Press **✚ CLIPS** (the green key on the timeline tool bar, or in the Auto Edit window) and drag across each part you want. Part edges snap to other parts, clips, markers and the playhead, and two parts can meet exactly end to end. Auto Edit then blends the parts into one edit.'], 'how'],
   ['Call-outs, titles and the end screen', 'callout callouts call-out title text arrow end screen card picture image box watch next subscribe', [
     'Text, call-outs (spotlight, blur, magnify), arrows and end screens are in **+ INSERT ▾** and **EFFECTS ▾ › CALL-OUTS**. They always draw above the video, whatever track they are on, and their words update as you type.',
     '**Double-click** any clip to edit it: its settings open with the cursor in its text.',
@@ -65,7 +65,7 @@ export const TOPICS = [
     '**⚡ AUTO EDIT** (`⌥⌘E`) edits a video for TikTok / Reels, Shorts, several Shorts, a podcast clip, a **Tutorial** or a YouTube video. You preview it and choose **KEEP IT**, **DISCARD** or **TRY ANOTHER**.',
     '**Tutorial:** finds your clap signals and cuts them out (each leaves a take marker for ✂ TAKES), puts the **Tutorial voice** chain on your voice (De-click → De-ess → Auto Level), evens the volume, cuts ums and long pauses, adds gentle zooms and chapters.',
     'Every recipe has settings you can change: Zooms, **Motion** (Punchy: quick push-ins and push-outs for Shorts and TikTok; Ken Burns: slow drifts for tutorials; Follow the action), Transitions, Sound effects, Captions, Clean up, **Claps** (Leave / Mark / Cut them out), **Voice** (any effects preset, including your own saved ones), Volume and Call-outs.',
-    '**Keep sped-up clips whole** (on by default): cutting dead air never cuts into clips with a speed change, like time-lapses. To use only some parts of a long video, choose **✚ KEEP A PART** (the green key on the timeline tool bar, or in the Auto Edit window) and drag across each part first. **One clip only:** right-click a clip › **⚡ Auto Edit this clip…**.'], 'how'],
+    '**Keep sped-up clips whole** (on by default): cutting dead air never cuts into clips with a speed change, like time-lapses. To use only some parts of a long video, choose **✚ CLIPS** (the green key on the timeline tool bar, or in the Auto Edit window) and drag across each part first. **One clip only:** right-click a clip › **⚡ Auto Edit this clip…**.'], 'how'],
   ['AUTO MIX: levels for dialogue, music and sound effects', 'auto mix automix level levels balance dialogue music sound effects sfx duck dip colour color blue orange green tidy remove quieter louder clean declick', [
     'Give each sound track its colour with the tag on its header: **blue DIALOGUE**, **orange MUSIC**, **green SOUND FX** (several tracks can share one). Then **⚖ AUTO MIX** (`⌥⌘M`, or the key in the panel) sets each to its level: voices clear, music under them, effects heard without jumping out.',
     'Pick a style (Podcast, YouTube, Cinematic). The **Music** and **Sound FX** sliders go from **−30 dB** to +12 dB, with quick buttons (−30, −20, −12, −6, −3, 0, +3, +6).',

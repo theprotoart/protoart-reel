@@ -1115,7 +1115,7 @@ class App {
       case 'keep-part': {
         const on = !this.timeline.marking;
         this.timeline.setMarking(on);
-        if (on) toast('Drag across the timeline over each part you want to keep. Grey parts are left out. Press KEEP A PART again (or Esc) when you’re done.', 7000);
+        if (on) toast('Drag across the timeline over each part you want to keep. Grey parts are left out. Press ✚ CLIPS again (or Esc) when you’re done.', 7000);
         return;
       }
       case 'clear-sections': return ops.clearSections(this);

@@ -192,7 +192,7 @@ export function clearInOut(app) { app.commit(d => { delete d.range; }); }
  */
 export function addSection(app) {
   const d0 = app.doc, a = d0.range?.in ?? null, b = d0.range?.out ?? null;
-  if (a == null || b == null || !(b > a + 1)) { toast('Set In (I) and Out (O) around the part you want, then press X to add it as a part. Or use ✚ KEEP A PART and drag across the timeline.', 6000); return; }
+  if (a == null || b == null || !(b > a + 1)) { toast('Set In (I) and Out (O) around the part you want, then press X to add it as a part. Or use ✚ CLIPS and drag across the timeline.', 6000); return; }
   addPart(app, a, b, true);
 }
 /** Keeps t0..t1 as a part for Auto Edit (overlapping parts join). quiet: no message. */

@@ -143,7 +143,7 @@ export function openAutoEdit(app) {
   const drawParts = () => {
     if (!parts.length) {
       regionRow.replaceChildren(el('div', { class: 'ae-keep-row' },
-        el('button', { class: 'hw ae-keep-btn', text: '✚ KEEP A PART', title: 'Close this and drag across the timeline over each part you want', onclick: pickParts }),
+        el('button', { class: 'hw ae-keep-btn', text: '✚ CLIPS', title: 'Close this and drag across the timeline over each part you want', onclick: pickParts }),
         el('p', { class: 'ae-region off', text: 'Only want some parts of a long video (the first 10 minutes, a bit at 30:00…)? Press this and drag across the timeline over each part, then AUTO EDIT again. It blends them into one edit.' })));
       return;
     }
@@ -158,7 +158,7 @@ export function openAutoEdit(app) {
           if (q.pending) app.commit(d => { delete d.range; }); else app.commit(d => { d.sections = (d.sections || []).filter(x => x.id !== q.id); });
           parts = sectionsOf(app.doc); useRegion = parts.length > 0; drawParts(); draw();
         } })))),
-      el('div', { class: 'ae-keep-row' }, el('button', { class: 'mini ae-keep-btn', text: '✚ KEEP ANOTHER PART', title: 'Close this and drag across the timeline over another part', onclick: pickParts }),
+      el('div', { class: 'ae-keep-row' }, el('button', { class: 'mini ae-keep-btn', text: '✚ ANOTHER CLIP', title: 'Close this and drag across the timeline over another part', onclick: pickParts }),
         el('small', { class: 'note', text: 'Drag over it on the timeline, then AUTO EDIT again.' })));
   };
   drawParts();
