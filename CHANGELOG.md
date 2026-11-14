@@ -29,6 +29,7 @@
 - Speeding up a video takes its own sound with it (a recording's microphone, detached audio), so they stay in step;
   above 3× the sound is muted (it would only be chatter), and comes back if you slow it down again.
 - Drag a selection box from anywhere in the empty timeline, including the space below the last track.
+- Drag a selection box from anywhere in the empty timeline, including the space below the last track.
 - **🎲 Randomize** for transitions on every cut (Auto packs, style packs, Settings › Timeline): from "in order"
   through "same feel" to "surprise me", with lengths varied a little too.
 
