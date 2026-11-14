@@ -68,7 +68,7 @@ Checked in the code, with the tests in `tests/security.test.mjs` (9 tests) guard
 |---|---|---|---|
 | Secrets in the code | Yes | Searched every tracked file for API keys, tokens (OpenAI, Anthropic, Hugging Face, GitHub, AWS, Google, Slack), private keys, JWTs, passwords, personal emails and home-folder paths. None found. `.gitignore` already keeps `.env`, keys and tokens out. | OK (tested) |
 | Secrets in the git history | Yes | Searched all 52 commits on every branch the same way. None found. | OK |
-| Secrets in the built app | Yes | The 1.7.0 build was checked before upload: no keys, tokens, email or home paths. The upload script uses your own saved Hugging Face login and stores no token in the repo. | OK |
+| Secrets in the built app | Yes | Each build (1.7.0, 1.8.0) is checked before upload: no keys, tokens, email or home paths. The upload script uses your own saved Hugging Face login and stores no token in the repo. | OK |
 | Private data / one user seeing another's | No | Single-user app with no sharing service. Recordings, projects and cloned voices stay on your Mac (see PRIVACY.md). | Not applicable |
 | Logins and permission checks | Partly | No sign-in. In its place, every message from the window to the main process is checked to come from the editor page (`fromEditor`) or the recording panel (`fromHud`). Camera, microphone and screen capture are granted only to the editor page, and screen capture only for the source you picked. | OK (tested) |
 | HTML or code injection | Yes | Only the app's own scripts can run (CSP `script-src 'self'`, no `eval`). The few places that build HTML use only numbers or escaped text; everything else uses `textContent`. Imported SVGs are shown as images, which can't run scripts. | OK (tested) |

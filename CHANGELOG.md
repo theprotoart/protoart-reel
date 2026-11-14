@@ -1,25 +1,26 @@
 # Changelog
 
-## Unreleased
+## 1.8.0 — Dynamic zoom, Ums, Clips and a modular tool panel
 
-- **✚ KEEP A PART is now called ✚ CLIPS** (the green key on the timeline tool bar and in Auto Edit).
-- **The tool panel** is modular: its keys sit in groups (Edit, Voice, Style, Sound, Picture) that fold away, drag
+- **🔍 Dynamic zoom**, like DaVinci Resolve (EFFECTS ▾, the inspector, right-click a clip, ⌥⌘Z):
+  - a green **START** frame and a red **END** frame over the whole picture; the clip zooms and pans from one to
+    the other, with an arrow showing the move and each frame's zoom on its label;
+  - one frame is active at a time (the bar at the bottom switches them), so they never get in each other's way;
+    drag inside to move, a corner to resize (⇧ from the centre); frames can go past the edges and zoom out;
+  - **Linear, Ease in, Ease out or Ease in & out**, and **⇄ Swap**.
+- **Zoom lane**: pick **Zoom (keyframes)** under a track to see each clip's zoom as a line. Click to add a key, drag
+  keys sideways and up and down, ⌥-click to delete, right-click for the curve. Ease in and Ease out curves now
+  work on every keyframe.
+- **💬 UMS** (beside TAKES, Edit › Ums and Fillers…, ⌥⌘U): Reel lists every um, uh, er and hmm, fillers like
+  "you know" and a standalone "like", and short sounds between words (often ums the speech recogniser leaves out).
+  Play each, switch CUT / KEEP, remove one with 🗑, or remove every one marked CUT at once. ⌘Z brings them back.
+- **✚ CLIPS** (was Keep a part, hidden in PARTS ▾) is a green key on the timeline tool bar and a button in Auto
+  Edit: drag across the timeline over each part of a long video you want.
+- **The tool panel is modular**: its keys sit in groups (Edit, Voice, Style, Sound, Picture) that fold away, drag
   into another order, or hide (⚙), with REC and EXPORT always there. Labels no longer get cut short.
-- **Dynamic zoom** frames work like Resolve's: one frame active at a time (a bar switches START and END), so they
-  never block each other; they can go past the edges and zoom out; each shows its zoom; an arrow shows the move.
-- **🔍 Dynamic zoom**, like DaVinci Resolve: drag a green START and red END frame over the picture and the clip
-  zooms and pans between them, with Linear, Ease in, Ease out or Ease in & out, and Swap (EFFECTS ▾, the inspector,
-  right-click a clip, ⌥⌘Z).
-- **Zoom lane**: pick Zoom under a track to see each clip's zoom as a line; click to add keys and drag them sideways
-  and up and down. Ease in and Ease out curves for every keyframe.
-- **✚ KEEP A PART** is now a green key of its own on the timeline tool bar (it was inside PARTS ▾), and a button
-  in the Auto Edit window that takes you straight there.
-- Windows (Auto Edit, settings, every dialog) and the TAKES and UMS panels move by dragging their title bar.
-  Double-click the title bar to put one back.
-- **💬 UMS** (beside TAKES, Edit › Ums and Fillers…, ⌥⌘U): Reel listens to the speech and lists every um, uh, er and
-  hmm, plus fillers like "you know" and a standalone "like". It also lists short sounds between words, which are
-  often ums the speech recogniser left out. Play each one, switch CUT / KEEP, remove one with 🗑, or remove every
-  one marked CUT at once. ⌘Z brings them back, and the list moves along as you edit.
+- **Windows move**: drag Auto Edit, every dialog and the TAKES and UMS panels by their title bar (double-click it
+  to put one back).
+- **Security audit** (SECURITY.md): checked the whole list for a desktop AI app, with tests that guard each finding.
 
 ## 1.7.0 — Style packs, film cuts and Randomize
 
