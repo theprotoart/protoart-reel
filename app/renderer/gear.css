@@ -1955,3 +1955,5 @@ body.rec-paused #keypanel #btn-record .dot { animation: rk-blink 2s steps(2, sta
 .clip .cbadges > * { white-space: nowrap; flex-shrink: 0; }
 /* picture handles: a bigger area to grab than the dot you see (easier on a small picture in picture) */
 #overlay .sel-box .h::after { content: ''; position: absolute; inset: -7px; border-radius: 50%; }
+/* the track area reaches the bottom of the timeline, so a selection box can start in the empty space below the tracks */
+#tl-tracks { min-height: 100%; }

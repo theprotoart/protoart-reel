@@ -26,6 +26,9 @@
 - Picture handles in the preview: dragging a corner or side resizes from the opposite corner (it stays put);
   hold ⇧ Shift to resize from the centre. They show when the picture is selected together with its sound, and the
   inspector shows its settings (with PICTURE IN PICTURE › FULL). Right-click a picture in picture › Full frame undoes it.
+- Speeding up a video takes its own sound with it (a recording's microphone, detached audio), so they stay in step;
+  above 3× the sound is muted (it would only be chatter), and comes back if you slow it down again.
+- Drag a selection box from anywhere in the empty timeline, including the space below the last track.
 - **🎲 Randomize** for transitions on every cut (Auto packs, style packs, Settings › Timeline): from "in order"
   through "same feel" to "surprise me", with lengths varied a little too.
 
