@@ -1,5 +1,16 @@
 # Changelog
 
+## Unreleased
+
+- **🎙 Teach Reel your ums**: record "umm" and "uh" a few times (slow, normal, quick) and read one sentence. Reel
+  learns them in your voice (a sound fingerprint, compared with dynamic time warping, calibrated against your own
+  speech) and finds them by ear in 💬 UMS and AUTO EDIT, even where speech recognition wrote nothing. On this Mac.
+- **💬 UMS filters**: chips for Um · uh, Like · you know, Your ums and Sounds; the track menu filters the list;
+  **Only the selected clip**; and **Find a word** (the, like, so…) to keep or cut every time it's said.
+- **Far fewer false "sounds"**: only short pauses between heard words are checked (a long stretch with no words was
+  turning every syllable into a "sound").
+- **Electron 44.11.2** (browser security fixes); `tools/Get Electron.command` fetches it into Reel's own folder.
+
 ## 1.8.1 — Section zoom, Audition-style volume and crossfades by dragging
 
 - **Drag a clip partly over the next one to crossfade them**, picture and sound together, even for a recording's

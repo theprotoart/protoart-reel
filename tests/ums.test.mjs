@@ -46,3 +46,11 @@ test('found ums follow cuts and inserted time', () => {
   insertTime(doc, 3, 1);
   assert.deepEqual(doc.ums.map(u => +u.t.toFixed(2)), [2, 9.5]);
 });
+
+test('no "sounds" in a long stretch the recogniser heard no words in (missed speech, music), only in short pauses', () => {
+  const words = [W(0, 1, 'hello'), W(5, 6, 'there'), W(6.5, 7, 'friend')];
+  // loud the whole way through: 1 → 5 is missed speech (every syllable would look like a sound), 6 → 6.5 a real pause
+  const level = t => (t >= 6 && t < 6.5) ? (t >= 6.12 && t < 6.38 ? 0.5 : 0.02) : 0.6 * (0.6 + 0.4 * Math.sin(t * 25));
+  const s = soundHits(words, level);
+  assert.ok(s.every(x => x.t >= 6 && x.end <= 6.5), JSON.stringify(s));
+});

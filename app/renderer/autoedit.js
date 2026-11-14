@@ -10,7 +10,8 @@ import { buildCaptions, fillerRanges, pauseRanges, cutRanges, withoutSpans } fro
 import { pickHighlights, chapters, sentences } from './lib/highlight.js';
 import { FORMATS } from './lib/reframe.js';
 import { analyse } from './autozoom.js';
-import { timelineWords, LANGS } from './transcript.js';
+import { timelineWords, speechClips, LANGS } from './transcript.js';
+import { umModel, findYourUms } from './umvoice.js';
 import { masterOf } from './master-ui.js';
 import { PACKS, autoTransitions } from './fxlibrary.js';
 import { planCallouts, placeCallouts } from './callouts.js';
@@ -419,6 +420,14 @@ export async function runAutoEdit(app, recipeId, o) {
     if (o.clean !== 'off' && words.length) {
       step('Cutting ums and dead air');
       let ranges = [...fillerRanges(words), ...pauseRanges(words, o.clean === 'tight' ? { longer: 0.45, keep: 0.2 } : { longer: 0.9, keep: 0.35 })];
+      // the ums you taught Reel (🎙 in UMS): found in your voice, including the ones speech recognition didn't write
+      // down; only the sure matches are cut here
+      if (umModel()) {
+        try {
+          const yours = (await findYourUms(app, speechClips(app.doc, ''), t => { what.textContent = t; })).filter(y => y.sure);
+          if (yours.length) { ranges.push(...yours.map(y => ({ t: y.t, end: y.end }))); report.push(`${yours.length} of your ums found by ear`); }
+        } catch { /* listening for them failed: the words are still used */ }
+      }
       // sped-up clips (time-lapses, fast-forwards) are quiet on purpose: they stay whole
       if (o.keepSped !== false) {
         const sped = app.doc.clips.filter(c => c.type === 'media' && !c.disabled && (c.speed || 1) !== 1).map(c => [c.start, c.start + c.duration]);

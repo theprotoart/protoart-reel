@@ -7,22 +7,56 @@ import { mergeRanges } from './lib/words.js';
 import { findUms, levelOnTimeline } from './lib/ums.js';
 import { timelineWords, speechClips, speechPrefs, saveSpeechPrefs, trackSelect, LANGS } from './transcript.js';
 import { peaksFor } from './peaks.js';
+import { umModel, teachUms, findYourUms } from './umvoice.js';
 
 const fmt = t => { const m = Math.floor(t / 60), s = t % 60; return `${m}:${s.toFixed(1).padStart(4, '0')}`; };
 const umsOf = doc => (doc?.ums || []).slice().sort((a, b) => a.t - b.t);
 export const umCount = doc => umsOf(doc).filter(u => u.cut).length;
 
-/** Listens to the speech and replaces the project's list of ums. Returns how many were found. */
+/** The kind of an um, for the filters: um / uh, like / you know, a sound between words, your trained voice, a word you looked for. */
+export const catOf = u => u.cat || (u.kind === 'sound' ? 'sound' : u.kind === 'voice' ? 'voice' : u.kind === 'find' ? 'find' : u.cut ? 'um' : 'phrase');
+const CATS = [['all', 'All'], ['um', 'Um · uh'], ['phrase', 'Like · you know'], ['voice', 'Your ums'], ['sound', 'Sounds']];
+
+/**
+ * Listens to the speech and replaces the project's list of ums (words you looked for stay). With ums you taught
+ * Reel (🎙), it also listens for those in your voice, and the guessed "sounds between words" are left out.
+ */
 async function listen(app, { locale, track }, onStatus) {
   const words = await timelineWords(app, { locale, track }, onStatus);
   onStatus?.('Looking for ums between the words…', 1);
   const clips = speechClips(app.doc, track);
-  const sources = await Promise.all(clips.map(async clip => ({ clip, peaks: await peaksFor(app, mediaById(app.doc, clip.media)).catch(() => null) })));
-  const to = Math.max(0, ...clips.map(c => c.start + c.duration));
-  const found = findUms(words, levelOnTimeline(sources), { from: Math.min(...clips.map(c => c.start)), to })
-    .map(u => ({ id: uid('um'), t: +u.t.toFixed(3), end: +u.end.toFixed(3), text: u.text, kind: u.kind, cut: u.cut }));
-  app.commit(d => { d.ums = found; });
+  const trained = !!umModel();
+  let found = [];
+  if (trained) {
+    const yours = await findYourUms(app, clips, onStatus);
+    const heard = findUms(words, null);
+    found = [...heard, ...yours.filter(y => !heard.some(h => h.t < y.end && h.end > y.t)).map(y => ({ t: y.t, end: y.end, text: y.word, kind: 'voice', cut: y.sure }))];
+  } else {
+    const sources = await Promise.all(clips.map(async clip => ({ clip, peaks: await peaksFor(app, mediaById(app.doc, clip.media)).catch(() => null) })));
+    found = findUms(words, levelOnTimeline(sources));
+  }
+  const trackAt = t => clips.find(c => t >= c.start - 0.01 && t < c.start + c.duration)?.track;
+  found = found.sort((a, b) => a.t - b.t).map(u => ({ id: uid('um'), t: +u.t.toFixed(3), end: +u.end.toFixed(3), text: u.text, kind: u.kind, cut: u.cut, track: trackAt(u.t) }));
+  app.commit(d => { d.ums = [...found, ...(d.ums || []).filter(u => u.kind === 'find')]; });
   return found;
+}
+
+/** Every time a word (or a few words) is said, added to the list to keep or cut (CUT off at first). */
+async function findWord(app, { locale, track }, query) {
+  const q = query.toLowerCase().replace(/[^\p{L}\p{N}' ]+/gu, ' ').trim().split(/\s+/).filter(Boolean);
+  if (!q.length) return [];
+  const words = await timelineWords(app, { locale, track });
+  const norm = w => String(w.text).toLowerCase().replace(/[^\p{L}\p{N}']+/gu, '');
+  const clips = speechClips(app.doc, track);
+  const trackAt = t => clips.find(c => t >= c.start - 0.01 && t < c.start + c.duration)?.track;
+  const hits = [];
+  for (let i = 0; i + q.length <= words.length; i++) {
+    if (!q.every((x, k) => norm(words[i + k]) === x)) continue;
+    const a = words[i], b = words[i + q.length - 1], next = words[i + q.length];
+    hits.push({ id: uid('um'), t: +a.t.toFixed(3), end: +(b.end + (next ? Math.max(0, Math.min(0.1, (next.t - b.end) / 2)) : 0.05)).toFixed(3), text: q.join(' '), kind: 'find', cut: false, track: trackAt(a.t) });
+  }
+  app.commit(d => { d.ums = [...(d.ums || []).filter(u => !(u.kind === 'find' && u.text === q.join(' '))), ...hits].sort((x, y) => x.t - y.t); });
+  return hits;
 }
 
 let panel = null;
@@ -37,13 +71,31 @@ export function openUms(app) {
   const status = el('p', { class: 'note ums-status', text: '' });
   const listenBtn = el('button', { class: 'hw', text: '👂 LISTEN FOR UMS', title: 'Listen to the speech and list every um, uh and filler (the first time takes a little while; it runs on this Mac)' });
   const removeBtn = el('button', { class: 'hw amber', text: 'REMOVE UMS' });
-  const allBtn = el('button', { class: 'mini ums-all', text: 'ALL CUT', title: 'Mark every one CUT (click again to KEEP them all)' });
+  const allBtn = el('button', { class: 'mini ums-all', text: 'ALL CUT', title: 'Mark every one shown CUT (click again to KEEP them)' });
+  // what's shown: a kind (or a word you looked for), the chosen track, and the selected clip
+  let filter = 'all';
+  const chips = el('div', { class: 'ums-chips' });
+  const onlySel = el('input', { type: 'checkbox', checked: true });
+  const selRow = el('label', { class: 'ums-sel', title: 'Show only the ums inside the clips selected on the timeline' }, onlySel, el('span', { text: 'Only the selected clip' }));
+  const findIn = el('input', { type: 'search', placeholder: 'Find a word: the, like, so…', title: 'Every time this word (or these words) is said, added to the list to keep or cut' });
+  const findBtn = el('button', { class: 'mini', text: 'FIND' });
+  const teachBtn = el('button', { class: 'mini ums-teach' });
+  const drawTeach = () => {
+    const m = umModel();
+    teachBtn.textContent = m ? '🎙 YOUR UMS ✓' : '🎙 TEACH REEL YOUR UMS';
+    teachBtn.title = m ? `Reel knows your ${m.words.map(w => w.word).join(' and ')}: LISTEN AGAIN finds them in your voice. Click to record them again or forget them.` : 'Record your um and uh a few times: Reel learns them in your voice and finds them (even the ones speech recognition leaves out), here and in AUTO EDIT';
+  };
+  teachBtn.addEventListener('click', () => teachUms(app, { onDone: () => { drawTeach(); refresh(true); } }));
+  drawTeach();
   const root = el('div', { class: 'vo-panel takes-panel ums-panel' },
     el('div', { class: 'vo-head' }, el('b', { text: '💬 UMS' }), el('span', { class: 'spacer' }), el('button', { class: 'mini', text: '×', title: 'Close', onclick: () => close() })),
     el('p', { class: 'note takes-how' },
       el('b', { text: 'Ums, uhs and fillers. ' }),
-      'Reel listens to the speech and lists them here. Um and uh are marked CUT. "Like", "you know" and short sounds between words are marked KEEP: play them first. 🗑 removes one now; REMOVE cuts every one marked CUT and closes the gaps.'),
+      'Reel lists them here. Um and uh are marked CUT; "like", "you know" and sounds are marked KEEP: play them first. 🗑 removes one now; REMOVE cuts the ones shown marked CUT.'),
     el('div', { class: 'row ums-opts' }, lang, track),
+    el('div', { class: 'row ums-find' }, findIn, findBtn),
+    el('div', { class: 'row ums-teach-row' }, teachBtn),
+    chips, selRow,
     list, status,
     el('div', { class: 'takes-foot' }, listenBtn, removeBtn));
   document.body.append(root);
@@ -56,48 +108,89 @@ export function openUms(app) {
     toast(`Removed “${u.text}” (${d.toFixed(2)} s). ⌘Z brings it back.`, 3000);
     refresh(true);
   };
+  // the ones shown: the kind picked, the track chosen, and the selected clip(s) when that's ticked
+  const selClips = () => app.selection.clips.map(id => app.doc.clips.find(c => c.id === id)).filter(Boolean);
+  const shownOf = ums => {
+    const sel = onlySel.checked ? selClips() : [];
+    return ums.filter(u => (filter === 'all' ? catOf(u) !== 'find' : filter.startsWith('find:') ? catOf(u) === 'find' && u.text === filter.slice(5) : catOf(u) === filter)
+      && (!track.value || !u.track || u.track === track.value)
+      && (!sel.length || sel.some(c => u.t >= c.start - 0.01 && u.t < c.start + c.duration)));
+  };
   const refresh = (force = false) => {
     if (!app.doc) { close(); return; }
-    const ums = umsOf(app.doc);
-    const now = JSON.stringify(ums.map(u => [u.id, u.t, u.cut])) + busy;
+    const all = umsOf(app.doc);
+    const selIds = onlySel.checked ? app.selection.clips.join() : '';
+    const now = JSON.stringify(all.map(u => [u.id, u.t, u.cut])) + busy + filter + track.value + selIds + onlySel.checked + !!umModel();
     if (!force && now === sig) return;
     sig = now;
+    const ums = shownOf(all);
+    selRow.classList.toggle('hidden', !app.selection.clips.length);
+    // the filter chips, with how many of each (in this track and clip)
+    const counts = {};
+    const inScope = all.filter(u => (!track.value || !u.track || u.track === track.value) && (!onlySel.checked || !selClips().length || selClips().some(c => u.t >= c.start - 0.01 && u.t < c.start + c.duration)));
+    for (const u of inScope) { const k = catOf(u) === 'find' ? 'find:' + u.text : catOf(u); counts[k] = (counts[k] || 0) + 1; }
+    counts.all = inScope.filter(u => catOf(u) !== 'find').length;
+    const finds = [...new Set(inScope.filter(u => catOf(u) === 'find').map(u => u.text))];
+    chips.replaceChildren(...[...CATS.filter(([k]) => k === 'all' || counts[k]), ...finds.map(w => ['find:' + w, `“${w}”`])].map(([k, label]) =>
+      el('button', { class: 'ums-chip' + (filter === k ? ' on' : ''), title: k.startsWith('find:') ? 'Every time this is said · right-click to take it off the list' : '', onclick: () => { filter = k; refresh(true); },
+        oncontextmenu: k.startsWith('find:') ? e => { e.preventDefault(); app.commit(d => { d.ums = (d.ums || []).filter(u => !(u.kind === 'find' && u.text === k.slice(5))); }); if (filter === k) filter = 'all'; refresh(true); } : null },
+        el('span', { text: label }), el('i', { text: String(counts[k] || 0) }))));
+    if (filter !== 'all' && !counts[filter]) { filter = 'all'; return refresh(true); }
     const n = ums.filter(u => u.cut).length;
-    removeBtn.textContent = n ? `REMOVE ${n} UM${n === 1 ? '' : 'S'}` : 'REMOVE UMS';
+    removeBtn.textContent = n ? `REMOVE ${n}` : 'REMOVE UMS';
+    removeBtn.title = n ? `Cut the ${n} shown marked CUT and close the gaps (⌘Z undoes)` : 'Mark some CUT first';
     removeBtn.disabled = !n || busy;
     listenBtn.disabled = busy;
     listenBtn.textContent = app.doc.ums ? '👂 LISTEN AGAIN' : '👂 LISTEN FOR UMS';
     allBtn.textContent = ums.length && ums.every(u => u.cut) ? 'ALL KEEP' : 'ALL CUT';
-    if (!app.doc.ums) { list.replaceChildren(el('p', { class: 'takes-empty', text: 'Press LISTEN FOR UMS. Reel listens to the speech on the track you choose and lists every um, uh and filler it hears.' })); return; }
-    if (!ums.length) { list.replaceChildren(el('p', { class: 'takes-empty', text: 'No ums found. Nice and clean.' })); return; }
-    const words = ums.filter(u => u.kind === 'word').length;
+    if (!app.doc.ums) { list.replaceChildren(el('p', { class: 'takes-empty', text: 'Press LISTEN FOR UMS. Reel listens to the speech on the track you choose and lists every um, uh and filler it hears. 🎙 TEACH REEL YOUR UMS first and it finds them in your voice too.' })); return; }
+    if (!ums.length) { list.replaceChildren(el('p', { class: 'takes-empty', text: all.length ? 'None here: pick another filter, track or clip.' : 'No ums found. Nice and clean.' })); return; }
     list.replaceChildren(
-      el('div', { class: 'engr takes-rec ums-sum' }, el('span', { text: `${ums.length} found · ${words} heard as words · ${ums.length - words} sounds` }), allBtn),
+      el('div', { class: 'engr takes-rec ums-sum' }, el('span', { text: `${ums.length} shown · ${n} marked CUT` }), allBtn),
       ...ums.map(u => {
+        const cat = catOf(u);
         const play = el('button', { class: 'mini', text: '▶', title: 'Play it with a second either side', onclick: () => { app.seek(Math.max(0, u.t - 1)); if (!app.player.playing) app.player.toggle(); stopAt(u.end + 0.8); } });
         const toggle = el('button', { class: 'take-state ' + (u.cut ? 'drop' : 'keep'), text: u.cut ? 'CUT' : 'KEEP', title: u.cut ? 'Cut when you press REMOVE. Click to keep it' : 'Kept. Click to cut it when you press REMOVE', onclick: () => {
           app.commit(d => { const k = (d.ums || []).find(x => x.id === u.id); if (k) k.cut = !k.cut; });
           refresh(true);
         } });
         const del = el('button', { class: 'mini ums-del', text: '🗑', title: 'Remove this one now (closes the gap)', onclick: () => cutOne(u) });
-        return el('div', { class: 'take-row' + (u.cut ? ' dropped' : '') + (u.kind === 'sound' ? ' ums-sound' : '') }, play,
-          el('span', { class: 'take-name', text: u.kind === 'sound' ? '(sound)' : `“${u.text}”`, title: u.kind === 'sound' ? 'A short sound between words: often an um the speech recogniser left out. Play it to check.' : 'Heard as a word' }),
+        const name = cat === 'sound' ? '(sound)' : cat === 'voice' ? `${u.text} ✦` : `“${u.text}”`;
+        const tip = cat === 'sound' ? 'A short sound between words: often an um the speech recogniser left out. Play it to check.' : cat === 'voice' ? 'Sounds like the ums you taught Reel (in your voice)' : cat === 'find' ? 'A word you looked for' : 'Heard as a word';
+        return el('div', { class: 'take-row' + (u.cut ? ' dropped' : '') + (cat === 'sound' ? ' ums-sound' : '') + (cat === 'voice' ? ' ums-voice' : '') }, play,
+          el('span', { class: 'take-name', text: name, title: tip }),
           el('span', { class: 'take-time', text: `${fmt(u.t)} · ${(u.end - u.t).toFixed(1)} s`, onclick: () => app.seek(u.t), title: 'Go there' }),
           toggle, del);
       }));
   };
+  track.addEventListener('change', () => { saveSpeechPrefs({ ...speechPrefs(), track: track.value }); refresh(true); });
+  onlySel.addEventListener('change', () => refresh(true));
+  const doFind = async () => {
+    const q = findIn.value.trim();
+    if (!q || busy) return;
+    busy = true; refresh(true); status.textContent = `Looking for “${q}”…`;
+    try {
+      const hits = await findWord(app, { locale: lang.value, track: track.value }, q);
+      filter = hits.length ? 'find:' + hits[0].text : filter;
+      status.textContent = hits.length ? `“${hits[0].text}” is said ${hits.length} time${hits.length === 1 ? '' : 's'}. Mark the ones to cut, then REMOVE.` : `“${q}” isn’t said here.`;
+    } catch (e) { status.textContent = e.message; }
+    finally { busy = false; refresh(true); }
+  };
+  findBtn.addEventListener('click', doFind);
+  findIn.addEventListener('keydown', e => { if (e.key === 'Enter') { e.preventDefault(); doFind(); } });
   let stopTimer = null;
   const stopAt = t1 => {
     clearInterval(stopTimer);
     stopTimer = setInterval(() => { if (!app.player.playing) { clearInterval(stopTimer); return; } if (app.player.time >= t1) { app.player.toggle(); clearInterval(stopTimer); } }, 40);
   };
   allBtn.addEventListener('click', () => {
-    const to = !umsOf(app.doc).every(u => u.cut);
-    app.commit(d => { for (const u of d.ums || []) u.cut = to; });
+    const shown = new Set(shownOf(umsOf(app.doc)).map(u => u.id));
+    const to = !shownOf(umsOf(app.doc)).every(u => u.cut);
+    app.commit(d => { for (const u of d.ums || []) if (shown.has(u.id)) u.cut = to; });
     refresh(true);
   });
   removeBtn.addEventListener('click', () => {
-    const cuts = umsOf(app.doc).filter(u => u.cut);
+    const cuts = shownOf(umsOf(app.doc)).filter(u => u.cut);
     if (!cuts.length) return;
     const ids = new Set(cuts.map(u => u.id));
     let total = 0;
@@ -105,7 +198,7 @@ export function openUms(app) {
       for (const r of mergeRanges(cuts).reverse()) total += removeRange(d, r.t, r.end);
       d.ums = (d.ums || []).filter(u => !ids.has(u.id));
     });
-    toast(`Removed ${cuts.length} um${cuts.length === 1 ? '' : 's'} (${total.toFixed(1)} s). ⌘Z brings them back.`, 5000);
+    toast(`Removed ${cuts.length} (${total.toFixed(1)} s). ⌘Z brings them back.`, 5000);
     refresh(true);
   });
   listenBtn.addEventListener('click', async () => {
@@ -115,7 +208,7 @@ export function openUms(app) {
     try {
       const found = await listen(app, { locale: lang.value, track: track.value }, t => { status.textContent = t; });
       const n = found.filter(u => u.cut).length;
-      status.textContent = found.length ? `${found.length} found, ${n} marked CUT.` : '';
+      status.textContent = found.length ? `${found.length} found, ${n} marked CUT.${umModel() ? '' : ' 🎙 Teach Reel your ums to find the ones it can’t hear as words.'}` : '';
     } catch (e) { status.textContent = e.message; }
     finally { busy = false; refresh(true); }
   });

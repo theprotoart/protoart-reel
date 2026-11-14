@@ -2077,3 +2077,29 @@ html[data-theme="light"] .zoom-lane .lane-pt { fill: #1d5f9a; stroke: #fff; }
 .vol-env .vol-pt:hover { transform: scale(1.3); }
 /* a picture or title clip's name: a shadow keeps it readable on the lighter clip colours */
 .clip:is(.text, .title, .image) .cname { text-shadow: 0 1px 2px rgba(0,0,0,.85); }
+/* 💬 UMS: find a word, teach your ums, filter chips, only the selected clip */
+.ums-find { display: flex; gap: 6px; align-items: center; margin: 0 0 6px; }
+.ums-find input { flex: 1; min-width: 0; }
+.ums-find .ums-teach { flex: none; white-space: nowrap; }
+.ums-chips { display: flex; flex-wrap: wrap; gap: 5px; margin: 0 0 6px; }
+.ums-chip { display: inline-flex; align-items: center; gap: 6px; padding: 3px 8px; border-radius: 12px; border: 1px solid var(--line-2, rgba(255,255,255,.15)); background: none; color: var(--text); font: 600 11px/1.2 var(--font-ui, system-ui); cursor: pointer; }
+.ums-chip i { font-style: normal; font-size: 10px; padding: 1px 5px; border-radius: 8px; background: rgba(127,127,127,.22); }
+.ums-chip.on { background: var(--amber, #f5b942); border-color: var(--amber, #f5b942); color: #2a1a00; }
+.ums-chip.on i { background: rgba(0,0,0,.15); }
+.ums-sel { display: flex; align-items: center; gap: 6px; margin: 0 0 6px; font-size: 11.5px; color: var(--text); }
+.ums-sel.hidden { display: none; }
+.ums-panel .take-row.ums-voice .take-name { color: var(--amber, #f5b942); font-weight: 700; }
+html[data-theme="light"] .ums-panel .take-row.ums-voice .take-name { color: #7a4300; }
+/* 🎙 Teach Reel your ums */
+.umt-list { display: flex; flex-direction: column; gap: 4px; margin: 8px 0; }
+.umt-step { display: flex; align-items: center; gap: 8px; padding: 6px 8px; border-radius: 6px; border: 1px solid var(--line-2, rgba(255,255,255,.12)); cursor: pointer; }
+.umt-step.on { border-color: var(--amber, #f5b942); box-shadow: inset 3px 0 0 var(--amber, #f5b942); }
+.umt-step.done .umt-n { background: #4fd36a; color: #08200d; }
+.umt-n { flex: none; width: 20px; height: 20px; border-radius: 50%; display: grid; place-items: center; font: 700 11px/1 var(--font-ui, system-ui); background: rgba(127,127,127,.25); }
+.umt-say { flex: 1; min-width: 0; font-size: 12.5px; }
+.umt-save { justify-content: flex-end; }
+
+.ums-teach-row { margin: 0 0 6px; }
+.ums-teach-row .ums-teach { width: 100%; }
+.ums-panel .take-row .take-time { white-space: nowrap; flex: none; }
+.ums-panel .take-row.dropped .take-time { text-decoration: none; }

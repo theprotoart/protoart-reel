@@ -15,7 +15,7 @@ const PREF = 'reel.speech';
 const prefs = () => { try { return { locale: 'en-US', maxChars: 64, replace: true, track: '', ...(JSON.parse(localStorage.getItem(PREF) || '{}') || {}) }; } catch { return { locale: 'en-US', maxChars: 64, replace: true, track: '' }; } };
 const savePrefs = p => { try { localStorage.setItem(PREF, JSON.stringify(p)); } catch { /* fine */ } };
 
-const soundOf = (doc, c) => { const m = c.type === 'media' && mediaById(doc, c.media); return m && (m.kind === 'audio' || m.hasAudio) ? m : null; };
+export const soundOf = (doc, c) => { const m = c.type === 'media' && mediaById(doc, c.media); return m && (m.kind === 'audio' || m.hasAudio) ? m : null; };
 
 let progressHooked = false; const listeners = new Map();
 /** Words of one media file (source seconds), transcribing it the first time. */

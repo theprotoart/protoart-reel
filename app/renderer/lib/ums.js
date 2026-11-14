@@ -44,7 +44,7 @@ export function fillerHits(words) {
  * A sound counts when it is louder than a breath (half the usual level of speech), lasts 0.18–1.2 s and
  * sits in a gap between words with room either side. Each: { t, end, text, kind: 'sound', cut: false }.
  */
-export function soundHits(words, level, { from = 0, to = null, step = 0.01, min = 0.18, max = 1.2 } = {}) {
+export function soundHits(words, level, { from = 0, to = null, step = 0.01, min = 0.18, max = 1.2, maxGap = 1.6 } = {}) {
   if (!words.length) return [];
   // how loud speech usually is here, and the quiet floor
   const speech = [];
@@ -52,10 +52,11 @@ export function soundHits(words, level, { from = 0, to = null, step = 0.01, min 
   speech.sort((a, b) => a - b);
   const loud = speech[Math.floor(speech.length / 2)] || 0;
   if (loud <= 0.02) return [];
+  // only short pauses between words that were heard: a long stretch with no words is speech the recogniser
+  // missed (or music), not a pause with an um in it, and every syllable in it would look like a "sound"
   const gaps = [];
-  if (words[0].t - from > 0.3) gaps.push([from, words[0].t]);
-  for (let i = 0; i + 1 < words.length; i++) gaps.push([words[i].end, words[i + 1].t]);
-  if (to != null && to - words[words.length - 1].end > 0.3) gaps.push([words[words.length - 1].end, to]);
+  for (let i = 0; i + 1 < words.length; i++) if (words[i + 1].t - words[i].end <= maxGap) gaps.push([words[i].end, words[i + 1].t]);
+  void from; void to;
   const quiet = [];
   for (const [a, b] of gaps) for (let t = a; t < b; t += step) quiet.push(level(t));
   quiet.sort((p, q) => p - q);
