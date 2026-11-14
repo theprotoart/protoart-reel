@@ -43,8 +43,7 @@ export const TOPICS = [
     'The project panel on the right lists every marker with a **×** to remove it. Markers become YouTube chapters in the export notes.'], 'how'],
   ['Speed', 'speed fast slow faster time-lapse timelapse 100x 64x 16x', [
     'Click a clip’s speed badge (or Clip › Speed) to change it: slow motion down to a few percent, fast up to **100×** (buttons for 16×, 32× and 64×).',
-    'The preview plays up to 16× and keeps up beyond that, without sound; the export uses the exact speed.',
-    'A video’s own sound (a recording’s microphone, its detached audio) changes speed with it, so they stay together. Above **3×** that sound is muted, since it would only be chatter; slow it down to 3× or less and it comes back (unless you muted it yourself).'], 'how'],
+    'The preview plays up to 16× and keeps up beyond that, without sound; the export uses the exact speed.'], 'how'],
   ['Parts (keep only some of a long video)', 'part parts section sections keep region in out snap', [
     '**PARTS ▾ › Keep a part** and drag across each part you want. Part edges snap to other parts, clips, markers and the playhead, and two parts can meet exactly end to end. Auto Edit then blends the parts into one edit.'], 'how'],
   ['Call-outs, titles and the end screen', 'callout callouts call-out title text arrow end screen card picture image box watch next subscribe', [

@@ -889,39 +889,7 @@ export const SPEED_MIN = 0.05, SPEED_MAX = 100;
  * its end), and its keyframes and actions stretch with it. It never runs into the next clip on its track: when
  * there isn't room, the speed is raised just enough to fit. Returns the speed set.
  */
-/** Faster than this, sound is just noise (chipmunk chatter): it's muted, and comes back if you slow it down again. */
-export const SOUND_MAX_SPEED = 3;
-const isSoundClip = (doc, k) => k?.type === 'media' && (k.audioOnly || (doc.media || []).find(m => m.id === k.media)?.kind === 'audio');
-
 export function setSpeed(doc, c, sp, anchor = 'start') {
-  const s0 = c.start, e0 = c.start + c.duration;
-  const r = setSpeedOnly(doc, c, sp, anchor);
-  if (!isSoundClip(doc, c)) {
-    // its own sound (a recording's microphone, its detached audio) keeps step with the picture: same speed, same place
-    const partners = doc.clips.filter(k => k !== c && isSoundClip(doc, k) && ((c.group && k.group === c.group) || k.id === c.detached)
-      && (Math.abs(k.start - s0) < 0.02 || Math.abs(k.start + k.duration - e0) < 0.02));
-    for (const k of partners) {
-      if (k.retime) continue;
-      const src = k.duration * (k.speed || 1);
-      k.speed = c.speed;
-      k.duration = src / (c.speed || 1);
-      k.start = anchor === 'end' ? c.start + c.duration - k.duration : c.start;
-      const next = doc.clips.filter(o => o !== k && o.track === k.track && o.start >= k.start + EPS).reduce((m, o) => Math.min(m, o.start), Infinity);
-      if (k.start + k.duration > next) k.duration = Math.max(0.05, next - k.start);
-      muteForSpeed(k);
-    }
-  }
-  muteForSpeed(c);
-  return r;
-}
-/** Mutes a clip's sound when it plays faster than SOUND_MAX_SPEED (and un-mutes it when that was the only reason). */
-export function muteForSpeed(c) {
-  const fast = (c.speed || 1) > SOUND_MAX_SPEED + 1e-6;
-  if (fast && !c.audio?.mute) { c.audio = { ...(c.audio || {}), mute: true, speedMuted: true }; }
-  else if (!fast && c.audio?.speedMuted) { c.audio = { ...c.audio, mute: false }; delete c.audio.speedMuted; }
-}
-
-function setSpeedOnly(doc, c, sp, anchor = 'start') {
   const old = c.speed || 1, src = c.duration * old;
   sp = clamp(sp, SPEED_MIN, SPEED_MAX);
   let dur = src / sp;
