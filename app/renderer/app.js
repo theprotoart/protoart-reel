@@ -467,6 +467,7 @@ class App {
     if (!noTimeline) this.timeline.render();
     if (!light || !keepInspector) { if (!keepInspector) this.inspector.render(); }
     if (!light) this.library.render();
+    document.querySelector('.tp-panel')?._redraw?.();
     this.player.prune();
     if (this.player.playing) return;
     this.player.syncPaused();

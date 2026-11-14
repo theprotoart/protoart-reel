@@ -155,6 +155,7 @@ export function openTransitions(app, cut = null) {
   });
   // follows the cut you click on the timeline while it's open
   box._setCut = c => { ids = c ? [c[0].id, c[1].id] : null; scope = ids ? 'one' : 'all'; drawWhere(); };
+  box._redraw = () => drawWhere(); // after any change to the edit (an undo, say), the lit tile follows it
   drawWhere();
   return box;
 }
