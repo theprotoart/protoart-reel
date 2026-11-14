@@ -452,6 +452,22 @@ export function freeTrack(doc, start, dur, preferId) {
   return addTrack(doc).id;
 }
 
+/**
+ * A track for a picture laid over others: the one asked for if it's free then, else the nearest free track above it
+ * (higher tracks show on top), else a new track inserted just above it. Nothing goes underneath by accident.
+ */
+export function layerTrack(doc, start, dur, preferId) {
+  if (preferId && isFree(doc, preferId, start, dur)) return preferId;
+  let i = preferId ? doc.tracks.findIndex(t => t.id === preferId) : -1;
+  if (i < 0) { // no track asked for: on top of whatever plays then
+    const busy = doc.tracks.map((t, k) => (isFree(doc, t.id, start, dur) ? -1 : k)).filter(k => k >= 0);
+    if (!busy.length) return freeTrack(doc, start, dur, null);
+    i = Math.min(...busy);
+  }
+  for (let k = i - 1; k >= 0; k--) if (isFree(doc, doc.tracks[k].id, start, dur)) return doc.tracks[k].id;
+  return addTrack(doc, i).id;
+}
+
 export function addTrack(doc, at = doc.tracks.length) {
   let n = doc.tracks.length + 1;
   while (doc.tracks.some(t => t.name === `Track ${n}`)) n++;

@@ -20,6 +20,9 @@
     **Cross-cut** (two scenes turn about, ever faster).
   - **⚡ Auto L & J cuts** puts them, taking turns, on every cut between clips with sound.
   - The L / J sound overlap is adjustable (0.5–3 s).
+- Dragging a video or picture onto another one on the timeline (from Media, Finder, or moving a clip) now lays it
+  on top: on a free track above, or a new track made just above. Before, it could slide to a later time or go on a
+  track underneath, where it was hidden.
 - **🎲 Randomize** for transitions on every cut (Auto packs, style packs, Settings › Timeline): from "in order"
   through "same feel" to "surprise me", with lengths varied a little too.
 

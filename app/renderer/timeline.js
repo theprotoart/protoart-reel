@@ -2,7 +2,7 @@
 // clips with their keyframes, automation lanes, markers and the playhead. Move, trim, snap, drop,
 // marquee-select, scrub (also while playing) and zoom from a single frame out to the whole project.
 import { el, $, popMenu, toast } from './ui.js';
-import { clipEnd, isFree, snap, trim, setSpeed, SPEED_STEPS, mediaById, duration, fmtTime, keyAt, withGroups, TRACK_LANES, gainToPos, posToGain, fmtDb, fmtPan, clamp, neighbour, roll, KEY_EASES, split, tidyCrossfades, cutsOn, crossfadeOverlaps, fadeShape } from './model.js';
+import { clipEnd, isFree, addTrack, snap, trim, setSpeed, SPEED_STEPS, mediaById, duration, fmtTime, keyAt, withGroups, TRACK_LANES, gainToPos, posToGain, fmtDb, fmtPan, clamp, neighbour, roll, KEY_EASES, split, tidyCrossfades, cutsOn, crossfadeOverlaps, fadeShape } from './model.js';
 import { peaksFor, posterFor } from './peaks.js';
 import { mapAt, addPoint, movePoint, removePoint, linearRetime } from './lib/retime.js';
 import { musicLike, fitSource, refitTo, canFit } from './musicfit.js';
@@ -1338,6 +1338,12 @@ export class Timeline {
           ns = Math.abs(s1 - ns) <= Math.abs(s2 - ns) ? s1 : s2;
         }
         const dt = Math.max(ns - lead.start, -Math.min(...[...orig.values()].map(o => o.start)));
+        // tracks this drag made for layering come off again first (its clips go back while it works out the move)
+        if (made.length) {
+          for (const id of ids) { const k = doc.clips.find(x => x.id === id); if (made.includes(k.track)) k.track = orig.get(id).track; }
+          doc.tracks = doc.tracks.filter(t => !made.includes(t.id) || doc.clips.some(k => k.track === t.id));
+          made = [];
+        }
         const tracks = doc.tracks;
         const plan = ids.map(id => {
           const o = orig.get(id);
@@ -1348,10 +1354,14 @@ export class Timeline {
         const fits = p => isFree(doc, p.track, p.start, p.dur, ids) || (ids.length === 1 && xfadeFits(doc, p, ids));
         let to = null;
         if (plan.every(fits)) to = plan;
-        else { const same = plan.map(p => ({ ...p, track: orig.get(p.id).track })); if (same.every(fits)) to = same; }
-        // it would run into another clip: slide it right up against that clip instead of stopping short,
-        // so one drag closes the gap (like ScreenFlow and Resolve)
-        if (!to) to = buttUp(doc, plan, ids, orig, dt) || buttUp(doc, plan.map(p => ({ ...p, track: orig.get(p.id).track })), ids, orig, dt);
+        else {
+          // just short of another clip: slide right up against it, so one drag closes the gap (like ScreenFlow and Resolve)
+          const butt = buttUp(doc, plan, ids, orig, dt);
+          if (butt && Math.abs(butt[0].start - plan[0].start) <= this.t(24)) to = butt;
+          // dropped over other clips: it goes on top of them, at the time you dropped it, on a free track above
+          // or on new track(s) made just above (a picture never ends up hidden underneath)
+          else to = layerPlan(doc, plan, ids, made);
+        }
         if (to) for (const p of to) { const k = doc.clips.find(x => x.id === p.id); k.start = p.start; k.track = p.track; }
         xf = ids.length === 1 ? xfadeOverlap(doc, doc.clips.find(x => x.id === ids[0])) : 0;
         if (xf > 0) {
@@ -1362,7 +1372,7 @@ export class Timeline {
       }
       this.app.changed({ light: true });
     };
-    let xf = 0, tip = null;
+    let xf = 0, tip = null, made = [];
     const up = () => {
       window.removeEventListener('pointermove', move); window.removeEventListener('pointerup', up);
       document.body.style.cursor = '';
@@ -1372,6 +1382,7 @@ export class Timeline {
         const n = k ? crossfadeOverlaps(doc.clips.filter(x => x.track === k.track && x.type === 'media')) : 0;
         if (n) toast(`Crossfade added (${xf.toFixed(2)} s): the two clips blend, sound and picture. Drag them apart to remove it.`, 4000);
       }
+      if (moved && made.length) toast(`On ${made.length === 1 ? 'a new track' : 'new tracks'} above, so it plays on top.`, 3500);
       if (moved) this.app.endChange();
     };
     window.addEventListener('pointermove', move); window.addEventListener('pointerup', up);
@@ -1545,6 +1556,22 @@ function xfadeOverlap(doc, c) {
   let best = 0;
   for (const o of overlapping(doc, c.track, c.start, clipEnd(c), [c.id])) best = Math.max(best, Math.min(clipEnd(o), clipEnd(c)) - Math.max(o.start, c.start));
   return best > 0.01 ? best : 0;
+}
+
+/**
+ * Clips moved onto other clips are layered on top: the whole selection goes up to the nearest rows above where it
+ * all fits at that time; if none, new tracks are made just above the topmost of them (their ids pushed to made).
+ */
+export function layerPlan(doc, plan, ids, made = []) {
+  const idx = p => doc.tracks.findIndex(t => t.id === p.track);
+  const top = Math.min(...plan.map(idx));
+  for (let k = 1; k <= top; k++) {
+    const up = plan.map(p => ({ ...p, track: doc.tracks[idx(p) - k].id }));
+    if (up.every(p => isFree(doc, p.track, p.start, p.dur, ids))) return up;
+  }
+  const rows = [...new Set(plan.map(p => p.track))].sort((a, b) => doc.tracks.findIndex(t => t.id === a) - doc.tracks.findIndex(t => t.id === b));
+  const map = new Map(rows.map((id, j) => { const t = addTrack(doc, top + j); made.push(t.id); return [id, t.id]; }));
+  return plan.map(p => ({ ...p, track: map.get(p.track) }));
 }
 
 /** A move that would overlap another clip, turned into the nearest move that just touches it: every edge

@@ -5,7 +5,7 @@ import { el, $, toast, modal, ask, promptText, popMenu } from './ui.js';
 import { installFaceplate, lamp, sevenSegment, screwCorners } from './gear.js';
 import {
   History, timeFormat, withGroups, normalize, uid, duration, split, remove, newMediaClip, newTextClip, newCalloutClip, newShapeClip,
-  freeTrack, addTrack, clipEnd, propsAt, ANIMATABLE, mediaById, fmtTime, isFree,
+  freeTrack, layerTrack, addTrack, clipEnd, propsAt, ANIMATABLE, mediaById, fmtTime, isFree,
   setSpeed, SPEED_STEPS, SPEED_MIN, SPEED_MAX, putKey,
   mergeOverlapTracks, removeRange, applyTrackLocks, findGaps, closeGaps, smoothCuts, raisePip,
 } from './model.js';
@@ -706,7 +706,7 @@ class App {
           const c = newMediaClip(doc, m, null, at);
           // the track it was dropped on, when there's room there; sound otherwise goes to a sound track
           c.track = where?.track && isFree(doc, where.track, c.start, c.duration) ? where.track
-            : m.kind === 'audio' ? this._audioTrack(doc, c.start, c.duration) : freeTrack(doc, c.start, c.duration, where && where.track);
+            : m.kind === 'audio' ? this._audioTrack(doc, c.start, c.duration) : layerTrack(doc, c.start, c.duration, where && where.track);
           doc.clips.push(c);
           at = clipEnd(c); placed++; placedIds.push(c.id);
           if (m.kind === 'video') dropped.push(c.id);
@@ -789,7 +789,8 @@ class App {
     if (!m) return;
     this.commit(doc => {
       const c = newMediaClip(doc, m, null, at);
-      c.track = trackId && isFree(doc, trackId, c.start, c.duration) ? trackId : freeTrack(doc, c.start, c.duration, trackId);
+      c.track = trackId && isFree(doc, trackId, c.start, c.duration) ? trackId
+        : m.kind === 'audio' ? freeTrack(doc, c.start, c.duration, trackId) : layerTrack(doc, c.start, c.duration, trackId); // a picture dropped on one goes on top of it
       doc.clips.push(c);
       this.selection = { clips: [c.id], action: null };
       if (m.kind === 'video') this._autoZoomDropped([c.id]);
