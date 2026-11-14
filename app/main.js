@@ -1873,6 +1873,7 @@ function buildMenu() {
       { label: 'Play in Reverse', accelerator: 'Command+Alt+R', click: m('reverse') },
       { label: 'Detach Audio', accelerator: 'Control+Shift+S', click: m('detach-audio') },
       { label: 'Align to Guide (ADR)…', accelerator: 'Command+Alt+A', click: m('adr-align') },
+      { label: 'Dynamic Zoom…', accelerator: 'Command+Alt+Z', click: m('dynamic-zoom') },
       { label: 'Film Cuts', submenu: [
         { label: 'L-cut at the Playhead', click: m('l-cut') },
         { label: 'J-cut at the Playhead', click: m('j-cut') },

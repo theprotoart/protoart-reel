@@ -13,6 +13,7 @@ import { openTransitions } from './transpicker.js';
 import { dial } from './gear.js';
 import { fxRack, fxRackH } from './fxrack.js';
 import { roleButton, tint } from './automix.js';
+import { setZoomAt, moveZoomKey, removeZoomKey, removeDynZoom } from './lib/dynzoom.js';
 import { soundTracks, ROLES } from './lib/automix.js';
 
 const LANE_H = 52;
@@ -21,7 +22,11 @@ const MAX_PPS = 400;
 const LANE = {
   volume: { label: 'Volume', def: 1, toPos: gainToPos, fromPos: posToGain, fmt: fmtDb, unit: 'dB' },
   pan: { label: 'Pan', def: 0, toPos: v => (1 - v) / 2, fromPos: p => 1 - p * 2, fmt: fmtPan, unit: '' }, // top = left
+  // each clip's zoom (its scale keyframes): 50% at the bottom, 100% a third of the way up, 400% at the top
+  zoom: { label: 'Zoom', def: 1, toPos: v => clamp((Math.log2(Math.max(1e-3, v)) + 1) / 3, 0, 1), fromPos: p => 2 ** (p * 3 - 1), fmt: v => Math.round(v * 100) + '%', unit: '' },
 };
+// a picture on the timeline (not sound): what the Zoom lane shows
+const isPicture = (doc, c) => !(c.type === 'media' && (c.audioOnly || mediaById(doc, c.media)?.kind === 'audio'));
 
 export class Timeline {
   constructor(app) {
@@ -192,6 +197,7 @@ export class Timeline {
       ['Fade in (½ s)', () => fade('in', Math.min(0.5, c.duration / 2))],
       ['Fade out (½ s)', () => fade('out', Math.min(0.5, c.duration / 2))],
       ['Remove fades', () => { fade('in', 0); fade('out', 0); }],
+      ...(c.audioOnly || m?.kind === 'audio' ? [] : [null, ['🔍 Dynamic zoom (start & end frames)…', () => { app.select([c.id]); app.cmd('dynamic-zoom'); }]]),
       // bounce in place: render the effects into new audio on a track below; originals muted and greyed out
       c.bounced || c.bounceOf ? ['↩ Back to the original sound (remove the rendered copy)', () => app.cmd('bounce-revert')]
         : audioish && !c.audio?.mute ? ['⤓ Bounce to new track (render effects in place)', () => app.cmd('bounce')] : null,
@@ -601,6 +607,12 @@ export class Timeline {
 
   _laneHead(tr, lane) {
     const app = this.app;
+    if (lane === 'zoom') {
+      const n = this.doc.clips.filter(c => c.track === tr.id && (c.keys?.['props.scale'] || []).length).length;
+      return el('div', { class: 'tl-lanehead', style: { height: LANE_H + 'px' } },
+        el('div', { class: 'th-top' }, el('span', { class: 'engr lane-name', text: 'Zoom' })),
+        el('div', { class: 'th-top' }, el('span', { class: 'note', text: n ? `${n} clip${n > 1 ? 's' : ''} zoomed` : 'Click a clip’s line to add a key', title: 'Each clip’s zoom as a line: click to add a key · drag a key (sideways for when, up and down for how far) · ⌥-click or double-click to delete · right-click for the curve' })));
+    }
     const mode = el('select', { class: 'th-lane', title: 'Read plays the automation · Touch records knob moves while playing · Off ignores it' },
       ...[['read', 'Read'], ['touch', 'Touch'], ['off', 'Off']].map(([v, t]) => el('option', { value: v, text: t, selected: (tr.autoMode || 'read') === v })));
     mode.addEventListener('change', () => app.commit(() => { tr.autoMode = mode.value === 'read' ? undefined : mode.value; }));
@@ -611,8 +623,103 @@ export class Timeline {
         n ? el('button', { class: 'th-btn', text: 'Clear', title: 'Remove this lane’s automation', onclick: () => app.commit(() => { delete tr.auto[lane]; }) }) : null));
   }
 
+  /**
+   * Zoom lane: each picture clip's zoom as a line, like Resolve's keyframe curves. Click a clip's line to add a key,
+   * drag a key sideways (when) and up or down (how far in), ⌥-click or double-click to delete, right-click for the
+   * curve. The spot in the middle of the screen stays put as the zoom changes.
+   */
+  _zoomLane(tr, W) {
+    const app = this.app, L = LANE.zoom;
+    const box = el('div', { class: 'tl-lane zoom-lane', style: { height: LANE_H + 'px' } });
+    const NS = 'http://www.w3.org/2000/svg';
+    const svg = document.createElementNS(NS, 'svg');
+    svg.setAttribute('width', W); svg.setAttribute('height', LANE_H);
+    box.append(svg);
+    const pad = 6, hh = LANE_H - pad * 2;
+    const yOf = v => pad + (1 - L.toPos(v)) * hh;
+    const vOf = y => L.fromPos(clamp(1 - (y - pad) / hh, 0, 1));
+    const clips = () => this.doc.clips.filter(c => c.track === tr.id && isPicture(this.doc, c));
+    const draw = () => {
+      svg.replaceChildren();
+      const mk = (tag, attrs) => { const n = document.createElementNS(NS, tag); for (const k in attrs) n.setAttribute(k, attrs[k]); svg.append(n); return n; };
+      mk('line', { x1: 0, x2: W, y1: yOf(1), y2: yOf(1), class: 'lane-ref' });
+      for (const c of clips()) {
+        const x0 = this.x(c.start), x1 = this.x(c.start + c.duration);
+        const list = c.keys?.['props.scale'] || [];
+        mk('rect', { x: x0, y: 1, width: Math.max(1, x1 - x0), height: LANE_H - 2, class: 'zoom-span', 'data-clip': c.id });
+        if (!list.length) { const y = yOf(c.props?.scale ?? 1); mk('line', { x1: x0, x2: x1, y1: y, y2: y, class: 'lane-line flat', 'data-clip': c.id }); continue; }
+        // the curve, sampled so eases show their shape
+        let d = '';
+        const steps = Math.max(8, Math.round((x1 - x0) / 4));
+        for (let i = 0; i <= steps; i++) { const t = (c.duration * i) / steps; d += `${i ? 'L' : 'M'}${this.x(c.start + t)} ${yOf(keyAt(list, t, 1))}`; }
+        mk('path', { d, class: 'lane-line', 'data-clip': c.id });
+        list.forEach((k, i) => {
+          const sel = this.selPoint && this.selPoint.zoom === c.id && this.selPoint.k === k;
+          const pt = mk('circle', { cx: this.x(c.start + k.t), cy: yOf(k.v), r: sel ? 5.5 : 4.5, class: 'lane-pt' + (sel ? ' sel' : ''), 'data-clip': c.id, 'data-i': i });
+          const ti = document.createElementNS(NS, 'title'); ti.textContent = `${fmtTime(c.start + k.t)} · zoom ${L.fmt(k.v)}\nDrag to move · ⌥-click or double-click to delete · right-click for the curve`; pt.append(ti);
+        });
+      }
+    };
+    draw();
+    const at = e => {
+      const id = e.target.dataset?.clip;
+      const c = id ? this.doc.clips.find(x => x.id === id) : null;
+      const i = e.target.dataset?.i !== undefined ? Number(e.target.dataset.i) : -1;
+      return { c, i, k: c && i >= 0 ? c.keys?.['props.scale']?.[i] : null };
+    };
+    box.addEventListener('pointerdown', e => {
+      if (e.button !== 0) return;
+      const { c, k: hit } = at(e);
+      if (!c) return;
+      e.stopPropagation();
+      const r = box.getBoundingClientRect();
+      const local = ev => clamp(this.t(ev.clientX - r.left) - c.start, 0, c.duration);
+      const now = performance.now(), prev = this._lastZoomPt;
+      this._lastZoomPt = hit ? { k: hit, at: now } : null;
+      if (hit && (e.altKey || (prev && prev.k === hit && now - prev.at < 450))) {
+        this._lastZoomPt = null; this.selPoint = null;
+        app.commit(() => removeZoomKey(c, hit.t)); this.render(); return;
+      }
+      app.beginChange();
+      let k = hit;
+      if (!k) { setZoomAt(c, local(e), vOf(e.clientY - r.top)); k = c.keys['props.scale'].find(x => Math.abs(x.t - local(e)) < 1e-4); }
+      this.selPoint = { zoom: c.id, k };
+      draw();
+      app.changed({ light: true, keepInspector: true, noTimeline: true });
+      box.setPointerCapture(e.pointerId);
+      const move = ev => {
+        const list = c.keys['props.scale'], i = list.indexOf(k);
+        const lo = i > 0 ? list[i - 1].t + 1e-3 : 0, hi = i < list.length - 1 ? list[i + 1].t - 1e-3 : c.duration;
+        let t = local(ev);
+        if (this.snapOn) t = snap(this.doc, c.start + t, this._tol(), [], [app.player.time]) - c.start;
+        t = clamp(t, lo, hi);
+        if (Math.abs(t - k.t) > 1e-6) moveZoomKey(c, k.t, t);
+        setZoomAt(c, k.t, vOf(ev.clientY - r.top));
+        draw();
+        app.changed({ light: true, keepInspector: true, noTimeline: true });
+      };
+      const up = () => { box.removeEventListener('pointermove', move); box.removeEventListener('pointerup', up); app.endChange({ keepInspector: true }); };
+      box.addEventListener('pointermove', move); box.addEventListener('pointerup', up);
+    });
+    box.addEventListener('contextmenu', e => {
+      e.preventDefault(); e.stopPropagation();
+      const { c, k } = at(e);
+      if (!c) return;
+      const edit = fn => { app.commit(() => fn()); this.render(); };
+      popMenu(e.clientX, e.clientY, [
+        k ? ['Delete key', () => edit(() => removeZoomKey(c, k.t))] : null,
+        ...(k ? KEY_EASES.map(([v, t]) => [`${(k.ease || 'linear') === v ? '● ' : ''}Curve: ${t}`, () => edit(() => { for (const p of ['props.scale', 'props.x', 'props.y']) for (const q of c.keys?.[p] || []) if (Math.abs(q.t - k.t) < 1e-4) q.ease = v; })]) : []),
+        k ? null : undefined,
+        ['🔍 Dynamic zoom (start & end frames)…', () => { app.select([c.id]); app.cmd('dynamic-zoom'); }],
+        (c.keys?.['props.scale'] || []).length ? ['Remove this clip’s zoom', () => edit(() => removeDynZoom(c))] : null,
+      ]);
+    });
+    return box;
+  }
+
   /** Automation lane: the curve over the whole timeline; click to add, drag to move, ⌥-click to delete. */
   _lane(tr, lane, W) {
+    if (lane === 'zoom') return this._zoomLane(tr, W);
     const app = this.app, L = LANE[lane];
     const box = el('div', { class: 'tl-lane' + (tr.autoMode === 'off' ? ' off' : ''), style: { height: LANE_H + 'px' } });
     const NS = 'http://www.w3.org/2000/svg';
@@ -703,6 +810,13 @@ export class Timeline {
   deleteSelectedPoint() {
     const sp = this.selPoint;
     if (!sp) return false;
+    if (sp.zoom) { // a Zoom lane key
+      const c = this.doc.clips.find(x => x.id === sp.zoom);
+      this.selPoint = null;
+      if (!c || !(c.keys?.['props.scale'] || []).includes(sp.k)) return false;
+      this.app.commit(() => removeZoomKey(c, sp.k.t)); this.render();
+      return true;
+    }
     const list = sp.tr.auto?.[sp.lane];
     const i = list ? list.indexOf(sp.k) : -1;
     this.selPoint = null;

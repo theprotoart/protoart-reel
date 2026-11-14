@@ -4,6 +4,7 @@ import { elementBox } from './lib/elements.js';
 import { el, popMenu } from './ui.js';
 import { propsAt, mediaById, ANIMATABLE, clipEnd, TEXT_DEFAULTS, animated, paramAt, setParam, clamp } from './model.js';
 import { mediaRect, textFont } from './compositor.js';
+import { getDynZoom, setDynZoomFrame, swapDynZoom, MIN_S, MAX_S } from './lib/dynzoom.js';
 
 export class Overlay {
   constructor(app) {
@@ -31,6 +32,8 @@ export class Overlay {
     if (this.dragging) return; // the box being dragged follows the pointer itself
     const app = this.app, doc = this.doc;
     this.root.replaceChildren();
+    // framing a dynamic zoom ends when its clip is no longer selected
+    if (app.dzEdit && (!doc || !app.selection.clips.includes(app.dzEdit))) { app.dzEdit = null; app.player.queueDraw(); app.inspector?.render?.(); }
     if (!doc || !app.selection.clips.length || app.player.playing) return;
     // one picture in the selection gets the handles: a clip selected with its own sound (a recording's screen and
     // microphone, a PIP and its audio) still shows them, so it can be moved and scaled straight away
@@ -47,6 +50,7 @@ export class Overlay {
     const W = cr.width, H = cr.height;
     const ca = animated(c, t - c.start);
     const p = propsAt({ ...ca, transIn: null, transOut: null }, t - c.start);
+    if (app.dzEdit === c.id) { this.dzBoxes(c, W, H); return; }
     if (c.type === 'media') {
       const m = mediaById(doc, c.media);
       if (!m || m.kind === 'audio') return;
@@ -69,6 +73,77 @@ export class Overlay {
       this.box(c, { x: p.x * W - b.w / 2, y: p.y * H - b.h / 2, w: b.w, h: b.h }, W, H, 'text');
     } else if (c.type === 'shape') {
       this.shapeHandles(c, p, W, H);
+    }
+  }
+
+  /**
+   * Dynamic zoom: the green START and red END frames over the whole picture. Drag a frame to move it, a corner to
+   * resize it from the opposite corner (⇧ from the centre); it keeps the shape of the picture.
+   */
+  dzBoxes(c, W, H) {
+    const app = this.app;
+    const dz = getDynZoom(c);
+    const rectOf = f => ({ x: (f.fx - f.s / 2) * W, y: (f.fy - f.s / 2) * H, w: f.s * W, h: f.s * H });
+    const NS = 'http://www.w3.org/2000/svg';
+    const path = document.createElementNS(NS, 'svg');
+    path.setAttribute('class', 'dz-path'); path.setAttribute('width', W); path.setAttribute('height', H);
+    const line = document.createElementNS(NS, 'line');
+    path.append(line);
+    const drawPath = () => { const a = getDynZoom(c); line.setAttribute('x1', a.start.fx * W); line.setAttribute('y1', a.start.fy * H); line.setAttribute('x2', a.end.fx * W); line.setAttribute('y2', a.end.fy * H); };
+    drawPath();
+    this.root.append(path);
+    for (const which of ['end', 'start']) { // START on top: it's the one you usually set first
+      const f = dz[which], r = rectOf(f);
+      const b = el('div', { class: 'dz-box ' + which, style: { left: r.x + 'px', top: r.y + 'px', width: r.w + 'px', height: r.h + 'px' },
+        title: `${which === 'start' ? 'START' : 'END'} frame: what fills the screen at the ${which} of the zoom. Drag to move · drag a corner to resize (⇧ from the centre)` },
+        el('span', { class: 'dz-tag', text: which === 'start' ? 'START' : 'END' }),
+        ...['tl', 'tr', 'bl', 'br'].map(h => el('div', { class: 'h ' + h, 'data-h': h })));
+      this.root.append(b);
+      b.addEventListener('pointerdown', e => {
+        if (e.button !== 0) return;
+        e.preventDefault(); e.stopPropagation();
+        const h = e.target.dataset?.h || null, f0 = getDynZoom(c)[which];
+        const x0 = e.clientX, y0 = e.clientY;
+        let moved = false;
+        b.setPointerCapture(e.pointerId);
+        const move = ev => {
+          const dx = (ev.clientX - x0) / W, dy = (ev.clientY - y0) / H;
+          if (!moved && Math.abs(ev.clientX - x0) + Math.abs(ev.clientY - y0) < 3) return;
+          if (!moved) { moved = true; this.dragging = true; app.beginChange(); }
+          let f;
+          if (!h) f = { ...f0, fx: f0.fx + dx, fy: f0.fy + dy };
+          else {
+            const sx = h.includes('l') ? -1 : 1, sy = h.includes('t') ? -1 : 1;
+            // bigger as the corner goes outwards; the frame keeps the picture's shape
+            // width and height are both fractions s of the picture: a corner moved by dx, dy grows it by their average
+            // (twice that from the centre, where both sides move)
+            const grow = (sx * dx + sy * dy) / 2 * (ev.shiftKey ? 2 : 1);
+            const s = clamp(f0.s + grow, MIN_S, MAX_S);
+            if (ev.shiftKey) f = { ...f0, s };
+            else f = { s, fx: f0.fx - sx * f0.s / 2 + sx * s / 2, fy: f0.fy - sy * f0.s / 2 + sy * s / 2 }; // the opposite corner stays put
+          }
+          setDynZoomFrame(c, which, f);
+          const nr = rectOf(getDynZoom(c)[which]);
+          Object.assign(b.style, { left: nr.x + 'px', top: nr.y + 'px', width: nr.w + 'px', height: nr.h + 'px' });
+          drawPath();
+          app.changed({ light: true, keepInspector: true });
+        };
+        const up = () => {
+          b.removeEventListener('pointermove', move); b.removeEventListener('pointerup', up);
+          this.dragging = false;
+          if (moved) app.endChange({ keepInspector: true }); else this.update();
+        };
+        b.addEventListener('pointermove', move); b.addEventListener('pointerup', up);
+      });
+      b.addEventListener('contextmenu', e => {
+        e.preventDefault();
+        popMenu(e.clientX, e.clientY, [
+          ['Whole picture', () => app.commit(() => setDynZoomFrame(c, which, { fx: 0.5, fy: 0.5, s: 1 }))],
+          ['Swap START and END', () => app.commit(() => swapDynZoom(c))],
+          null,
+          ['Done framing', () => app.cmd('dynamic-zoom-done')],
+        ]);
+      });
     }
   }
 

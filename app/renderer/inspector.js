@@ -12,6 +12,7 @@ import { canSeparate } from './ghost.js';
 import { captionPanel, captionStylePanel, annotationPanel } from './textops.js';
 import { filtersSection, matteSection, stabilizeSection } from './filters.js';
 import { MOTION_PRESETS, applyMotion, clearMotion } from './motion.js';
+import { hasDynZoom, getDynZoom, setDynZoomEase, swapDynZoom, removeDynZoom, DZ_EASES } from './lib/dynzoom.js';
 import { ELEMENTS } from './lib/elements.js';
 import { pref } from './prefs.js';
 
@@ -277,6 +278,7 @@ export class Inspector {
     if (c.type === 'element') this.root.append(elementPanel(this, c));
 
     if (visual) {
+      if (!act) this.root.append(dynZoomSection(app, this, c));
       this.root.append(motionSection(this, c));
       const pos = section(act ? 'Position (action target)' : 'Position & size');
       if (act) pos.append(el('div', { class: 'editing-action' }, `Editing the action at ${fmtTime(c.start + act.t)}. Changes animate over ${act.dur.toFixed(1)} s. `,
@@ -598,6 +600,29 @@ async function autoLevels(insp, c) {
     const lo = at(0.005) / 255, hi = Math.max(lo + 0.2, at(0.995) / 255);
     insp.edit(() => { c.levels = { ...(c.levels || {}), black: Math.min(0.4, lo), white: Math.max(0.6, hi) }; });
   } catch (e) { app.toast?.(e.message); }
+}
+
+/** Dynamic zoom, like Resolve's: START and END frames dragged in the preview, and the ease between them. */
+function dynZoomSection(app, insp, c) {
+  const sec = section('Dynamic zoom');
+  const framing = app.dzEdit === c.id;
+  if (!hasDynZoom(c)) {
+    sec.append(el('p', { class: 'note', text: 'Zoom and pan across the clip: drag a START and an END frame over the picture and it moves from one to the other.' }),
+      el('div', { class: 'btn-row' }, el('button', { class: 'tool dz-btn', text: '🔍 DYNAMIC ZOOM', title: 'Add a START and END frame to drag in the preview', onclick: () => app.cmd('dynamic-zoom') })));
+    return sec;
+  }
+  const dz = getDynZoom(c);
+  const ease = el('select', { title: 'How it moves from START to END' }, ...DZ_EASES.map(([v, t]) => el('option', { value: v, text: t, selected: dz.ease === v })));
+  ease.addEventListener('change', () => insp.edit(() => setDynZoomEase(c, ease.value)));
+  const pct = f => Math.round(100 / f.s) + '%';
+  sec.append(
+    el('p', { class: 'note', text: `${pct(dz.start)} → ${pct(dz.end)} over ${(dz.t1 - dz.t0).toFixed(1)} s. ${framing ? 'Drag the green START and red END frames in the preview (a corner resizes, ⇧ from the centre).' : 'Drag the diamonds on the clip to change when it starts and ends, or pick Zoom under the track to shape it.'}` }),
+    el('div', { class: 'row' }, el('label', { text: 'Ease' }), ease),
+    el('div', { class: 'btn-row' },
+      el('button', { class: 'tool dz-btn' + (framing ? ' lit' : ''), text: framing ? '✓ DONE' : '🔍 EDIT FRAMES', title: framing ? 'Finish framing (Esc)' : 'Show the START and END frames in the preview', onclick: () => app.cmd(framing ? 'dynamic-zoom-done' : 'dynamic-zoom') }),
+      el('button', { class: 'tool', text: '⇄ SWAP', title: 'Zoom out instead of in: START becomes END', onclick: () => insp.edit(() => swapDynZoom(c)) }),
+      el('button', { class: 'tool', text: 'REMOVE', title: 'Take the dynamic zoom off (the clip keeps its START framing)', onclick: () => { app.dzEdit = null; insp.edit(() => removeDynZoom(c)); app.player.queueDraw(); } })));
+  return sec;
 }
 
 /** One-click moves for the clip, grouped; each makes ordinary keyframes you can adjust. */

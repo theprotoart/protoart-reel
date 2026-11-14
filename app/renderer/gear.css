@@ -1979,3 +1979,18 @@ body.dragging-window, body.dragging-window * { cursor: move !important; user-sel
 .ae-keep-row { display: flex; align-items: center; gap: 12px; }
 .ae-keep-row .ae-region, .ae-keep-row .note { margin: 0; flex: 1; min-width: 0; }
 .ae-keep-btn { flex: none; white-space: nowrap; }
+
+/* 🔍 Dynamic zoom: the START (green) and END (red) frames over the whole picture */
+.dz-path { position: absolute; left: 0; top: 0; pointer-events: none; overflow: visible; }
+.dz-path line { stroke: #fff; stroke-width: 1.5; stroke-dasharray: 5 4; opacity: .8; }
+.dz-box { position: absolute; box-sizing: border-box; cursor: move; pointer-events: auto; border: 2px solid; }
+.dz-box.start { border-color: #4fd36a; background: rgba(79, 211, 106, .08); }
+.dz-box.end { border-color: #ff5a4a; background: rgba(255, 90, 74, .08); border-style: dashed; }
+.dz-tag { position: absolute; left: 6px; top: 6px; font: 700 10px/1 var(--font-engrave, system-ui); letter-spacing: .14em; padding: 4px 6px; border-radius: 3px; color: #08200d; background: #4fd36a; pointer-events: none; }
+.dz-box.end .dz-tag { left: auto; right: 6px; top: auto; bottom: 6px; background: #ff5a4a; color: #fff; }
+.dz-box .h { position: absolute; width: 12px; height: 12px; background: #fff; border: 2px solid currentColor; border-radius: 2px; }
+.dz-box.start .h { color: #4fd36a; } .dz-box.end .h { color: #ff5a4a; }
+.dz-box .h.tl { left: -7px; top: -7px; cursor: nwse-resize; } .dz-box .h.br { right: -7px; bottom: -7px; cursor: nwse-resize; }
+.dz-box .h.tr { right: -7px; top: -7px; cursor: nesw-resize; } .dz-box .h.bl { left: -7px; bottom: -7px; cursor: nesw-resize; }
+.zoom-lane .zoom-span { fill: rgba(255, 255, 255, .035); stroke: rgba(255, 255, 255, .08); }
+.zoom-lane .lane-line, .zoom-lane .lane-pt { cursor: pointer; }

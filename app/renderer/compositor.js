@@ -1,6 +1,7 @@
 // Draws one frame of a project onto a 2D canvas. Used for the live preview (sources are <video>
 // and <img> elements) and for export (sources are WebCodecs VideoFrames and ImageBitmaps), so
 // what you see is what you export.
+import { unzoomed } from './lib/dynzoom.js';
 import { revealLayer, finishReveal } from './lib/textreveal.js';
 import { activeClips, propsAt, sourceTime, mediaById, clamp, TEXT_DEFAULTS, animated, captionAt, CAPTION_STYLE } from './model.js';
 import { keysAt } from './cursor.js';
@@ -31,7 +32,7 @@ export function drawFrame(ctx, doc, t, sources, opts = {}) {
   const here = activeClips(doc, t);
   for (const k of [...here.filter(k => !overlay(k)), ...here.filter(overlay)]) {
     const local = t - k.start;
-    const c = animated(k, local); // keyframed values at this moment
+    const c = animated(opts.unzoom === k.id ? unzoomed(k) : k, local); // keyframed values at this moment (the whole picture while its dynamic zoom is being framed)
     const p = propsAt(c, local);
     if (p.opacity <= 0.001 && !p.dip) continue;
     const masked = p.mask && p.mask.k < 1;

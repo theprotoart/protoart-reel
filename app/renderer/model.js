@@ -285,7 +285,7 @@ export function panGains(p) { return [p > 0 ? 1 - p : 1, p < 0 ? 1 + p : 1]; }
 // e.g. 'callout.x', 'props.scale', 'audio.volume'. Track automation lives in tr.auto = { volume, pan }
 // with times on the timeline. Ease belongs to the segment leaving a key: linear | ease | hold.
 
-export const KEY_EASES = [['linear', 'Linear'], ['ease', 'Smooth'], ['hold', 'Hold']];
+export const KEY_EASES = [['linear', 'Linear'], ['ease', 'Smooth (ease in & out)'], ['in', 'Ease in'], ['out', 'Ease out'], ['hold', 'Hold']];
 
 /** Value of a sorted key list at time t (flat before the first key and after the last). */
 export function keyAt(list, t, fallback) {
@@ -298,7 +298,7 @@ export function keyAt(list, t, fallback) {
   const a = list[lo], b = list[hi];
   if (a.ease === 'hold') return a.v;
   const k = (t - a.t) / Math.max(1e-9, b.t - a.t);
-  return a.v + (b.v - a.v) * (a.ease === 'ease' ? EASES.ease(k) : k);
+  return a.v + (b.v - a.v) * (EASES[a.ease] || EASES.linear)(k);
 }
 const splitPath = path => { const i = path.indexOf('.'); return [path.slice(0, i), path.slice(i + 1)]; };
 export const keysOf = (c, path) => (c.keys && c.keys[path]) || null;
@@ -364,7 +364,7 @@ function shiftKeys(c, d, end) {
   }
 }
 
-export const TRACK_LANES = [['volume', 'Volume'], ['pan', 'Pan']];
+export const TRACK_LANES = [['volume', 'Volume'], ['pan', 'Pan'], ['zoom', 'Zoom (keyframes)']];
 /** Automation is read unless the track's mode is 'off' (then the knobs' fixed values apply). */
 const autoList = (tr, lane) => (tr.autoMode !== 'off' && tr.auto && tr.auto[lane] && tr.auto[lane].length ? tr.auto[lane] : null);
 export function trackGainAt(tr, t) { const l = autoList(tr, 'volume'); return l ? keyAt(l, t, 1) : (tr.volume ?? 1); }

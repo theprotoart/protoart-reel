@@ -2,6 +2,11 @@
 
 ## Unreleased
 
+- **🔍 Dynamic zoom**, like DaVinci Resolve: drag a green START and red END frame over the picture and the clip
+  zooms and pans between them, with Linear, Ease in, Ease out or Ease in & out, and Swap (EFFECTS ▾, the inspector,
+  right-click a clip, ⌥⌘Z).
+- **Zoom lane**: pick Zoom under a track to see each clip's zoom as a line; click to add keys and drag them sideways
+  and up and down. Ease in and Ease out curves for every keyframe.
 - **✚ KEEP A PART** is now a green key of its own on the timeline tool bar (it was inside PARTS ▾), and a button
   in the Auto Edit window that takes you straight there.
 - Windows (Auto Edit, settings, every dialog) and the TAKES and UMS panels move by dragging their title bar.

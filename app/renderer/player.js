@@ -453,7 +453,7 @@ export class Player {
   draw() {
     if (!this.doc) return;
     this.ctx.imageSmoothingQuality = 'high';
-    drawFrame(this.ctx, this.doc, this.time, this.sources, { showCaptions: this.app.showCaptions !== false && (this.doc.captions || []).length > 0 });
+    drawFrame(this.ctx, this.doc, this.time, this.sources, { unzoom: this.app.dzEdit || null, showCaptions: this.app.showCaptions !== false && (this.doc.captions || []).length > 0 });
     if (this.app.afterDraw) this.app.afterDraw();
   }
 
