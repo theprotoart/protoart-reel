@@ -97,7 +97,16 @@ test('build: Electron fuses switch off Node mode, NODE_OPTIONS, the inspector an
 });
 
 test('secrets: no keys, tokens, passwords or personal paths in the tracked files', () => {
-  const files = execFileSync('git', ['ls-files'], { cwd: root, encoding: 'utf8' }).split('\n').filter(f => f && !/\.(png|jpg|icns|sqlite|woff2)$/.test(f));
+  // the files git tracks; where the folder isn't a git checkout (the copy the Mac builds from), the same files found by
+  // walking it, leaving out what .gitignore keeps out of the repo
+  let files;
+  try { files = execFileSync('git', ['ls-files'], { cwd: root, encoding: 'utf8', stdio: ['ignore', 'pipe', 'ignore'] }).split('\n'); }
+  catch {
+    const skip = /^(\.git|\.spike|node_modules|dist|_incoming|__pycache__|bin|.*\.app|.*\.screenflow|SAFE TO DELETE.*)$/;
+    const walk = d => fs.readdirSync(path.join(root, d), { withFileTypes: true }).flatMap(e => skip.test(e.name) ? [] : e.isDirectory() ? walk(path.join(d, e.name)) : [path.join(d, e.name)]);
+    files = walk('').filter(f => !/(^|\/)(\.DS_Store|.*-log\.txt|.*\.log|.*\.pyc)$/.test(f) && !/\.(mov|mp4|m4a|wav|dmg|zip|tgz)$/.test(f));
+  }
+  files = files.filter(f => f && !/\.(png|jpg|icns|sqlite|woff2)$/.test(f));
   const pats = [/sk-(ant-)?[A-Za-z0-9_-]{20,}/, /hf_[A-Za-z0-9]{30,}/, /(ghp|gho|ghu|ghs)_[A-Za-z0-9]{30,}|github_pat_\w{30,}/, /AKIA[0-9A-Z]{16}/, /AIza[\w-]{35}/,
     /-----BEGIN [A-Z ]*PRIVATE KEY-----/, /eyJ[\w-]{20,}\.[\w-]{20,}\./, /\/Users\/[a-z][\w.-]+\//i, /[\w.+-]+@(gmail|yahoo|hotmail|icloud|outlook)\.com/];
   for (const f of files) {
