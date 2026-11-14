@@ -2,6 +2,10 @@
 
 ## Unreleased
 
+- **✚ KEEP A PART** is now a green key of its own on the timeline tool bar (it was inside PARTS ▾), and a button
+  in the Auto Edit window that takes you straight there.
+- Windows (Auto Edit, settings, every dialog) and the TAKES and UMS panels move by dragging their title bar.
+  Double-click the title bar to put one back.
 - **💬 UMS** (beside TAKES, Edit › Ums and Fillers…, ⌥⌘U): Reel listens to the speech and lists every um, uh, er and
   hmm, plus fillers like "you know" and a standalone "like". It also lists short sounds between words, which are
   often ums the speech recogniser left out. Play each one, switch CUT / KEEP, remove one with 🗑, or remove every

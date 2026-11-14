@@ -1971,3 +1971,11 @@ body.rec-paused #keypanel #btn-record .dot { animation: rk-blink 2s steps(2, sta
 .ums-panel .take-row.ums-sound .take-name { font-style: italic; opacity: .8; }
 .ums-panel .ums-del { flex: none; }
 .ums-status:empty { display: none; }
+
+/* windows and floating panels move by their title bar */
+.modal-head.drag-handle, .vo-head.drag-handle { cursor: move; user-select: none; }
+body.dragging-window, body.dragging-window * { cursor: move !important; user-select: none !important; }
+/* ✚ KEEP A PART in Auto Edit */
+.ae-keep-row { display: flex; align-items: center; gap: 12px; }
+.ae-keep-row .ae-region, .ae-keep-row .note { margin: 0; flex: 1; min-width: 0; }
+.ae-keep-btn { flex: none; white-space: nowrap; }

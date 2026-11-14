@@ -138,9 +138,13 @@ export function openAutoEdit(app) {
   voiceSel.addEventListener('change', () => { o.voice = voiceSel.value; draw(); });
   // the parts of the video to use: sections (X) and the current In–Out
   const regionRow = el('div', { class: 'ae-parts' });
+  let dlg = null;
+  const pickParts = () => { dlg?.close(); if (!app.timeline.marking) app.cmd('keep-part'); };
   const drawParts = () => {
     if (!parts.length) {
-      regionRow.replaceChildren(el('p', { class: 'ae-region off', text: 'Tip: to use only some parts of a long video, close this, press ✚ KEEP A PART and drag across the timeline over each part you want (the first 10 minutes, a bit at 30:00…). AUTO EDIT then blends them into one edit.' }));
+      regionRow.replaceChildren(el('div', { class: 'ae-keep-row' },
+        el('button', { class: 'hw ae-keep-btn', text: '✚ KEEP A PART', title: 'Close this and drag across the timeline over each part you want', onclick: pickParts }),
+        el('p', { class: 'ae-region off', text: 'Only want some parts of a long video (the first 10 minutes, a bit at 30:00…)? Press this and drag across the timeline over each part, then AUTO EDIT again. It blends them into one edit.' })));
       return;
     }
     const cb = el('input', { type: 'checkbox', checked: useRegion });
@@ -154,7 +158,8 @@ export function openAutoEdit(app) {
           if (q.pending) app.commit(d => { delete d.range; }); else app.commit(d => { d.sections = (d.sections || []).filter(x => x.id !== q.id); });
           parts = sectionsOf(app.doc); useRegion = parts.length > 0; drawParts(); draw();
         } })))),
-      el('small', { class: 'note', text: 'Add another: close this, press ✚ KEEP A PART and drag over it, then AUTO EDIT again.' }));
+      el('div', { class: 'ae-keep-row' }, el('button', { class: 'mini ae-keep-btn', text: '✚ KEEP ANOTHER PART', title: 'Close this and drag across the timeline over another part', onclick: pickParts }),
+        el('small', { class: 'note', text: 'Drag over it on the timeline, then AUTO EDIT again.' })));
   };
   drawParts();
   const fitRow = el('div', { class: 'row ae-row' }, el('label', { text: 'Fill the frame' }), seg('fit', FIT_LEVELS));
@@ -234,7 +239,7 @@ export function openAutoEdit(app) {
         el('button', { class: 'mini ae-reset', text: 'Back to this recipe’s settings', onclick: () => { o = recipeDefaults(RECIPES[id]); draw(); } })),
       el('div', {}, el('div', { class: 'engr', text: 'Reel will' }), steps)));
   draw();
-  modal('Auto Edit', body, [
+  dlg = modal('Auto Edit', body, [
     { label: 'Cancel', onClick: c => c() },
     { label: 'Auto edit', cls: 'hw amber', onClick: c => {
       const prev = loadPrefs();

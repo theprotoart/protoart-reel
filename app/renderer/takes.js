@@ -2,7 +2,7 @@
 // Every clap signal and MARK splits the recording into takes, like the takes of a voice-over: the take before
 // each clap is the one that went wrong, so it's marked DROP, and the last take is kept. Listen to any take,
 // switch KEEP / DROP, then REMOVE DROPPED TAKES cuts those (with their claps) and closes the gaps.
-import { el, toast } from './ui.js';
+import { el, toast, dragBy } from './ui.js';
 import { mediaById, clipEnd, duration, removeRange } from './model.js';
 import { openClapFinder } from './clapscan.js';
 
@@ -57,6 +57,7 @@ export function openTakes(app) {
     list,
     el('div', { class: 'takes-foot' }, findBtn, removeBtn));
   document.body.append(root);
+  dragBy(root, root.querySelector('.vo-head'));
   let sig = '';
   const refresh = (force = false) => {
     const doc = app.doc;

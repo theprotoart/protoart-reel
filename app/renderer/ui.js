@@ -26,12 +26,36 @@ export function toast(msg, ms = 2600) {
 }
 
 /** Opens a modal; returns { close, body, root }. buttons: [{ label, cls, onClick(close) }]. */
+/** Move box by dragging handle (its title bar). Double-click the title bar to put it back. */
+export function dragBy(box, handle) {
+  handle.classList.add('drag-handle');
+  handle.title ||= 'Drag to move · double-click to put it back';
+  const skip = e => e.target.closest('button, input, select, textarea, a, label');
+  handle.addEventListener('pointerdown', e => {
+    if (e.button !== 0 || skip(e)) return;
+    e.preventDefault();
+    const [tx = 0, ty = 0] = (box.style.translate || '').split(' ').map(v => parseFloat(v) || 0);
+    const r = box.getBoundingClientRect(), x0 = e.clientX, y0 = e.clientY;
+    const mv = ev => {
+      // keep the title bar on screen
+      const dx = Math.max(80 - r.right, Math.min(innerWidth - 80 - r.left, ev.clientX - x0));
+      const dy = Math.max(-r.top, Math.min(innerHeight - 40 - r.top, ev.clientY - y0));
+      box.style.translate = `${tx + dx}px ${ty + dy}px`;
+    };
+    const up = () => { removeEventListener('pointermove', mv); removeEventListener('pointerup', up); document.body.classList.remove('dragging-window'); };
+    addEventListener('pointermove', mv); addEventListener('pointerup', up);
+    document.body.classList.add('dragging-window');
+  });
+  handle.addEventListener('dblclick', e => { if (!skip(e)) box.style.translate = ''; });
+}
+
 export function modal(title, body, buttons = [], { wide = false, onClose } = {}) {
   const foot = el('div', { class: 'modal-foot' });
   const box = el('div', { class: 'modal' + (wide ? ' wide' : '') },
     el('div', { class: 'modal-head' }, el('h2', { text: title }), el('div', { class: 'spacer' }), el('button', { class: 'mini', text: '×', title: 'Close', onclick: () => close() })),
     el('div', { class: 'modal-body' }, body), foot);
   screwCorners(box, 11, 8);
+  dragBy(box, box.querySelector('.modal-head'));
   const back = el('div', { class: 'backdrop' }, box);
   const close = () => { back.remove(); document.removeEventListener('keydown', onKey, true); if (onClose) onClose(); };
   const onKey = e => { if (e.key === 'Escape') { e.stopPropagation(); close(); } };

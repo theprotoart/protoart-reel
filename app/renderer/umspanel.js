@@ -1,7 +1,7 @@
 // 💬 UMS: lists the "um"s, "uh"s and other fillers in the speech, like TAKES lists takes. Listen to each one,
 // switch CUT / KEEP, remove one now with 🗑, or REMOVE every one marked CUT in one go (⌘Z brings them back).
 // The list is kept in the project (doc.ums) and follows the edit as you cut.
-import { el, toast } from './ui.js';
+import { el, toast, dragBy } from './ui.js';
 import { removeRange, mediaById, uid } from './model.js';
 import { mergeRanges } from './lib/words.js';
 import { findUms, levelOnTimeline } from './lib/ums.js';
@@ -47,6 +47,7 @@ export function openUms(app) {
     list, status,
     el('div', { class: 'takes-foot' }, listenBtn, removeBtn));
   document.body.append(root);
+  dragBy(root, root.querySelector('.vo-head'));
 
   let sig = '', busy = false;
   const cutOne = u => {
