@@ -9,7 +9,7 @@ import { putKey, removeKey, paramAt, hasKeys, keysOf, clamp } from '../model.js'
 
 const DZ = ['props.x', 'props.y', 'props.scale'];
 export const DZ_EASES = [['linear', 'Linear'], ['in', 'Ease in'], ['out', 'Ease out'], ['ease', 'Ease in & out']];
-export const MIN_S = 0.05, MAX_S = 1;
+export const MIN_S = 0.05, MAX_S = 2; // up to a 20× zoom in, and down to 50% (the picture smaller than the screen)
 
 export const propsOfFrame = ({ fx, fy, s }) => ({ scale: 1 / s, x: 0.5 + (0.5 - fx) / s, y: 0.5 + (0.5 - fy) / s });
 export const frameOfProps = ({ x = 0.5, y = 0.5, scale = 1 }) => ({ s: 1 / scale, fx: 0.5 - (x - 0.5) / scale, fy: 0.5 - (y - 0.5) / scale });
@@ -108,5 +108,5 @@ export function moveZoomKey(c, from, to) {
 /** Deletes the zoom keyframes at time t. */
 export function removeZoomKey(c, t) { for (const p of DZ) removeKey(c, p, t, 1e-4); }
 
-/** A frame kept the shape of the picture, no bigger than it and no smaller than a 20× zoom. */
+/** A frame keeps the shape of the picture: no smaller than a 20× zoom, no bigger than twice the picture. */
 export function clampFrame({ fx, fy, s }) { return { fx, fy, s: clamp(s, MIN_S, MAX_S) }; }

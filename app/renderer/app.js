@@ -539,6 +539,7 @@ class App {
     if (!hasDynZoom(c)) this.commit(() => applyDynZoom(c));
     this.select([c.id]);
     this.dzEdit = c.id;
+    this.overlay.dzWhich = 'start';
     if (this.player.time < c.start || this.player.time >= clipEnd(c)) this.seek(c.start);
     this.player.queueDraw(); this.overlay.update(); this.inspector.render();
     toast('Drag the green START and red END frames. The clip zooms from one to the other. Press Done (or Esc) when it looks right.', 6000);

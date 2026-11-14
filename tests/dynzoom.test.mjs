@@ -38,7 +38,11 @@ test('moving and resizing the END frame, swapping, and removing', () => {
   near(dz.start.s, 1);
   swapDynZoom(c);
   near(getDynZoom(c).start.s, 0.4); near(getDynZoom(c).end.s, 1);
-  setDynZoomFrame(c, 'start', { fx: 0.5, fy: 0.5, s: 0.001 }); // no smaller than a 20× zoom
+  setDynZoomFrame(c, "start", { fx: 0.5, fy: 0.5, s: 0.001 }); // no smaller than a 20× zoom
+  near(getDynZoom(c).start.s, 0.05);
+  setDynZoomFrame(c, "start", { fx: 0.5, fy: 0.5, s: 9 }); // no bigger than twice the picture (a 50% zoom out)
+  near(getDynZoom(c).start.s, 2);
+  setDynZoomFrame(c, "start", { fx: 0.5, fy: 0.5, s: 0.001 });
   near(getDynZoom(c).start.s, 0.05);
   removeDynZoom(c);
   assert.equal(c.keys, undefined);

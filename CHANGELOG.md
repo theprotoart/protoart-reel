@@ -2,6 +2,10 @@
 
 ## Unreleased
 
+- **The tool panel** is modular: its keys sit in groups (Edit, Voice, Style, Sound, Picture) that fold away, drag
+  into another order, or hide (⚙), with REC and EXPORT always there. Labels no longer get cut short.
+- **Dynamic zoom** frames work like Resolve's: one frame active at a time (a bar switches START and END), so they
+  never block each other; they can go past the edges and zoom out; each shows its zoom; an arrow shows the move.
 - **🔍 Dynamic zoom**, like DaVinci Resolve: drag a green START and red END frame over the picture and the clip
   zooms and pans between them, with Linear, Ease in, Ease out or Ease in & out, and Swap (EFFECTS ▾, the inspector,
   right-click a clip, ⌥⌘Z).

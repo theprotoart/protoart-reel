@@ -1,10 +1,10 @@
 // Direct manipulation in the preview: drag the selected clip to move it, drag its corner to
 // scale it; callout boxes and arrow end points can be dragged too.
 import { elementBox } from './lib/elements.js';
-import { el, popMenu } from './ui.js';
+import { el, popMenu, dragBy } from './ui.js';
 import { propsAt, mediaById, ANIMATABLE, clipEnd, TEXT_DEFAULTS, animated, paramAt, setParam, clamp } from './model.js';
 import { mediaRect, textFont } from './compositor.js';
-import { getDynZoom, setDynZoomFrame, swapDynZoom, MIN_S, MAX_S } from './lib/dynzoom.js';
+import { getDynZoom, setDynZoomFrame, swapDynZoom, setDynZoomEase, DZ_EASES, MIN_S, MAX_S } from './lib/dynzoom.js';
 
 export class Overlay {
   constructor(app) {
@@ -77,28 +77,47 @@ export class Overlay {
   }
 
   /**
-   * Dynamic zoom: the green START and red END frames over the whole picture. Drag a frame to move it, a corner to
-   * resize it from the opposite corner (⇧ from the centre); it keeps the shape of the picture.
+   * Dynamic zoom, the way Resolve shows it: the whole picture, a green START frame (what fills the screen when the
+   * clip begins) and a red END frame (what fills it at the end), with an arrow for the move between them. One frame
+   * is active at a time (pick it in the bar, or click its label or edge), so they never get in each other's way.
+   * Drag inside the active frame to move it, a corner to resize it from the opposite corner (⇧ from the centre). A
+   * frame can go past the edges and grow bigger than the picture to zoom out.
    */
   dzBoxes(c, W, H) {
     const app = this.app;
-    const dz = getDynZoom(c);
+    const active = this.dzWhich === 'end' ? 'end' : 'start';
     const rectOf = f => ({ x: (f.fx - f.s / 2) * W, y: (f.fy - f.s / 2) * H, w: f.s * W, h: f.s * H });
+    const pct = f => Math.round(100 / f.s) + '%';
     const NS = 'http://www.w3.org/2000/svg';
-    const path = document.createElementNS(NS, 'svg');
-    path.setAttribute('class', 'dz-path'); path.setAttribute('width', W); path.setAttribute('height', H);
+    const svg = document.createElementNS(NS, 'svg');
+    svg.setAttribute('class', 'dz-path'); svg.setAttribute('width', W); svg.setAttribute('height', H);
+    svg.innerHTML = '<defs><marker id="dz-arrow" viewBox="0 0 10 10" refX="8" refY="5" markerWidth="7" markerHeight="7" orient="auto"><path d="M0 0 L10 5 L0 10 z" fill="#fff"/></marker></defs>';
     const line = document.createElementNS(NS, 'line');
-    path.append(line);
-    const drawPath = () => { const a = getDynZoom(c); line.setAttribute('x1', a.start.fx * W); line.setAttribute('y1', a.start.fy * H); line.setAttribute('x2', a.end.fx * W); line.setAttribute('y2', a.end.fy * H); };
-    drawPath();
-    this.root.append(path);
-    for (const which of ['end', 'start']) { // START on top: it's the one you usually set first
-      const f = dz[which], r = rectOf(f);
-      const b = el('div', { class: 'dz-box ' + which, style: { left: r.x + 'px', top: r.y + 'px', width: r.w + 'px', height: r.h + 'px' },
-        title: `${which === 'start' ? 'START' : 'END'} frame: what fills the screen at the ${which} of the zoom. Drag to move · drag a corner to resize (⇧ from the centre)` },
-        el('span', { class: 'dz-tag', text: which === 'start' ? 'START' : 'END' }),
-        ...['tl', 'tr', 'bl', 'br'].map(h => el('div', { class: 'h ' + h, 'data-h': h })));
+    line.setAttribute('marker-end', 'url(#dz-arrow)');
+    svg.append(line);
+    this.root.append(svg);
+    const tags = {}, boxes = {};
+    const sync = () => {
+      const a = getDynZoom(c);
+      line.setAttribute('x1', a.start.fx * W); line.setAttribute('y1', a.start.fy * H); line.setAttribute('x2', a.end.fx * W); line.setAttribute('y2', a.end.fy * H);
+      for (const w of ['start', 'end']) {
+        const r = rectOf(a[w]);
+        Object.assign(boxes[w].style, { left: r.x + 'px', top: r.y + 'px', width: r.w + 'px', height: r.h + 'px' });
+        tags[w].textContent = `${w === 'start' ? 'START' : 'END'} · ${pct(a[w])}`;
+      }
+    };
+    const pick = w => { this.dzWhich = w; this.update(); };
+    for (const which of ['start', 'end']) {
+      const on = which === active;
+      tags[which] = el('span', { class: 'dz-tag', title: on ? '' : `Click to adjust the ${which === 'start' ? 'START' : 'END'} frame` });
+      const b = el('div', { class: `dz-box ${which}${on ? ' active' : ''}`,
+        title: on ? `${which === 'start' ? 'START' : 'END'} frame: what fills the screen at the ${which} of the zoom. Drag inside to move it · drag a corner to resize (⇧ from the centre)` : '' },
+        tags[which], ...(on ? [el('i', { class: 'dz-centre' }), ...['tl', 'tr', 'bl', 'br'].map(h => el('div', { class: 'h ' + h, 'data-h': h }))] : ['t', 'r', 'b', 'l'].map(side => el('i', { class: 'dz-edge ' + side, title: `Click to adjust the ${which === 'start' ? 'START' : 'END'} frame` }))));
+      boxes[which] = b;
+      // the other frame: only its label and edge answer, to switch to it
+      if (!on) { b.addEventListener('pointerdown', e => { if (e.button === 0) { e.preventDefault(); e.stopPropagation(); pick(which); } }); }
       this.root.append(b);
+      if (!on) continue;
       b.addEventListener('pointerdown', e => {
         if (e.button !== 0) return;
         e.preventDefault(); e.stopPropagation();
@@ -114,18 +133,13 @@ export class Overlay {
           if (!h) f = { ...f0, fx: f0.fx + dx, fy: f0.fy + dy };
           else {
             const sx = h.includes('l') ? -1 : 1, sy = h.includes('t') ? -1 : 1;
-            // bigger as the corner goes outwards; the frame keeps the picture's shape
-            // width and height are both fractions s of the picture: a corner moved by dx, dy grows it by their average
-            // (twice that from the centre, where both sides move)
-            const grow = (sx * dx + sy * dy) / 2 * (ev.shiftKey ? 2 : 1);
-            const s = clamp(f0.s + grow, MIN_S, MAX_S);
-            if (ev.shiftKey) f = { ...f0, s };
-            else f = { s, fx: f0.fx - sx * f0.s / 2 + sx * s / 2, fy: f0.fy - sy * f0.s / 2 + sy * s / 2 }; // the opposite corner stays put
+            // width and height are both fractions s of the picture: a corner moved by dx, dy grows it by their
+            // average (twice that from the centre, where both sides move)
+            const s = clamp(f0.s + (sx * dx + sy * dy) / 2 * (ev.shiftKey ? 2 : 1), MIN_S, MAX_S);
+            f = ev.shiftKey ? { ...f0, s } : { s, fx: f0.fx - sx * f0.s / 2 + sx * s / 2, fy: f0.fy - sy * f0.s / 2 + sy * s / 2 }; // the opposite corner stays put
           }
           setDynZoomFrame(c, which, f);
-          const nr = rectOf(getDynZoom(c)[which]);
-          Object.assign(b.style, { left: nr.x + 'px', top: nr.y + 'px', width: nr.w + 'px', height: nr.h + 'px' });
-          drawPath();
+          sync();
           app.changed({ light: true, keepInspector: true });
         };
         const up = () => {
@@ -139,12 +153,32 @@ export class Overlay {
         e.preventDefault();
         popMenu(e.clientX, e.clientY, [
           ['Whole picture', () => app.commit(() => setDynZoomFrame(c, which, { fx: 0.5, fy: 0.5, s: 1 }))],
+          ['Centre it', () => app.commit(() => setDynZoomFrame(c, which, { ...getDynZoom(c)[which], fx: 0.5, fy: 0.5 }))],
           ['Swap START and END', () => app.commit(() => swapDynZoom(c))],
           null,
-          ['Done framing', () => app.cmd('dynamic-zoom-done')],
+          ['Done', () => app.cmd('dynamic-zoom-done')],
         ]);
       });
     }
+    // the frame being adjusted on top
+    this.root.append(boxes[active]);
+    sync();
+    // the bar: which frame you're adjusting, what it means, the ease, swap, done
+    const seg = w => el('button', { class: `dz-seg ${w}${w === active ? ' on' : ''}`, text: w === 'start' ? '● START' : '● END', title: w === 'start' ? 'Adjust the START frame: what fills the screen when the clip begins' : 'Adjust the END frame: what fills the screen when the clip ends', onclick: () => pick(w) });
+    const ease = el('select', { title: 'How it moves from START to END' }, ...DZ_EASES.map(([v, t]) => el('option', { value: v, text: t, selected: getDynZoom(c).ease === v })));
+    ease.addEventListener('change', () => app.commit(() => setDynZoomEase(c, ease.value)));
+    const bar = el('div', { class: 'dz-bar' },
+      el('b', { class: 'dz-title', text: '🔍 DYNAMIC ZOOM', title: 'Drag to move this bar' }), seg('start'), seg('end'),
+      el('span', { class: 'dz-hint', text: active === 'start' ? 'the beginning' : 'the end', title: `${active === 'start' ? 'START' : 'END'}: what fills the screen at ${active === 'start' ? 'the beginning' : 'the end'} of the clip. Drag inside the frame to move it, a corner to resize it (⇧ from the centre). Click the other frame’s label or edge to adjust it.` }),
+      ease,
+      el('button', { class: 'dz-mini', text: '⇄', title: 'Swap START and END (zoom out instead of in)', onclick: () => app.commit(() => swapDynZoom(c)) }),
+      el('button', { class: 'dz-done', text: 'DONE', title: 'Finish (Esc)', onclick: () => app.cmd('dynamic-zoom-done') }));
+    for (const ev of ['pointerdown', 'click']) bar.addEventListener(ev, e => e.stopPropagation());
+    this.root.append(bar);
+    // the bar moves out of the way by its title, and stays where you put it
+    if (this.dzBarAt) bar.style.translate = this.dzBarAt;
+    dragBy(bar, bar.querySelector('.dz-title'));
+    bar.querySelector('.dz-title').addEventListener('pointerup', () => { this.dzBarAt = bar.style.translate; });
   }
 
   box(c, r, W, H, kind) {
