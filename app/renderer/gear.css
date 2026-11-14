@@ -2103,3 +2103,5 @@ html[data-theme="light"] .ums-panel .take-row.ums-voice .take-name { color: #7a4
 .ums-teach-row .ums-teach { width: 100%; }
 .ums-panel .take-row .take-time { white-space: nowrap; flex: none; }
 .ums-panel .take-row.dropped .take-time { text-decoration: none; }
+.ums-panel .ums-learn { flex: none; }
+.umt-redo { flex: none; }

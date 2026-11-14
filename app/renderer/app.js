@@ -5,7 +5,7 @@ import { el, $, toast, modal, ask, promptText, popMenu } from './ui.js';
 import { installFaceplate, lamp, sevenSegment, screwCorners } from './gear.js';
 import {
   History, timeFormat, withGroups, normalize, uid, duration, split, remove, newMediaClip, newTextClip, newCalloutClip, newShapeClip,
-  freeTrack, layerTrack, addTrack, clipEnd, propsAt, ANIMATABLE, mediaById, fmtTime, isFree,
+  freeTrack, layerTrack, addTrack, autoNameTracks, emptyTracks, deleteEmptyTracks, clipEnd, propsAt, ANIMATABLE, mediaById, fmtTime, isFree,
   setSpeed, SPEED_STEPS, SPEED_MIN, SPEED_MAX, putKey,
   mergeOverlapTracks, removeRange, applyTrackLocks, findGaps, closeGaps, smoothCuts, raisePip,
 } from './model.js';
@@ -476,6 +476,7 @@ class App {
   /** Every cut gets its short crossfade or fade (Settings › Timeline › Smooth every cut). */
   _smooth() { const xf = Number(pref('smoothCuts') ?? 0.1); if (xf > 0 && this.doc) { try { smoothCuts(this.doc, xf); } catch (e) { console.warn('smooth cuts', e); } } }
   changed({ light = false, keepInspector = false, quiet = false, noTimeline = false } = {}) {
+    if (this.doc && !light) autoNameTracks(this.doc); // Video 1, Audio 1… by what's on them
     if (!light) { syncTrackPlugins(this); this._menuLabels(); } // track plug-ins follow the edit (rendered in the background)
     this.setDirty(true);
     clearTimeout(this._proxyKick); this._proxyKick = setTimeout(() => this.proxies.kick(), 1200); // new media → proxy
@@ -948,6 +949,23 @@ class App {
     this.commit(doc => { doc.tracks = doc.tracks.filter(t => t !== tr); doc.clips = doc.clips.filter(c => c.track !== tr.id); });
   }
   /** Everything for one track: the same menu from its timeline header and its mixer strip. */
+  /** Deletes every track with nothing on it (one stays). */
+  deleteEmptyTracks() {
+    let n = 0;
+    this.commit(d => { n = deleteEmptyTracks(d); });
+    toast(n ? `Deleted ${n} empty track${n === 1 ? '' : 's'}. ⌘Z brings them back.` : 'No empty tracks.');
+  }
+
+  /** The track list's own menu (right-click the empty space under the tracks). */
+  tracksMenu(x, y) {
+    const n = emptyTracks(this.doc).length;
+    popMenu(x, y, [
+      n && this.doc.tracks.length > 1 ? [`Delete empty tracks (${n})`, () => this.deleteEmptyTracks()] : null,
+      n && this.doc.tracks.length > 1 ? null : undefined,
+      ['+ New track', () => this.commit(d => { addTrack(d); })],
+    ]);
+  }
+
   trackMenu(tr, x, y) {
     const doc = this.doc, i = doc.tracks.indexOf(tr), fx = tr.fx || [], n = doc.clips.filter(c => c.track === tr.id).length;
     const move = d => this.commit(dd => { const k = dd.tracks.indexOf(tr); dd.tracks.splice(k + d, 0, dd.tracks.splice(k, 1)[0]); });
@@ -979,6 +997,7 @@ class App {
       n ? [`Select its ${n} clip${n === 1 ? '' : 's'}`, () => { this.selection.clips = doc.clips.filter(c => c.track === tr.id).map(c => c.id); this.renderAll(); }] : null,
       null,
       doc.tracks.length > 1 ? [n ? `Delete track and its ${n} clip${n === 1 ? '' : 's'}…` : 'Delete track', () => this.removeTrack(tr)] : null,
+      emptyTracks(doc).length && doc.tracks.length > 1 ? [`Delete empty tracks (${emptyTracks(doc).length})`, () => this.deleteEmptyTracks()] : null,
     ]);
   }
   /** Delete all markers ('all') or just the clap / mark ones ('takes'). Asks first; ⌘Z brings them back. */
@@ -1001,7 +1020,7 @@ class App {
   }
   renameTrack(tr) {
     const input = el('input', { type: 'text', value: tr.name, style: { width: '100%' } });
-    modal('Rename track', input, [{ label: 'Rename', cls: 'hw amber', onClick: c => { this.commit(() => { tr.name = input.value.slice(0, 40) || tr.name; }); c(); } }]);
+    modal('Rename track', input, [{ label: 'Rename', cls: 'hw amber', onClick: c => { this.commit(() => { tr.name = input.value.slice(0, 40) || tr.name; tr.named = true; }); c(); } }]);
     setTimeout(() => input.select(), 50);
   }
 

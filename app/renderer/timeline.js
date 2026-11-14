@@ -2,7 +2,7 @@
 // clips with their keyframes, automation lanes, markers and the playhead. Move, trim, snap, drop,
 // marquee-select, scrub (also while playing) and zoom from a single frame out to the whole project.
 import { el, $, popMenu, toast } from './ui.js';
-import { clipEnd, isFree, addTrack, snap, trim, setSpeed, SPEED_STEPS, mediaById, duration, fmtTime, keyAt, withGroups, TRACK_LANES, gainToPos, posToGain, fmtDb, fmtPan, clamp, neighbour, roll, KEY_EASES, split, tidyCrossfades, cutsOn, crossfadeOverlaps, fadeShape, putKey } from './model.js';
+import { clipEnd, isFree, addTrack, snap, trim, setSpeed, SPEED_STEPS, mediaById, duration, fmtTime, keyAt, withGroups, TRACK_LANES, gainToPos, posToGain, fmtDb, fmtPan, clamp, neighbour, roll, KEY_EASES, split, tidyCrossfades, cutsOn, crossfadeOverlaps, fadeShape, putKey, emptyTracks } from './model.js';
 import { peaksFor, posterFor } from './peaks.js';
 import { mapAt, addPoint, movePoint, removePoint, linearRetime } from './lib/retime.js';
 import { musicLike, fitSource, refitTo, canFit } from './musicfit.js';
@@ -69,6 +69,8 @@ export class Timeline {
     this.scroll.addEventListener('pointermove', e => this._bladeHover(e));
     this.scroll.addEventListener('pointerleave', () => this._bladeLine.classList.add('hidden'));
     this.tracksEl.addEventListener('contextmenu', e => this._emptyMenu(e));
+    // the empty space under the track headers: delete empty tracks, add one
+    this.heads.addEventListener('contextmenu', e => { if (e.target.closest('.tl-head, .tl-lanehead, .tl-fxhead, button, select, input')) return; e.preventDefault(); this.app.tracksMenu(e.clientX, e.clientY); });
   }
 
   /** A (select) or T (blade, like ScreenFlow's split tool): click a clip with the blade to cut it there. */
@@ -163,6 +165,8 @@ export class Timeline {
       ['Insert gap here…', () => { app.seek(t); app.cmd('insert-gap'); }],
       ['Close gap', () => { app.seek(t); app.cmd('close-gap'); }],
       ['Close every gap on all tracks', () => app.cmd('close-all-gaps')],
+      null,
+      emptyTracks(app.doc).length && app.doc.tracks.length > 1 ? [`Delete empty tracks (${emptyTracks(app.doc).length})`, () => app.deleteEmptyTracks()] : null,
       null,
       ['Select everything from here', () => { app.seek(t); app.cmd('select-after'); }, '⇧⌘A'],
       ['Select all', () => app.cmd('select-all'), '⌘A'],

@@ -168,7 +168,18 @@ export async function openRecorder(app) {
       localStorage.setItem('rec-settings', JSON.stringify({ ...st, source: null, lastSource: { kind: st.source.kind, name: st.source.name, displayId: st.source.displayId || '' } }));
       stopPreviews();
       c();
-      try { await record(app, st); } catch (e) { toast(`Recording failed: ${e.message}`, 6000); app.showWindowAfterFailure && app.showWindowAfterFailure(); }
+      // a pause the Mac ended the screen capture in (it locked or slept): RESUME saves what was recorded and
+      // carries straight on in a new part, placed right after it on the timeline
+      for (let part = 1; ; part++) {
+        let next;
+        try { next = await record(app, st, part); } catch (e) {
+          toast(`Recording failed: ${e.message}`, 6000);
+          if (part > 1) await app.api.recCancel([]).catch(() => {}); // brings the editor back
+          app.showWindowAfterFailure && app.showWindowAfterFailure();
+          break;
+        }
+        if (next !== 'resume') break;
+      }
     } },
   ], { wide: true, onClose: () => { stopPreviews(); if (meterCtx) { meterCtx.close(); meterCtx = null; } } });
   void dlg;
@@ -227,7 +238,7 @@ async function countdown(n) {
 }
 
 /** One running recording. */
-async function record(app, st) {
+async function record(app, st, part = 1) {
   const api = app.api;
   await api.selectSource(st.source.id, st.system);
   const streams = [];
@@ -269,16 +280,17 @@ async function record(app, st) {
     if (mic) specs.push({ role: 'mic', format: 'wav', sampleRate: RATE, channels: micCh });
     if (sysTrack) specs.push({ role: 'system', format: 'wav', sampleRate: RATE, channels: 2 });
 
-    await countdown(st.countdown || 3);
+    if (part > 1) toast(`Part ${part}: starting the screen capture again…`, 2500);
+    await countdown(part > 1 ? 1 : (st.countdown || 3));
     if (st.hide) { await api.hideWindow(); await new Promise(r => setTimeout(r, 350)); }
     const apps = st.sysMode === 'apps' ? st.apps.map(k => ({ key: k, name: (st.appNames || {})[k] || k })) : [];
     const type = pickType();
     const vs = vtrack.getSettings();
     // the screen picture can end on its own (window closed, display unplugged): it ends whichever take is running
-    let endTake = null, screenLost = false, paused = false;
+    let endTake = null, screenLost = false, paused = false, carryOn = false;
     vtrack.addEventListener('ended', () => {
       screenLost = true;
-      if (paused) { toast('The Mac stopped the screen capture during the pause (it may have locked). Everything recorded so far is safe: press RESUME or STOP to save it.', 12000); return; }
+      if (paused) { toast('The Mac stopped the screen capture during the pause (it may have locked or slept). Everything recorded so far is safe. RESUME carries on in a new part, right after this one; STOP saves it.', 12000); return; }
       toast('The screen capture stopped, so the recording was ended and saved.', 8000);
       endTake?.('stop');
     }, { once: true });
@@ -363,13 +375,14 @@ async function record(app, st) {
             for (const n of workers) n.port.postMessage('pause');
             if (timer) { clearTimeout(timer); timer = null; timerLeft = Math.max(1000, timerLeft - (performance.now() - timerFrom)); }
           } else {
-            if (screenLost) { busy = false; resolve('stop'); return; } // the picture is gone: save what was recorded
+            // the picture is gone: save what was recorded, then start the capture again in a new part
+            if (screenLost) { busy = false; carryOn = true; resolve('stop'); return; }
             for (const r of recorders) if (r.state === 'paused') r.resume();
             for (const n of workers) n.port.postMessage('resume');
             arm();
           }
-          try { await api.recPause(paused); } catch { /* the recording carries on regardless */ }
           app.setRecordingPaused(paused);
+          try { await api.recPause(paused); } catch { /* the recording carries on regardless */ }
           busy = false;
         };
       });
@@ -396,10 +409,11 @@ async function record(app, st) {
     const offsets = {};
     for (const [k, v] of Object.entries(starts)) offsets[k] = (v - first) / 1000;
     toast('Finishing the recording…');
-    const res = await api.recEnd(Object.values(ids), offsets);
+    const res = await api.recEnd(Object.values(ids), offsets, carryOn && !!st.hide); // carrying on: the editor stays hidden
     // pointer track starts when the files are opened; the screen picture a moment later
     const cursorOffset = ((starts.screen ?? first) - tBegin) / 1000;
     app.addRecording(res, { cursorOffset, appLead: (first - tBegin) / 1000, source: st.source, pointerSeparate, keys: !!st.keys, marks: res.marks || [] });
+    return carryOn ? 'resume' : 'done';
   } catch (e) {
     stopAll();
     app.setRecording(false);

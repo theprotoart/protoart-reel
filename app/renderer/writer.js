@@ -92,8 +92,8 @@ export async function openWriter(app) {
     let words = [];
     try { words = await timelineWords(app, { locale: undefined, track: '' }, t => { note.textContent = t; }); }
     catch (e) { note.textContent = e.message; btn.disabled = false; return; }
-    const marks = (doc.markers || []).filter(m => !m.claps && !m.autoJoin).length >= 2
-      ? doc.markers.filter(m => !m.claps && !m.autoJoin).map(m => ({ t: m.t, label: m.label || 'Chapter' })).sort((a, b) => a.t - b.t)
+    const marks = (doc.markers || []).filter(m => !m.claps && !m.autoJoin && !m.ums).length >= 2
+      ? doc.markers.filter(m => !m.claps && !m.autoJoin && !m.ums).map(m => ({ t: m.t, label: m.label || 'Chapter' })).sort((a, b) => a.t - b.t)
       : findChapters(words, total);
     let titles = [], description = '', named = marks;
     if (await writerReady(app)) {

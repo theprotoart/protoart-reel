@@ -7,7 +7,7 @@ import { mergeRanges } from './lib/words.js';
 import { findUms, levelOnTimeline } from './lib/ums.js';
 import { timelineWords, speechClips, speechPrefs, saveSpeechPrefs, trackSelect, LANGS } from './transcript.js';
 import { peaksFor } from './peaks.js';
-import { umModel, teachUms, findYourUms } from './umvoice.js';
+import { umModel, teachUms, findYourUms, teachFromTimeline, notAnUm } from './umvoice.js';
 
 const fmt = t => { const m = Math.floor(t / 60), s = t % 60; return `${m}:${s.toFixed(1).padStart(4, '0')}`; };
 const umsOf = doc => (doc?.ums || []).slice().sort((a, b) => a.t - b.t);
@@ -71,6 +71,7 @@ export function openUms(app) {
   const status = el('p', { class: 'note ums-status', text: '' });
   const listenBtn = el('button', { class: 'hw', text: '👂 LISTEN FOR UMS', title: 'Listen to the speech and list every um, uh and filler (the first time takes a little while; it runs on this Mac)' });
   const removeBtn = el('button', { class: 'hw amber', text: 'REMOVE UMS' });
+  const markBtn = el('button', { class: 'hw', text: '🏷 MARK', title: 'Put a marker on each one shown instead of cutting (to edit by hand). Click again to take the um markers off' });
   const allBtn = el('button', { class: 'mini ums-all', text: 'ALL CUT', title: 'Mark every one shown CUT (click again to KEEP them)' });
   // what's shown: a kind (or a word you looked for), the chosen track, and the selected clip
   let filter = 'all';
@@ -97,7 +98,7 @@ export function openUms(app) {
     el('div', { class: 'row ums-teach-row' }, teachBtn),
     chips, selRow,
     list, status,
-    el('div', { class: 'takes-foot' }, listenBtn, removeBtn));
+    el('div', { class: 'takes-foot' }, listenBtn, markBtn, removeBtn));
   document.body.append(root);
   dragBy(root, root.querySelector('.vo-head'));
 
@@ -138,6 +139,9 @@ export function openUms(app) {
     if (filter !== 'all' && !counts[filter]) { filter = 'all'; return refresh(true); }
     const n = ums.filter(u => u.cut).length;
     removeBtn.textContent = n ? `REMOVE ${n}` : 'REMOVE UMS';
+    const marked = (app.doc.markers || []).filter(k => k.ums).length;
+    markBtn.textContent = marked ? `🏷 UNMARK ${marked}` : ums.length ? `🏷 MARK ${ums.length}` : '🏷 MARK';
+    markBtn.disabled = busy || (!marked && !ums.length);
     removeBtn.title = n ? `Cut the ${n} shown marked CUT and close the gaps (⌘Z undoes)` : 'Mark some CUT first';
     removeBtn.disabled = !n || busy;
     listenBtn.disabled = busy;
@@ -155,12 +159,20 @@ export function openUms(app) {
           refresh(true);
         } });
         const del = el('button', { class: 'mini ums-del', text: '🗑', title: 'Remove this one now (closes the gap)', onclick: () => cutOne(u) });
+        // teach Reel from this one (anyone's voice, a guest's too), or tell it a match isn't an um
+        const teach = cat === 'voice'
+          ? el('button', { class: 'mini ums-learn', text: '✗', title: 'Not an um: Reel won’t match this (or anything like it) again, and it comes off the list', onclick: async () => {
+              try { await notAnUm(app, u.t, u.end, u.track || ''); app.commit(d => { d.ums = (d.ums || []).filter(x => x.id !== u.id); }); toast('Got it: that isn’t an um.'); } catch (e) { toast(e.message); }
+            } })
+          : cat !== 'find' ? el('button', { class: 'mini ums-learn', text: '✦', title: 'Teach Reel this is an um (in this voice, a guest’s too): LISTEN AGAIN then finds others like it', onclick: async () => {
+              try { const m = await teachFromTimeline(app, u.t, u.end, cat === 'sound' ? 'umm' : u.text, u.track || ''); drawTeach(); toast(`Learned it. Reel now knows ${m.words.map(w => `${w.prints.length} ${w.word}`).join(', ')}; LISTEN AGAIN to find more like it.`, 5000); } catch (e) { toast(e.message); }
+            } }) : null;
         const name = cat === 'sound' ? '(sound)' : cat === 'voice' ? `${u.text} ✦` : `“${u.text}”`;
         const tip = cat === 'sound' ? 'A short sound between words: often an um the speech recogniser left out. Play it to check.' : cat === 'voice' ? 'Sounds like the ums you taught Reel (in your voice)' : cat === 'find' ? 'A word you looked for' : 'Heard as a word';
         return el('div', { class: 'take-row' + (u.cut ? ' dropped' : '') + (cat === 'sound' ? ' ums-sound' : '') + (cat === 'voice' ? ' ums-voice' : '') }, play,
           el('span', { class: 'take-name', text: name, title: tip }),
           el('span', { class: 'take-time', text: `${fmt(u.t)} · ${(u.end - u.t).toFixed(1)} s`, onclick: () => app.seek(u.t), title: 'Go there' }),
-          toggle, del);
+          toggle, teach, del);
       }));
   };
   track.addEventListener('change', () => { saveSpeechPrefs({ ...speechPrefs(), track: track.value }); refresh(true); });
@@ -187,6 +199,18 @@ export function openUms(app) {
     const shown = new Set(shownOf(umsOf(app.doc)).map(u => u.id));
     const to = !shownOf(umsOf(app.doc)).every(u => u.cut);
     app.commit(d => { for (const u of d.ums || []) if (shown.has(u.id)) u.cut = to; });
+    refresh(true);
+  });
+  markBtn.addEventListener('click', () => {
+    const marked = (app.doc.markers || []).filter(k => k.ums).length;
+    if (marked) { app.commit(d => { d.markers = (d.markers || []).filter(k => !k.ums); }); toast(`Took off ${marked} um markers.`); refresh(true); return; }
+    const shown = shownOf(umsOf(app.doc));
+    app.commit(d => {
+      d.markers ||= [];
+      for (const u of shown) d.markers.push({ id: uid('k'), t: u.t, end: u.end, label: catOf(u) === 'sound' ? '💬 (sound)' : `💬 ${u.text}`, ums: true });
+      d.markers.sort((a, b) => a.t - b.t);
+    });
+    toast(`Marked ${shown.length} on the ruler, to edit by hand. They aren’t chapters (they stay out of Export’s chapter list).`, 5000);
     refresh(true);
   });
   removeBtn.addEventListener('click', () => {

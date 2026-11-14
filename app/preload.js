@@ -65,7 +65,7 @@ contextBridge.exposeInMainWorld('reel', {
   selectSource: (id, systemAudio) => invoke('rec:select', id, systemAudio),
   recBegin: (token, tracks, apps, input) => invoke('rec:begin', token, tracks, apps, input),
   recChunk: (id, data) => ipcRenderer.send('rec:chunk', id, data),
-  recEnd: (ids, meta) => invoke('rec:end', ids, meta),
+  recEnd: (ids, meta, stayHidden) => invoke('rec:end', ids, meta, stayHidden === true),
   recCancel: ids => invoke('rec:cancel', ids),
   recPause: paused => invoke('rec:pause', paused),
   shortcutsGet: () => invoke('shortcuts:get'),

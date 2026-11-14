@@ -149,10 +149,11 @@ export function openExport(app) {
 
   const progress = el('div', { class: 'progress hidden' }, el('i'));
   const status = el('p', { class: 'note' });
-  const chapters = (doc.markers || []).length ? el('div', {},
+  const chapterMarks = (doc.markers || []).filter(m => !m.ums);
+  const chapters = chapterMarks.length ? el('div', {},
     el('div', { class: 'row' }, el('p', { class: 'note', style: { flex: 1 }, text: 'YouTube chapters from your markers (paste into the description):' }),
       el('button', { class: 'mini', text: '✍ Titles & description…', title: 'Qwen writes title ideas, a description and chapter names from what’s said', onclick: () => app.cmd('writer') })),
-    el('textarea', { class: 'big', readOnly: true, value: ['00:00 Intro', ...doc.markers.slice().sort((a, b) => a.t - b.t).filter(m => m.t > 0).map(m => `${fmtTime(m.t).replace(/\.\d$/, '')} ${m.label || 'Chapter'}`)].join('\n') })) : null;
+    el('textarea', { class: 'big', readOnly: true, value: ['00:00 Intro', ...chapterMarks.slice().sort((a, b) => a.t - b.t).filter(m => m.t > 0).map(m => `${fmtTime(m.t).replace(/\.\d$/, '')} ${m.label || 'Chapter'}`)].join('\n') })) : null;
 
   // ---------------------------------------------------------------- batch
   const batch = [];

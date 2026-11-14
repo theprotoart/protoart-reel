@@ -329,7 +329,10 @@ function showHud() {
   hud = new BrowserWindow({
     width: w, height: h, x: Math.round(wa.x + (wa.width - w) / 2), y: Math.round(wa.y + wa.height - h - 18),
     frame: false, transparent: true, resizable: false, minimizable: false, maximizable: false, fullscreenable: false,
-    skipTaskbar: true, hasShadow: true, alwaysOnTop: true, focusable: true, show: false, title: 'ProtoArt Reel recording',
+    skipTaskbar: true, hasShadow: true, alwaysOnTop: true, focusable: true, show: false,
+    // the first click on the panel presses its button, even while you're working in another app (without this,
+    // macOS spends that click bringing Reel forward, and RESUME or PAUSE seemed to do nothing)
+    acceptFirstMouse: true, title: 'ProtoArt Reel recording',
     webPreferences: { preload: path.join(__dirname, 'hud-preload.js'), contextIsolation: true, sandbox: true, nodeIntegration: false, devTools: false },
   });
   hud.setAlwaysOnTop(true, 'screen-saver');
@@ -1165,9 +1168,10 @@ handle('rec:pause', async paused => {
   if (paused) recording.pauseAt = Date.now();
   else recording.pausedMs += Date.now() - recording.pauseAt;
   recording.paused = paused;
-  if (recording.apps && recording.apps.length) await audio.recPause(recording.stamp, paused).catch(() => {});
+  // the panel and the menu-bar icon change at once; the apps' sound follows (it can take a moment)
   if (hud && !hud.isDestroyed()) hud.webContents.send('hud:paused', paused, recordedMs(recording.started));
   recTrayMenu();
+  if (recording.apps && recording.apps.length) await audio.recPause(recording.stamp, paused).catch(() => {});
   return paused;
 });
 
@@ -1179,7 +1183,7 @@ on('rec:chunk', (id, data) => {
   } catch { /* ignore stray chunks */ }
 });
 
-handle('rec:end', async (ids, meta) => {
+handle('rec:end', async (ids, meta, stayHidden) => {
   setRecordingUi(false);
   const cursor = stopCursorTrack();
   recording.active = false;
@@ -1221,7 +1225,8 @@ handle('rec:end', async (ids, meta) => {
     cursorFile = await freeMediaName(p, `rec-${recording.stamp}-cursor.json`);
     await writeAtomic(path.join(mediaDir(p), cursorFile), JSON.stringify(cursor));
   }
-  if (win && !win.isDestroyed()) { win.show(); win.focus(); }
+  // stayHidden: the recording carries on in a new part straight away (see RESUME after the Mac ended the capture)
+  if (win && !win.isDestroyed() && stayHidden !== true) { win.show(); win.focus(); }
   return { media: results, cursor: cursorFile, cursorClicks: cursor?.clicks?.length || 0, cursorKeys: cursor?.keys?.length || 0, inputError: recording.inputError || '', offsets: validate.offsets(meta), marks: recording.marks.slice() };
 });
 

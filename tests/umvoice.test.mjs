@@ -1,6 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { RATE, to16k, fingerprint, dtw, bursts, train, findInSamples, packModel, unpackModel } from '../app/renderer/lib/umvoice.js';
+import { RATE, to16k, fingerprint, dtw, bursts, train, findInSamples, packModel, unpackModel, addTake, addNot } from '../app/renderer/lib/umvoice.js';
 
 // A tiny voice: a glottal pulse train through formant resonators (source-filter), so vowels sound like vowels.
 let seed = 7; const rnd = () => ((seed = (seed * 16807) % 2147483647) / 2147483647);
@@ -82,4 +82,32 @@ test('a model survives being stored and read back; damaged ones are refused', ()
 test('to16k keeps the length right', () => {
   assert.equal(to16k(new Float32Array(48000), 48000).length, 16000);
   assert.equal(to16k(new Float32Array(44100), 44100).length, 16000);
+});
+
+test('a guest who reads nothing: their ums picked from the recording teach it, with the speech around them', () => {
+  const G_UM = [[300, 90], [1250, 160], [2500, 210]]; // a different, lower voice
+  let m = null;
+  const piece = (d, f0) => cat([quiet(0.15), voice(d, G_UM, { f0 }), quiet(0.15)]);
+  m = addTake(m, 'umm', piece(0.5, 92), sentence(3, 95));
+  m = addTake(m, 'umm', piece(0.35, 98), sentence(3, 95));
+  m = addTake(m, 'umm', piece(0.7, 88), null);
+  assert.equal(m.words[0].prints.length, 3);
+  const parts = [quiet(0.4), sentence(2, 95), quiet(0.3), voice(0.55, G_UM, { f0: 94 }), quiet(0.3), sentence(2, 95), quiet(0.4)];
+  const um = parts.slice(0, 3).reduce((s, p) => s + p.length, 0) / RATE;
+  const found = findInSamples(m, cat(parts));
+  assert.ok(found.some(f => f.t <= um + 0.1 && f.end >= um + 0.3), JSON.stringify(found));
+});
+
+test('"not an um": something it matched by mistake is never matched again', () => {
+  const takes = [0.6, 0.45, 0.3].map(d => ({ word: 'umm', samples: cat([quiet(0.2), voice(d, UMM), quiet(0.2)]) }));
+  const m = train({ takes, speech: sentence(5) });
+  // a hum close to an umm (a slightly different nasal sound) that it might take for one
+  const HUM = [[270, 85], [1150, 150], [2350, 200]];
+  const x = cat([quiet(0.4), voice(0.5, HUM, { f0: 110 }), quiet(0.4)]);
+  const before = findInSamples(m, x).length;
+  addNot(m, x);
+  assert.equal(findInSamples(m, x).length, 0, `matched ${before} before, none after`);
+  // and a real umm still is
+  assert.equal(findInSamples(m, cat([quiet(0.4), voice(0.5, UMM, { f0: 118 }), quiet(0.4)])).length, 1);
+  assert.equal(unpackModel(packModel(m)).nots.length, 1);
 });

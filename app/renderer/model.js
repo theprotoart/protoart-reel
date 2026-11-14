@@ -468,6 +468,51 @@ export function layerTrack(doc, start, dur, preferId) {
   return addTrack(doc, i).id;
 }
 
+/** True for a clip with a picture (video, image, title, element…), false for sound only. */
+export function hasPicture(doc, c) {
+  if (c.type !== 'media') return true;
+  if (c.audioOnly) return false;
+  const m = doc.media.find(x => x.id === c.media);
+  return !!m && m.kind !== 'audio';
+}
+
+/**
+ * Names tracks by what's on them, numbered top to bottom: Video 1, Video 2… for tracks with pictures, Audio 1,
+ * Audio 2… for sound only. Only tracks still carrying a name Reel gave them ("Track 3", "Video 2", "Audio 1");
+ * a track you renamed keeps your name. An empty track keeps its kind (or stays "Track n" if it never had one).
+ */
+export function autoNameTracks(doc) {
+  const kindOf = t => {
+    const on = doc.clips.filter(c => c.track === t.id);
+    if (!on.length) return /^Video \d+$/.test(t.name) ? 'Video' : /^Audio \d+$/.test(t.name) ? 'Audio' : null;
+    return on.some(c => hasPicture(doc, c)) ? 'Video' : 'Audio';
+  };
+  const auto = t => !t.named && (!t.name || /^(Track|Video|Audio) \d+$/.test(t.name));
+  const n = { Video: 0, Audio: 0 };
+  let changed = false;
+  for (const t of doc.tracks) {
+    const k = kindOf(t);
+    if (!k) continue;
+    n[k]++;
+    if (auto(t) && t.name !== `${k} ${n[k]}`) { t.name = `${k} ${n[k]}`; changed = true; }
+  }
+  // empty tracks that never had a kind: numbered after the others so names don't clash
+  let m = doc.tracks.length;
+  for (const t of doc.tracks) if (auto(t) && !kindOf(t) && doc.tracks.some(o => o !== t && o.name === t.name)) { while (doc.tracks.some(o => o.name === `Track ${m}`)) m++; t.name = `Track ${m}`; changed = true; }
+  return changed;
+}
+
+/** Tracks with nothing on them (no clips). */
+export const emptyTracks = doc => doc.tracks.filter(t => !doc.clips.some(c => c.track === t.id));
+
+/** Deletes the empty tracks (always leaving at least one). Returns how many went. */
+export function deleteEmptyTracks(doc) {
+  let gone = emptyTracks(doc).map(t => t.id);
+  if (gone.length === doc.tracks.length) gone = gone.slice(1);
+  doc.tracks = doc.tracks.filter(t => !gone.includes(t.id));
+  return gone.length;
+}
+
 export function addTrack(doc, at = doc.tracks.length) {
   let n = doc.tracks.length + 1;
   while (doc.tracks.some(t => t.name === `Track ${n}`)) n++;
@@ -843,7 +888,7 @@ export function tidyCrossfades(doc) {
 export function normalize(doc) {
   doc.canvas ||= { width: 1920, height: 1080, fps: 30, background: '#000000' };
   doc.media ||= []; doc.clips ||= []; doc.markers ||= []; doc.captions ||= [];
-  if (!doc.tracks || !doc.tracks.length) doc.tracks = [{ id: 't1', name: 'Track 1' }];
+  if (!doc.tracks || !doc.tracks.length) doc.tracks = [{ id: 't1', name: 'Video 1' }];
   for (const c of doc.clips) {
     c.props = { ...DEFAULT_PROPS, ...(c.props || {}) };
     if (!Array.isArray(c.props.crop) || c.props.crop.length !== 4) c.props.crop = [0, 0, 0, 0];

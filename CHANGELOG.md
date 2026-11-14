@@ -9,6 +9,16 @@
   **Only the selected clip**; and **Find a word** (the, like, so…) to keep or cut every time it's said.
 - **Far fewer false "sounds"**: only short pauses between heard words are checked (a long stretch with no words was
   turning every syllable into a "sound").
+- **Teach it from a recording**: pick a guest's um on the timeline (In–Out, or around the playhead) with
+  ＋ FROM TIMELINE, or press ✦ on a found um, so people who can't read lines still get learned. ✗ on a match tells
+  Reel "not an um" and it never matches that again. Every trainer step has ↺ to record it again.
+- **🏷 MARK** in 💬 UMS puts markers on the ruler at the ums instead of cutting them (they aren't chapters).
+- **Tracks name themselves**: Video 1, Video 2… then Audio 1, Audio 2…, top to bottom, until you rename one.
+  Right-click the track names (or an empty part of the timeline) to **Delete empty tracks**.
+- **RESUME always resumes**: the first click on the recording panel now presses its button even while another app
+  is in front (macOS was spending it on bringing Reel forward), and the panel changes at once. If the Mac ended the
+  screen capture during a pause (it locked or slept), RESUME saves what was recorded and carries straight on in a
+  new part right after it, instead of stopping and going back to the editor.
 - **Electron 44.11.2** (browser security fixes); `tools/Get Electron.command` fetches it into Reel's own folder.
 
 ## 1.8.1 — Section zoom, Audition-style volume and crossfades by dragging

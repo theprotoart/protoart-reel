@@ -114,6 +114,7 @@ export function bursts(x, { rate = RATE, min = 0.12, max = 1.6, gap = 0.12 } = {
     const v = i < n ? env[i] : 0;
     if (v >= on) { if (s < 0) s = i; quiet = 0; } else if (s >= 0 && ++quiet >= hold) { runs.push([s, i - quiet + 1]); s = -1; quiet = 0; }
   }
+  if (s >= 0) runs.push([s, n - Math.max(0, quiet - 1)]); // a burst running to the very end (a short piece cut from a recording)
   return runs.filter(([a, b]) => (b - a) * win >= min * rate && (b - a) * win <= max * rate).map(([a, b]) => ({ a: a * win, b: b * win }));
 }
 
@@ -134,24 +135,64 @@ export function train({ takes, speech }) {
   }
   const words = [...by].map(([word, prints]) => ({ word, prints }));
   if (!words.length || words.every(w => w.prints.length < 2)) throw new Error('Not enough was heard. Record each one again, a little louder and closer to the microphone.');
-  // how far your own ums are from each other (they should match), and how close ordinary words come (they shouldn't)
-  const same = [];
-  for (const w of words) for (let i = 0; i < w.prints.length; i++) for (let j = i + 1; j < w.prints.length; j++) same.push(dtw(w.prints[i], w.prints[j]));
-  const near = [];
-  if (speech) {
-    // ordinary words: every stretch of the sentence the length of an um, a fifth of a second apart
-    const step = Math.round(RATE * 0.2), len = Math.round(RATE * 0.45);
-    for (let a = 0; a + len <= speech.length; a += step) {
-      const fp = fingerprint(speech.subarray(a, a + len));
-      if (fp.length >= 8) near.push(score({ words }, fp).d);
-    }
+  return retune({ version: 1, words, nots: [], near: speech ? nearOf(words, speech) : null });
+}
+
+/** How close ordinary speech comes to the ums: every um-length stretch of it, a fifth of a second apart (5th percentile). */
+function nearOf(words, speech) {
+  const near = [], step = Math.round(RATE * 0.2), len = Math.round(RATE * 0.45);
+  for (let a = 0; a + len <= speech.length; a += step) {
+    const fp = fingerprint(speech.subarray(a, a + len));
+    if (fp.length >= 8) near.push(score({ words }, fp).d);
   }
-  same.sort((a, b) => a - b); near.sort((a, b) => a - b);
-  const sameHi = same.length ? same[Math.min(same.length - 1, Math.floor(same.length * 0.9))] : 1;
-  const nearLo = near.length ? near[Math.floor(near.length * 0.05)] : sameHi * 1.6;
+  near.sort((a, b) => a - b);
+  return near.length ? near[Math.floor(near.length * 0.05)] : null;
+}
+
+/** The threshold from how far your ums are from each other (they should match) and how close ordinary speech comes. */
+export function retune(m) {
+  const same = [];
+  for (const w of m.words) for (let i = 0; i < w.prints.length; i++) for (let j = i + 1; j < w.prints.length; j++) same.push(dtw(w.prints[i], w.prints[j]));
+  same.sort((a, b) => a - b);
+  const sameHi = same.length ? same[Math.min(same.length - 1, Math.floor(same.length * 0.9))] : null;
+  const nearLo = m.near ?? (sameHi ? sameHi * 1.6 : 1.2);
+  const s = sameHi ?? nearLo * 0.6; // one take of each: a margin under ordinary speech
   // between the two: closer to your ums than nearly all ordinary speech
-  const threshold = nearLo > sameHi ? sameHi + (nearLo - sameHi) * 0.45 : Math.min(sameHi, nearLo) * 0.95;
-  return { version: 1, words, threshold, same: sameHi, near: nearLo };
+  m.threshold = nearLo > s ? s + (nearLo - s) * 0.45 : Math.min(s, nearLo) * 0.95;
+  m.same = s;
+  return m;
+}
+
+/** The burst inside a short piece of sound (an um cut from a recording, with a little air either side). */
+function burstOf(x) {
+  const b = bursts(x, { max: 2.5, gap: 0.2 }).sort((p, q) => (q.b - q.a) - (p.b - p.a))[0];
+  return b ? x.subarray(b.a, b.b) : x;
+}
+
+/**
+ * One more um to learn from (from the microphone, or cut from a recording, e.g. a guest's): word ('umm' / 'uh' …),
+ * 16 kHz samples, and optionally some of the same person's ordinary speech around it (sets how strict to be when
+ * there's no sentence yet). Starts a model if there isn't one. Returns the model.
+ */
+export function addTake(model, word, samples, context) {
+  const fp = fingerprint(burstOf(samples));
+  if (fp.length < 8) throw new Error('Too short to learn from: pick the whole um, with a little silence either side.');
+  const m = model || { version: 1, words: [], nots: [], near: null };
+  let w = m.words.find(x => x.word === word);
+  if (!w) m.words.push(w = { word, prints: [] });
+  w.prints.push(fp);
+  if (context?.length) {
+    const n = nearOf(m.words, context);
+    if (n != null) m.near = m.near == null ? n : Math.min(m.near, n);
+  }
+  return retune(m);
+}
+
+/** Something it took for an um that isn't one: it won't be matched again (nor anything closer to it than to an um). */
+export function addNot(model, samples) {
+  const fp = fingerprint(burstOf(samples));
+  if (fp.length >= 8) (model.nots ||= []).push(fp);
+  return model;
 }
 
 /** How close a fingerprint is to your ums: { word, d } (the nearest take). */
@@ -171,18 +212,23 @@ export function findInSamples(model, x) {
     const fp = fingerprint(x.subarray(a, b));
     if (fp.length < 8) continue;
     const s = score(model, fp);
-    if (s.d <= model.threshold) out.push({ t: a / RATE, end: b / RATE, word: s.word, d: s.d, sure: s.d <= model.threshold * 0.85 });
+    // nearer something you said isn't an um than to any um: not one
+    const no = (model.nots || []).reduce((d, p) => Math.min(d, dtw(fp, p)), Infinity);
+    if (s.d <= model.threshold && !(no < s.d)) out.push({ t: a / RATE, end: b / RATE, word: s.word, d: s.d, sure: s.d <= model.threshold * 0.85 });
   }
   return out;
 }
 
 /** A model made safe to store as JSON (fingerprints as plain arrays) and back. */
-export const packModel = m => JSON.stringify({ ...m, words: m.words.map(w => ({ word: w.word, prints: w.prints.map(p => p.map(f => Array.from(f, v => Math.round(v * 1000) / 1000))) })) });
+const packPrint = p => p.map(f => Array.from(f, v => Math.round(v * 1000) / 1000));
+const readPrint = p => p.filter(Array.isArray).map(f => Float32Array.from(f.slice(0, COEFS).map(Number)));
+export const packModel = m => JSON.stringify({ ...m, words: m.words.map(w => ({ word: w.word, prints: w.prints.map(packPrint) })), nots: (m.nots || []).map(packPrint) });
 export function unpackModel(s) {
   try {
     const m = typeof s === 'string' ? JSON.parse(s) : s;
     if (!m || m.version !== 1 || !Array.isArray(m.words) || !(m.threshold > 0)) return null;
-    m.words = m.words.filter(w => typeof w.word === 'string' && Array.isArray(w.prints)).map(w => ({ word: w.word.slice(0, 20), prints: w.prints.filter(Array.isArray).map(p => p.filter(Array.isArray).map(f => Float32Array.from(f.slice(0, COEFS).map(Number)))) }));
+    m.words = m.words.filter(w => typeof w.word === 'string' && Array.isArray(w.prints)).map(w => ({ word: w.word.slice(0, 20), prints: w.prints.filter(Array.isArray).map(readPrint) }));
+    m.nots = Array.isArray(m.nots) ? m.nots.filter(Array.isArray).map(readPrint) : [];
     return m.words.length ? m : null;
   } catch { return null; }
 }
