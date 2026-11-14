@@ -143,7 +143,8 @@ export const TOPICS = [
     '**Notes: Keep what I say** leaves your voice in; **Cut what I say (text only)** removes it, so the note only shows as text. Without Auto Edit: AUDIO ▾ › Find clap markers… › **📝 Make on-screen notes**. Click a card to edit its title and list (one item per line) in the inspector; drag it anywhere.'], 'how'],
   ['Picture in picture', 'pip picture in picture corner small overlay webcam inset facecam', [
     'Select a video or picture and press **▣ PiP** on the tool strip (press again for the next corner), or use the **PICTURE IN PICTURE** corners at the top of the inspector (**FULL** puts it back). It gets rounded corners and a shadow.',
-    'If a full-frame video on a track above would hide it, Reel moves it to a track of its own on top. Right-click the preview for it too.'], 'how'],
+    'If a full-frame video on a track above would hide it, Reel moves it to a track of its own on top. Right-click the preview for it too.',
+    'Resize it with the handles in the preview: a corner or side handle grows it from the opposite corner, which stays put; hold **⇧ Shift** to grow it from the centre. Drag the middle to move it. To undo picture in picture, right-click it in the preview › **Full frame**, or press **FULL** in the inspector (also when it’s selected with its sound).'], 'how'],
   ['Text reveal transition (video through text)', 'text reveal transition through words letters zoom fill screen title cut', [
     'Click a cut’s **⧓** and choose **Text reveal**: the next clip shows through big bold words over the one before, then the words zoom into a letter until the new clip fills the screen.',
     'Type the words in the inspector › Transitions › **Reveal text** (one or two short words work best). It uses the clip before as a crossfade, so both keep playing during it.'], 'how'],

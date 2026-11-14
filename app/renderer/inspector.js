@@ -64,6 +64,15 @@ export class Inspector {
       if (cap) { captionPanel(app, this, cap); this.root.scrollTop = scroll; return; }
     }
     if (!ids.length) this.project();
+    else if (ids.length > 1 && (() => { // a picture selected with its own sound (a recording's screen and mic, a PIP and its audio): the picture's settings
+      const cs = ids.map(id => doc.clips.find(x => x.id === id)).filter(Boolean);
+      const snd = x => x.type === 'media' && (x.audioOnly || mediaById(doc, x.media)?.kind === 'audio');
+      const pics = cs.filter(x => !snd(x));
+      if (pics.length !== 1 || cs.length !== ids.length) return false;
+      this.root.append(el('p', { class: 'note sel-with-sound', text: `${ids.length} clips selected: this picture and its sound. Drag either to move both; the settings below are the picture’s.` }));
+      this.clip(pics[0]);
+      return true;
+    })()) { /* shown */ }
     else if (ids.length > 1) {
       const b = (text, cmd) => el('button', { class: 'tool', text, onclick: () => app.cmd(cmd) });
       this.root.append(section(`${ids.length} clips selected`,

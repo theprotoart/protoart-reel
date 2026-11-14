@@ -23,6 +23,9 @@
 - Dragging a video or picture onto another one on the timeline (from Media, Finder, or moving a clip) now lays it
   on top: on a free track above, or a new track made just above. Before, it could slide to a later time or go on a
   track underneath, where it was hidden.
+- Picture handles in the preview: dragging a corner or side resizes from the opposite corner (it stays put);
+  hold ⇧ Shift to resize from the centre. They show when the picture is selected together with its sound, and the
+  inspector shows its settings (with PICTURE IN PICTURE › FULL). Right-click a picture in picture › Full frame undoes it.
 - **🎲 Randomize** for transitions on every cut (Auto packs, style packs, Settings › Timeline): from "in order"
   through "same feel" to "surprise me", with lengths varied a little too.
 

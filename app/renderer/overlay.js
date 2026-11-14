@@ -80,7 +80,7 @@ export class Overlay {
     const b = el('div', {
       class: 'sel-box' + (tgt.action ? ' action' : '') + (canCrop ? ' croppable' : ''),
       style: { left: r.x + 'px', top: r.y + 'px', width: r.w + 'px', height: r.h + 'px' },
-      title: tgt.action ? 'Editing the selected action' : canCrop ? 'Drag to move · handles to resize · hold ⌥ Option and drag a handle to crop' : 'Drag to move · handles to resize',
+      title: tgt.action ? 'Editing the selected action' : canCrop ? 'Drag to move · handles to resize from the opposite corner (⇧ from the centre) · hold ⌥ Option and drag a handle to crop · right-click for Full frame' : 'Drag to move · handles to resize (⇧ from the centre)',
     }, ...HANDLES.map(h => el('div', { class: 'h ' + h, 'data-h': h })));
     // like a colourist's / editor's transform box (DaVinci): it turns with the picture, has a rotation handle on a
     // stem above it and a dot at its centre
@@ -99,7 +99,10 @@ export class Overlay {
         const cw = sw * (1 - cr[0] - cr[2]), ch = sh * (1 - cr[1] - cr[3]);
         return Math.max(W / cw, H / ch) / Math.min(W / cw, H / ch);
       };
+      const pip = kind === 'media' && ((Number(tgt.get('scale')) || 1) < 0.999 || Number(tgt.get('radius')) || Number(tgt.get('shadow')));
       popMenu(e.clientX, e.clientY, [
+        pip ? ['↩ Full frame (undo picture in picture)', () => app.pictureInPicture('off')] : null,
+        pip ? null : undefined,
         ['Centre', () => set(() => { tgt.set('x', 0.5); tgt.set('y', 0.5); })],
         ['Fit the frame', () => set(() => { tgt.set('x', 0.5); tgt.set('y', 0.5); tgt.set('scale', 1); })],
         media ? ['Fill the frame', () => set(() => { tgt.set('x', 0.5); tgt.set('y', 0.5); tgt.set('scale', fill()); })] : null,
@@ -190,8 +193,26 @@ export class Overlay {
           tgt.set('crop', cr); tgt.set('scale', scale); tgt.set('x', start.x + ox / W); tgt.set('y', start.y + oy / H);
           const nw = cw * k, nh = ch * k;
           Object.assign(b.style, { left: r.x + r.w / 2 + ox - nw / 2 + 'px', top: r.y + r.h / 2 + oy - nh / 2 + 'px', width: nw + 'px', height: nh + 'px' });
+        } else if (handle && !ev.shiftKey) {
+          // resize from the opposite corner or side, which stays put (⇧ resizes from the centre instead);
+          // the moving edge snaps to the frame's edges
+          const sgnX = handle.includes('l') ? -1 : handle.includes('r') ? 1 : 0, sgnY = handle.includes('t') ? -1 : handle.includes('b') ? 1 : 0;
+          let grow = (sgnX && sgnY) ? 1 + (sgnX * dxp + sgnY * dyp) / (r.w + r.h) : sgnX ? 1 + sgnX * dxp / r.w : 1 + sgnY * dyp / r.h;
+          grow = Math.max(0.03 / start.scale, grow);
+          if (!start.rot) {
+            const ax = r.x + r.w / 2 - sgnX * r.w / 2, ay = r.y + r.h / 2 - sgnY * r.h / 2; // the corner that stays
+            const gx = sgnX ? [0, W].map(T => (T - ax) / (sgnX * r.w)).find(g => g > 0 && Math.abs(ax + sgnX * r.w * grow - (ax + sgnX * r.w * g)) <= SNAP) : undefined;
+            const gy = sgnY ? [0, H].map(T => (T - ay) / (sgnY * r.h)).find(g => g > 0 && Math.abs(ay + sgnY * r.h * grow - (ay + sgnY * r.h * g)) <= SNAP) : undefined;
+            if (gx !== undefined) { grow = gx; vx.push(ax + sgnX * r.w * grow); } else if (gy !== undefined) { grow = gy; hy.push(ay + sgnY * r.h * grow); }
+          }
+          // the centre moves away from the corner that stays, by half the growth (turned with the picture)
+          const lx = sgnX * r.w / 2 * (grow - 1), ly = sgnY * r.h / 2 * (grow - 1), th = start.rot * Math.PI / 180;
+          const ox = lx * Math.cos(th) - ly * Math.sin(th), oy = lx * Math.sin(th) + ly * Math.cos(th);
+          const nw = r.w * grow, nh = r.h * grow, cx = r.x + r.w / 2 + ox, cy = r.y + r.h / 2 + oy;
+          tgt.set('scale', Math.max(0.03, start.scale * grow)); tgt.set('x', start.x + ox / W); tgt.set('y', start.y + oy / H);
+          Object.assign(b.style, { left: cx - nw / 2 + 'px', top: cy - nh / 2 + 'px', width: nw + 'px', height: nh + 'px' });
         } else if (handle) {
-          // resize about the centre; snaps when the picture's edges meet the frame's edges
+          // ⇧: resize about the centre; snaps when the picture's edges meet the frame's edges
           const sgnX = handle.includes('l') ? -1 : handle.includes('r') ? 1 : 0, sgnY = handle.includes('t') ? -1 : handle.includes('b') ? 1 : 0;
           let grow = (sgnX && sgnY) ? 1 + (sgnX * dxp * 2 + sgnY * dyp * 2) / (r.w + r.h)
             : sgnX ? 1 + sgnX * dxp * 2 / r.w : 1 + sgnY * dyp * 2 / r.h;
