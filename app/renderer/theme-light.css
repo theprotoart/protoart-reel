@@ -140,3 +140,10 @@ html[data-theme="light"] .brand-plate .bs { color: #8a4e00; text-shadow: none; }
 html[data-theme="light"] .th-grip { color: rgba(35,33,29,.8); }
 html[data-theme="light"] .lane-show .lane-name { color: rgba(35,33,29,.9); }
 html[data-theme="light"] .tl-lanehead .note { color: rgba(25,23,20,.95); }
+html[data-theme="light"] .tl-fxhead .fx-top .fx-fold .engr, html[data-theme="light"] .tl-fxhead .fx-chev { color: #6e3e00; }
+html[data-theme="light"] .tl-fxhead .fx-count, html[data-theme="light"] .tl-fxhead.folded .fx-count { color: rgba(25,23,20,.9); }
+html[data-theme="light"] .fx-slot.drop { box-shadow: inset 0 2px 0 #9a5800; }
+html[data-theme="light"] :is(.fx-slot .fx-n, .fx-slot .fx-more, .fx-slot.empty .fx-label) { color: rgba(35,33,29,.78); }
+html[data-theme="light"] .lib-item .lthumb { color: rgba(236,230,214,.85); } /* the ♪ on a sound's dark tile */
+html[data-theme="light"] .tl-head .role-tag.none { background: rgba(0,0,0,.62) !important; } /* the "+" stays light on a darker well */
+html[data-theme="light"] .lib-item .ldur { color: #6b4300; }

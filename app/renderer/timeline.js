@@ -2,7 +2,7 @@
 // clips with their keyframes, automation lanes, markers and the playhead. Move, trim, snap, drop,
 // marquee-select, scrub (also while playing) and zoom from a single frame out to the whole project.
 import { el, $, popMenu, toast } from './ui.js';
-import { clipEnd, isFree, addTrack, snap, trim, setSpeed, SPEED_STEPS, mediaById, duration, fmtTime, keyAt, withGroups, TRACK_LANES, gainToPos, posToGain, fmtDb, fmtPan, clamp, neighbour, roll, KEY_EASES, split, tidyCrossfades, cutsOn, crossfadeOverlaps, fadeShape } from './model.js';
+import { clipEnd, isFree, addTrack, snap, trim, setSpeed, SPEED_STEPS, mediaById, duration, fmtTime, keyAt, withGroups, TRACK_LANES, gainToPos, posToGain, fmtDb, fmtPan, clamp, neighbour, roll, KEY_EASES, split, tidyCrossfades, cutsOn, crossfadeOverlaps, fadeShape, putKey } from './model.js';
 import { peaksFor, posterFor } from './peaks.js';
 import { mapAt, addPoint, movePoint, removePoint, linearRetime } from './lib/retime.js';
 import { musicLike, fitSource, refitTo, canFit } from './musicfit.js';
@@ -928,6 +928,8 @@ export class Timeline {
         e.append(fh);
       }
     }
+    // the clip's volume as a yellow line over its sound, like Audition: drag it up or down, click to add a point
+    if (c.type === 'media' && m && (c.audioOnly || m.kind === 'audio') && !c.locked) e.append(this._volLine(c));
     // bottom-left badges like a DAW's clip: the clip's gain (drag up / down, double-click resets) and its
     // speed (click for choices). Bottom-right: the stretch handle (drag to speed up or slow down).
     if (c.type === 'media' && m && m.kind !== 'image') {
@@ -1162,6 +1164,109 @@ export class Timeline {
     }
   }
 
+  /**
+   * The clip's volume envelope, drawn on the clip like Audition's yellow line (its 'audio.volume' keyframes, or one
+   * level for the whole clip). Drag the line up or down to change the level (all its points together); click it to
+   * add a point; drag a point anywhere; ⌥-click or double-click a point to delete it; right-click for its curve.
+   * While dragging only the line redraws, so it follows the mouse smoothly.
+   */
+  _volLine(c) {
+    const app = this.app, L = LANE.volume, NS = 'http://www.w3.org/2000/svg';
+    const W = Math.max(4, this.x(c.duration)), pad = 8; // pad: % of the height kept clear at the top and bottom
+    const wrap = el('div', { class: 'vol-env' });
+    const svg = document.createElementNS(NS, 'svg');
+    svg.setAttribute('viewBox', `0 0 ${W} 100`); svg.setAttribute('preserveAspectRatio', 'none');
+    const line = document.createElementNS(NS, 'path'), hit = document.createElementNS(NS, 'path');
+    line.setAttribute('class', 'vol-line'); hit.setAttribute('class', 'vol-hit');
+    svg.append(line, hit);
+    wrap.append(svg);
+    const yOf = v => pad + (1 - L.toPos(v)) * (100 - pad * 2);          // in % of the clip's height
+    const keys = () => c.keys?.['audio.volume'] || null;
+    const base = () => c.audio?.volume ?? 1;
+    const tip = el('div', { class: 'fade-tip' });
+    const dots = [];
+    const draw = () => {
+      const k = keys();
+      let d = '';
+      if (!k?.length) d = `M0 ${yOf(base())} L${W} ${yOf(base())}`;
+      else { const n = Math.max(8, Math.round(W / 3)); for (let i = 0; i <= n; i++) { const t = c.duration * i / n; d += `${i ? 'L' : 'M'}${this.x(t).toFixed(1)} ${yOf(keyAt(k, t, base())).toFixed(2)}`; } }
+      line.setAttribute('d', d); hit.setAttribute('d', d);
+      for (const x of dots) x.remove();
+      dots.length = 0;
+      for (const p of k || []) {
+        const dot = el('i', { class: 'vol-pt', style: { left: this.x(p.t) + 'px', top: yOf(p.v) + '%' }, title: `${fmtTime(c.start + p.t)} · ${L.fmt(p.v)}\nDrag to move · ⌥-click or double-click to delete · right-click for the curve` });
+        dot._k = p;
+        dots.push(dot); wrap.append(dot);
+      }
+    };
+    draw();
+    const hRect = () => wrap.getBoundingClientRect();
+    const tAt = x => clamp(this.t(x - hRect().left), 0, c.duration);
+    const showTip = (ev, text) => { if (!tip.isConnected) document.body.append(tip); tip.textContent = text; Object.assign(tip.style, { left: ev.clientX + 14 + 'px', top: ev.clientY - 30 + 'px' }); };
+    wrap.addEventListener('pointerdown', ev => {
+      if (ev.button !== 0) return;
+      const onDot = ev.target.classList.contains('vol-pt'), onLine = ev.target === hit;
+      if (!onDot && !onLine) return;
+      ev.stopPropagation(); ev.preventDefault();
+      let k = onDot ? ev.target._k : null;
+      const now = performance.now(), prev = this._lastVolPt;
+      this._lastVolPt = k ? { k, at: now } : null;
+      if (k && (ev.altKey || (prev && prev.k === k && now - prev.at < 450))) {
+        this._lastVolPt = null;
+        app.commit(() => { const l = keys(); l.splice(l.indexOf(k), 1); if (!l.length) { c.audio = { ...(c.audio || {}), volume: k.v }; delete c.keys['audio.volume']; if (!Object.keys(c.keys).length) delete c.keys; } }, { keepInspector: true });
+        return;
+      }
+      const x0 = ev.clientX, y0 = ev.clientY;
+      const before = k ? k.v : (keys() ? keys().map(p => p.v) : base());
+      // up and down in dB, like Audition: a quarter of a dB a pixel (⇧ for fine, a twentieth), from -60 dB to +6 dB
+      const db = v => (v <= 1e-4 ? -60 : 20 * Math.log10(v)), gain = d => (d <= -59.9 ? 0 : 10 ** (Math.min(6.02, d) / 20));
+      const dbStep = e2 => -(e2.clientY - y0) * (e2.shiftKey ? 0.05 : 0.25);
+      let moved = false;
+      const move = e2 => {
+        if (!moved && Math.abs(e2.clientX - x0) + Math.abs(e2.clientY - y0) < 3) return;
+        if (!moved) { moved = true; app.beginChange(); }
+        if (k) {
+          // a point: anywhere between its neighbours
+          const l = keys(), i = l.indexOf(k);
+          k.t = clamp(tAt(e2.clientX), i > 0 ? l[i - 1].t + 0.01 : 0, i < l.length - 1 ? l[i + 1].t - 0.01 : c.duration);
+          k.v = Math.round(clamp(gain(db(before) + dbStep(e2)), 0, 2) * 1000) / 1000;
+          showTip(e2, `${fmtTime(c.start + k.t)} · ${L.fmt(k.v)}`);
+        } else {
+          // the line: the whole envelope up or down by the same number of dB
+          const delta = dbStep(e2);
+          if (Array.isArray(before)) keys().forEach((p, i) => { p.v = Math.round(clamp(gain(db(before[i]) + delta), 0, 2) * 1000) / 1000; });
+          else c.audio = { ...(c.audio || {}), volume: Math.round(clamp(gain(db(before) + delta), 0, 2) * 1000) / 1000 };
+          showTip(e2, `Clip volume ${delta >= 0 ? '+' : ''}${delta.toFixed(1)} dB${Array.isArray(before) ? ' (all points)' : ` · ${L.fmt(base())}`}`);
+        }
+        draw();
+        app.changed({ light: true, keepInspector: true, noTimeline: true });
+      };
+      const up = e2 => {
+        window.removeEventListener('pointermove', move); window.removeEventListener('pointerup', up); tip.remove();
+        if (moved) { app.endChange({ keepInspector: true }); return; }
+        if (!k) { // a click on the line: a point there, at the level the line has
+          const t = tAt(e2.clientX), v = keys() ? keyAt(keys(), t, base()) : base();
+          app.commit(() => { if (!keys()) putKey(c, 'audio.volume', 0, base()); putKey(c, 'audio.volume', t, Math.round(v * 1000) / 1000); }, { keepInspector: true });
+        }
+      };
+      window.addEventListener('pointermove', move); window.addEventListener('pointerup', up);
+    });
+    wrap.addEventListener('contextmenu', ev => {
+      const k = ev.target.classList.contains('vol-pt') ? ev.target._k : null;
+      if (!k && ev.target !== hit) return;
+      ev.preventDefault(); ev.stopPropagation();
+      const edit = fn => app.commit(fn, { keepInspector: true });
+      popMenu(ev.clientX, ev.clientY, [
+        k ? ['Delete point', () => edit(() => { const l = keys(); l.splice(l.indexOf(k), 1); if (!l.length) { delete c.keys['audio.volume']; if (!Object.keys(c.keys).length) delete c.keys; } })] : null,
+        ...(k ? KEY_EASES.map(([v, t]) => [`${(k.ease || 'linear') === v ? '● ' : ''}Curve: ${t}`, () => edit(() => { k.ease = v; })]) : []),
+        keys() ? null : undefined,
+        keys() ? [`Remove all ${keys().length} points (keep one level)`, () => edit(() => { c.audio = { ...(c.audio || {}), volume: keyAt(keys(), 0, base()) }; delete c.keys['audio.volume']; if (!Object.keys(c.keys).length) delete c.keys; })] : null,
+        ['Reset to 0 dB', () => edit(() => { c.audio = { ...(c.audio || {}), volume: 1 }; if (c.keys) { delete c.keys['audio.volume']; if (!Object.keys(c.keys).length) delete c.keys; } })],
+      ]);
+    });
+    return wrap;
+  }
+
   /** A clip's fade length: its sound fade, or its picture fade transition. */
   _fadeLen(c, side) {
     const a = c.audio ? (side === 'in' ? c.audio.fadeIn : c.audio.fadeOut) || 0 : 0;
@@ -1197,6 +1302,7 @@ export class Timeline {
     const x0 = e.clientX, y0 = e.clientY, len0 = this._fadeLen(c, side);
     const ck = side === 'in' ? 'fadeInCurve' : 'fadeOutCurve', k0 = (audioish && c.audio?.[ck]) || 0;
     const tip = el('div', { class: 'fade-tip' }); let moved = false;
+    const handle = e.target.closest('.fade-h'), clipEl = handle?.closest('.clip');
     const move = ev => {
       const dx = (ev.clientX - x0) * (side === 'in' ? 1 : -1), dy = ev.clientY - y0;
       if (!moved && Math.abs(dx) < 2 && Math.abs(dy) < 2) return;
@@ -1210,7 +1316,13 @@ export class Timeline {
       Object.assign(tip.style, { left: ev.clientX + 14 + 'px', top: ev.clientY - 30 + 'px' });
       if (audioish) c.audio[side === 'in' ? 'fadeIn' : 'fadeOut'] = v;
       if (visual) c[side === 'in' ? 'transIn' : 'transOut'] = v ? { ...(c[side === 'in' ? 'transIn' : 'transOut'] || {}), type: 'fade', dur: v } : { type: 'none', dur: 0.5 };
-      app.changed({ light: true, keepInspector: true });
+      // only this clip's fade redraws while dragging (the whole timeline once at the end), so it follows smoothly
+      if (clipEl) {
+        clipEl.querySelector(`.fade-shade.${side}`)?.remove();
+        if (v > 0) clipEl.insertBefore(this._fadeShade(c, side, v), handle);
+        if (handle) handle.style[side === 'in' ? 'left' : 'right'] = Math.max(0, this.x(v) - 5) + 'px';
+      }
+      app.changed({ light: true, keepInspector: true, noTimeline: !!clipEl });
     };
     const up = () => { tip.remove(); window.removeEventListener('pointermove', move); window.removeEventListener('pointerup', up); if (moved) app.endChange({ keepInspector: true }); };
     window.addEventListener('pointermove', move); window.addEventListener('pointerup', up);

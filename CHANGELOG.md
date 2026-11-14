@@ -6,6 +6,11 @@
   START / END AT PLAYHEAD, spread it over the WHOLE CLIP, or add ↩ ZOOM BACK OUT.
 - **◆ KEYS on every track** opens its keyframe lane (Zoom, Volume or Pan, picked in the lane's Show menu), like
   Audition's envelopes. It opens by itself when you add a dynamic zoom.
+- **A volume line on every sound clip**, like Audition's: drag it up or down (¼ dB a pixel, ⇧ for fine), click to add
+  points, drag them, ⌥-click to delete, right-click for curves.
+- **Smoother fades**: dragging a fade redraws only that clip, so the handle follows the mouse.
+- **The effects rack** is only as tall as its effects (plus one empty slot), folds to one line listing them, and
+  slots drag into another order.
 - **REC and EXPORT side by side** at the top of the tool panel.
 - **Easier to read**: every label checked for contrast in the light and dark finishes, and the faint ones made
   darker (the light finish's dim text, track buttons, tool group names, knob values, REC / EXPORT subtitles…).

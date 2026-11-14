@@ -11,7 +11,8 @@ import { addTrackPlugin, editTrackPlugin, renderPending, bakeTrack } from './tra
 const SLOT_H = 24, MAX_SLOTS = 8;
 /** An insert's display name: a built-in effect's, or your plug-in's own (with ★). */
 export const fxName = f => (f.type === 'au' ? `★ ${f.name || 'Plug-in'}` : FX_TYPES[f.type]?.name || f.type);
-export const fxRackH = tr => 30 + SLOT_H * Math.min(MAX_SLOTS, Math.max(3, (tr.fx || []).length + 1));
+// as tall as its effects plus one empty slot to add another (like Audition's rack); folded, just its title line
+export const fxRackH = tr => (tr.fxFold ? 30 : 30 + SLOT_H * Math.min(MAX_SLOTS, (tr.fx || []).length + 1));
 
 const fmt = (v, unit) => unit === 'Hz' ? (v >= 1000 ? (v / 1000).toFixed(1) + ' kHz' : Math.round(v) + ' Hz') : unit === 'dB' ? (v > 0 ? '+' : '') + v.toFixed(1) + ' dB' : unit === 'ms' ? Math.round(v) + ' ms' : unit === ':1' ? v.toFixed(1) + ':1' : Math.round(v * 100) + '%';
 
@@ -66,7 +67,7 @@ export function fxSlotMenu(app, tr, f, x, y, after) {
 export function fxRack(app, tr, h) {
   const list = tr.fx || [];
   const rows = [];
-  for (let i = 0; i < Math.min(MAX_SLOTS, Math.max(3, list.length + 1)); i++) {
+  for (let i = 0; i < (tr.fxFold ? 0 : Math.min(MAX_SLOTS, list.length + 1)); i++) {
     const f = list[i];
     if (!f) {
       rows.push(el('div', { class: 'fx-slot empty', onclick: e => addFxMenu(app, tr, e.clientX, e.clientY, i) },
@@ -79,14 +80,34 @@ export function fxRack(app, tr, h) {
       el('span', { class: 'fx-n', text: i + 1 }), power, el('span', { class: 'fx-label', text: f.preset ? `${fxName(f)} · ${f.preset}` : fxName(f) }), more);
     more.addEventListener('click', e => { e.stopPropagation(); fxSlotMenu(app, tr, f, e.clientX, e.clientY); });
     row.addEventListener('contextmenu', e => { e.preventDefault(); fxSlotMenu(app, tr, f, e.clientX, e.clientY); });
+    // drag a slot onto another to change the order (the signal runs top to bottom)
+    row.draggable = true;
+    row.addEventListener('dragstart', e => { e.dataTransfer.setData('text/x-reel-fx', String(i)); e.dataTransfer.effectAllowed = 'move'; row.classList.add('dragging'); });
+    row.addEventListener('dragend', () => row.classList.remove('dragging'));
     rows.push(row);
   }
+  // drop a dragged slot here: it moves to this place
+  rows.forEach((row, to) => {
+    row.addEventListener('dragover', e => { if (!e.dataTransfer.types.includes('text/x-reel-fx')) return; e.preventDefault(); row.classList.add('drop'); });
+    row.addEventListener('dragleave', () => row.classList.remove('drop'));
+    row.addEventListener('drop', e => {
+      row.classList.remove('drop');
+      const from = Number(e.dataTransfer.getData('text/x-reel-fx'));
+      if (!Number.isInteger(from) || from === to || !list[from]) return;
+      e.preventDefault();
+      app.commit(() => { const [f] = list.splice(from, 1); list.splice(Math.min(to, list.length), 0, f); }, { keepInspector: true });
+    });
+  });
   const allOff = list.length && list.every(f => f.off);
-  return el('div', { class: 'tl-fxhead', style: { height: h + 'px' } },
+  const folded = !!tr.fxFold;
+  const summary = list.map(f => fxName(f)).join(' · ');
+  return el('div', { class: 'tl-fxhead' + (folded ? ' folded' : ''), style: { height: h + 'px' } },
     el('div', { class: 'fx-top' },
-      el('span', { class: 'engr', text: 'ƒx  EFFECTS' }),
-      el('button', { class: 'th-btn', text: 'PRESETS ▾', title: 'Put a saved chain of effects on this track, or save this rack as a preset', onclick: e => chainMenu(app, tr, e.clientX, e.clientY) }),
-      list.length ? el('button', { class: 'th-btn' + (allOff ? '' : ' on'), text: allOff ? 'ALL OFF' : 'ALL ON', title: 'Bypass or restore the whole rack', onclick: () => app.commit(() => { for (const f of list) f.off = !allOff; }) }) : null,
+      el('button', { class: 'fx-fold', title: folded ? 'Show the effects' : 'Fold the rack to one line (the effects keep playing)', onclick: () => app.commit(() => { tr.fxFold = !folded; }) },
+        el('span', { class: 'fx-chev', text: folded ? '▸' : '▾' }), el('span', { class: 'engr', text: folded && list.length ? 'ƒx' : 'ƒx EFFECTS' }),
+        list.length ? el('span', { class: 'fx-count', text: folded ? summary : String(list.length) }) : null),
+      folded ? null : el('button', { class: 'th-btn', text: 'PRESETS ▾', title: 'Put a saved chain of effects on this track, or save this rack as a preset', onclick: e => chainMenu(app, tr, e.clientX, e.clientY) }),
+      list.length && !folded ? el('button', { class: 'th-btn' + (allOff ? '' : ' on'), text: allOff ? 'ALL OFF' : 'ALL ON', title: 'Bypass or restore the whole rack', onclick: () => app.commit(() => { for (const f of list) f.off = !allOff; }) }) : null,
       el('button', { class: 'th-btn', text: '▴', title: 'Close the rack', onclick: () => app.commit(() => { tr.fxOpen = false; }) })),
     ...rows);
 }
