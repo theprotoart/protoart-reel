@@ -214,7 +214,9 @@ export function openUms(app) {
   });
   const timer = setInterval(() => refresh(), 700);
   const close = () => { clearInterval(timer); clearInterval(stopTimer); root.remove(); panel = null; };
-  panel = { root, refresh, close };
+  panel = { root, refresh, close, drawTeach };
   refresh(true);
 }
 export function closeUms() { panel?.close(); }
+/** Redraws the Ums panel if it's open (after you teach Reel your ums elsewhere). */
+export function refreshUms() { panel?.refresh(true); panel?.drawTeach?.(); }

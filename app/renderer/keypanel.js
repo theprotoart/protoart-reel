@@ -8,7 +8,7 @@ import { el, popMenu } from './ui.js';
 // tools sit in modules you can fold away, drag into another order, or hide (⚙). The layout is remembered.
 export const MODULES = [
   { id: 'edit', label: 'Edit', ids: ['btn-takes', 'btn-ums', 'btn-import', 'btn-autoedit'] },
-  { id: 'voice', label: 'Voice', ids: ['btn-voices', 'btn-clonevoice'] },
+  { id: 'voice', label: 'Voice', ids: ['btn-voices', 'btn-clonevoice', 'btn-teachums'] },
   { id: 'style', label: 'Style', ids: ['btn-styles', 'btn-filmcuts'] },
   { id: 'sound', label: 'Sound', ids: ['btn-automix', 'btn-sound', 'btn-spectral'] },
   { id: 'picture', label: 'Picture', ids: ['btn-aiimage', 'btn-thumb'] },
@@ -35,13 +35,16 @@ export function initKeyPanel(app) {
   const deck = document.getElementById('keypanel'), bar = document.getElementById('title-actions'), editor = document.getElementById('editor');
   if (!deck || !bar || !editor) return;
   // where each key sits in the top bar, so it can go back exactly there
-  const home = new Map(IDS.filter(id => id !== 'btn-automix' && id !== 'btn-clonevoice').map(id => { const b = document.getElementById(id); return [id, b ? { parent: b.parentNode, next: b.nextSibling } : null]; }));
+  const home = new Map(IDS.filter(id => id !== 'btn-automix' && id !== 'btn-clonevoice' && id !== 'btn-teachums').map(id => { const b = document.getElementById(id); return [id, b ? { parent: b.parentNode, next: b.nextSibling } : null]; }));
   // AUTO MIX gets a key of its own (same as the mixer's and ⌥⌘M)
   if (!document.getElementById('btn-automix')) {
     const b = el('button', { id: 'btn-automix', class: 'hw role-mix', text: '⚖ AUTO MIX', title: 'AUTO MIX (⌥⌘M): sets dialogue, music and sound effects against each other. Colour your sound tracks first: blue dialogue, orange music, green sound FX', onclick: () => app.cmd('auto-mix') });
     deck.append(b);
   }
   // CLONE MY VOICE: a key of its own beside VOICES (Kitten voices: your voice from the selected clip)
+  if (!document.getElementById('btn-teachums')) {
+    deck.append(el('button', { id: 'btn-teachums', class: 'hw role-voice', text: '🎙 TEACH MY UMS', title: 'TEACH MY UMS: record your um and uh a few times (slow, normal, quick) and read a sentence. Reel learns them in your voice and finds them in 💬 UMS and AUTO EDIT, even the ones speech recognition leaves out.', onclick: () => app.cmd('teach-ums') }));
+  }
   if (!document.getElementById('btn-clonevoice')) {
     deck.append(el('button', { id: 'btn-clonevoice', class: 'hw role-voice', text: '🎙 CLONE MY VOICE', title: 'CLONE MY VOICE: read a short passage into your microphone (or first select a clip of you talking, to use that). Reel saves your voice so 🗣 VOICES can say any text in it: fix a line without re-recording.', onclick: () => app.cmd('clone-voice') }));
   }

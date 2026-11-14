@@ -60,7 +60,8 @@ import { openClapFinder, clapsOnTimeline, addClapMarkers } from './clapscan.js';
 import { initToolbarGroups } from './toolbar.js';
 import { calloutsMenu, openCalloutPlanner } from './callouts.js';
 import { openTakes, initTakesButton, closeTakes } from './takes.js';
-import { openUms, closeUms, umCount } from './umspanel.js';
+import { openUms, closeUms, umCount, refreshUms } from './umspanel.js';
+import { teachUms } from './umvoice.js';
 import { applyDynZoom, hasDynZoom } from './lib/dynzoom.js';
 
 /**
@@ -1226,6 +1227,7 @@ class App {
       case 'find-claps': return openClapFinder(this);
       case 'takes': closeUms(); return openTakes(this);
       case 'ums': closeTakes(); return openUms(this);
+      case 'teach-ums': return teachUms(this, { onDone: () => refreshUms() });
       case 'master': return openMaster(this);
       case 'autoedit-clip': if (sel.length) return openClipAutoEdit(this, sel[0]); toast('Select a clip first (or right-click it).'); return;
       case 'marker': this.commit(d => { d.markers.push({ id: uid('k'), t, label: `Chapter ${d.markers.length + 1}` }); d.markers.sort((a, b) => a.t - b.t); }); return;
