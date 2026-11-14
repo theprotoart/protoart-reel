@@ -1957,3 +1957,6 @@ body.rec-paused #keypanel #btn-record .dot { animation: rk-blink 2s steps(2, sta
 #overlay .sel-box .h::after { content: ''; position: absolute; inset: -7px; border-radius: 50%; }
 /* the track area reaches the bottom of the timeline, so a selection box can start in the empty space below the tracks */
 #tl-tracks { min-height: 100%; }
+
+/* the timeline's drag-select box sits inside the tracks, not the window */
+#tl-tracks > .marquee { position: absolute; z-index: 8; }
