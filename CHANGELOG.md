@@ -1,7 +1,9 @@
 # Changelog
 
-## Unreleased
+## 1.8.1 — Section zoom, Audition-style volume and crossfades by dragging
 
+- **Drag a clip partly over the next one to crossfade them**, picture and sound together, even for a recording's
+  linked picture and microphone. Dropping a clip mostly on top of another still layers it on a new track.
 - **Dynamic zoom on part of a clip**: it uses your In–Out range, or two seconds from the playhead. Move it with
   START / END AT PLAYHEAD, spread it over the WHOLE CLIP, or add ↩ ZOOM BACK OUT.
 - **◆ KEYS on every track** opens its keyframe lane (Zoom, Volume or Pan, picked in the lane's Show menu), like

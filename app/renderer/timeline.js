@@ -1589,8 +1589,11 @@ export class Timeline {
           const ti = Math.min(tracks.length - 1, Math.max(0, tracks.findIndex(t => t.id === o.track) + rowDelta));
           return { id, start: Math.max(0, o.start + dt), track: tracks[ti].id, dur: o.duration };
         });
-        // one clip dragged partly over another on the same track: allowed, it becomes a crossfade on release
-        const fits = p => isFree(doc, p.track, p.start, p.dur, ids) || (ids.length === 1 && xfadeFits(doc, p, ids));
+        // a clip dragged partly over the next (or previous) clip on its track: allowed, it becomes a crossfade on
+        // release. That works for a linked pair too (a recording's picture and its microphone, one clip per track):
+        // each crossfades with its neighbour, so picture and sound blend together.
+        const oneEach = new Set(plan.map(p => p.track)).size === plan.length;
+        const fits = p => isFree(doc, p.track, p.start, p.dur, ids) || (oneEach && xfadeFits(doc, p, ids));
         let to = null;
         if (plan.every(fits)) to = plan;
         else {
@@ -1602,7 +1605,7 @@ export class Timeline {
           else to = layerPlan(doc, plan, ids, made);
         }
         if (to) for (const p of to) { const k = doc.clips.find(x => x.id === p.id); k.start = p.start; k.track = p.track; }
-        xf = ids.length === 1 ? xfadeOverlap(doc, doc.clips.find(x => x.id === ids[0])) : 0;
+        xf = oneEach ? Math.max(0, ...ids.map(id => xfadeOverlap(doc, doc.clips.find(x => x.id === id)))) : 0;
         if (xf > 0) {
           tip ||= document.body.appendChild(el('div', { class: 'retime-tip xf-tip' }));
           tip.textContent = `⤫ CROSSFADE ${xf.toFixed(2)} s — let go to blend`;
@@ -1617,8 +1620,9 @@ export class Timeline {
       document.body.style.cursor = '';
       tip?.remove();
       if (moved && xf > 0) {
-        const k = doc.clips.find(x => x.id === ids[0]);
-        const n = k ? crossfadeOverlaps(doc.clips.filter(x => x.track === k.track && x.type === 'media')) : 0;
+        const tracks = new Set(ids.map(id => doc.clips.find(x => x.id === id)?.track).filter(Boolean));
+        let n = 0;
+        for (const t of tracks) n += crossfadeOverlaps(doc.clips.filter(x => x.track === t && x.type === 'media'));
         if (n) toast(`Crossfade added (${xf.toFixed(2)} s): the two clips blend, sound and picture. Drag them apart to remove it.`, 4000);
       }
       if (moved && made.length) toast(`On ${made.length === 1 ? 'a new track' : 'new tracks'} above, so it plays on top.`, 3500);
