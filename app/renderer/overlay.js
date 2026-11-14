@@ -31,10 +31,16 @@ export class Overlay {
     if (this.dragging) return; // the box being dragged follows the pointer itself
     const app = this.app, doc = this.doc;
     this.root.replaceChildren();
-    if (!doc || app.selection.clips.length !== 1 || app.player.playing) return;
-    const c = doc.clips.find(x => x.id === app.selection.clips[0]);
-    if (!c) return;
+    if (!doc || !app.selection.clips.length || app.player.playing) return;
+    // one picture in the selection gets the handles: a clip selected with its own sound (a recording's screen and
+    // microphone, a PIP and its audio) still shows them, so it can be moved and scaled straight away
     const t = app.player.time;
+    const sel = app.selection.clips.map(id => doc.clips.find(x => x.id === id)).filter(Boolean);
+    const seen = sel.filter(x => !(x.type === 'media' && (x.audioOnly || mediaById(doc, x.media)?.kind === 'audio')));
+    const onNow = seen.filter(x => t >= x.start && t < clipEnd(x));
+    if (seen.length !== 1 && onNow.length !== 1) return;
+    const c = onNow.length === 1 ? onNow[0] : seen[0];
+    if (!c) return;
     if (t < c.start || t >= clipEnd(c)) return;
     const cr = this.canvas.getBoundingClientRect(), sr = this.root.parentElement.getBoundingClientRect();
     Object.assign(this.root.style, { left: cr.left - sr.left + 'px', top: cr.top - sr.top + 'px', width: cr.width + 'px', height: cr.height + 'px' });

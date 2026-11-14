@@ -1953,3 +1953,5 @@ body.rec-paused #keypanel #btn-record .dot { animation: rk-blink 2s steps(2, sta
 /* the clip's name starts clear of the fade handles in its top corners */
 .clip .cname { left: 14px; right: 14px; }
 .clip .cbadges > * { white-space: nowrap; flex-shrink: 0; }
+/* picture handles: a bigger area to grab than the dot you see (easier on a small picture in picture) */
+#overlay .sel-box .h::after { content: ''; position: absolute; inset: -7px; border-radius: 50%; }
