@@ -5,7 +5,7 @@ shipped inside the app at `ProtoArt Reel.app/Contents/Resources/Licenses/`.
 
 | Component | License | Notes |
 |---|---|---|
-| Electron 44.7.0 | MIT | `Electron-LICENSE.txt` |
+| Electron 44.11.2 | MIT | `Electron-LICENSE.txt` |
 | Chromium (bundled in Electron), including its media codecs and libraries | BSD-3-Clause and various | `LICENSES.chromium.html` |
 | Node.js (bundled in Electron) | MIT and various | Covered by `LICENSES.chromium.html` and the Electron license |
 | RNNoise v0.1.1 (Xiph.Org, Mozilla; Jean-Marc Valin), including its trained weights | BSD-3-Clause | `RNNoise-COPYING.txt`; compiled into the `reel-voice` helper |
