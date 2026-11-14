@@ -59,7 +59,8 @@ import { openAutoEdit, openClipAutoEdit } from './autoedit.js';
 import { openClapFinder, clapsOnTimeline, addClapMarkers } from './clapscan.js';
 import { initToolbarGroups } from './toolbar.js';
 import { calloutsMenu, openCalloutPlanner } from './callouts.js';
-import { openTakes, initTakesButton } from './takes.js';
+import { openTakes, initTakesButton, closeTakes } from './takes.js';
+import { openUms, closeUms, umCount } from './umspanel.js';
 import { loadShortcuts, handleShortcutKey } from './shortcuts.js';
 import { syncTrackPlugins, watchLive } from './trackplugins.js';
 import { openTransitions } from './transpicker.js';
@@ -1183,7 +1184,8 @@ class App {
         return;
       }
       case 'find-claps': return openClapFinder(this);
-      case 'takes': return openTakes(this);
+      case 'takes': closeUms(); return openTakes(this);
+      case 'ums': closeTakes(); return openUms(this);
       case 'master': return openMaster(this);
       case 'autoedit-clip': if (sel.length) return openClipAutoEdit(this, sel[0]); toast('Select a clip first (or right-click it).'); return;
       case 'marker': this.commit(d => { d.markers.push({ id: uid('k'), t, label: `Chapter ${d.markers.length + 1}` }); d.markers.sort((a, b) => a.t - b.t); }); return;
@@ -1855,6 +1857,10 @@ class App {
     for (const b of document.querySelectorAll('#toolstrip [data-cmd]')) b.addEventListener('click', () => this.cmd(b.dataset.cmd));
     initToolbarGroups(this);
     initTakesButton(this);
+    { // 💬 UMS key: how many ums are marked CUT
+      const b = document.getElementById('btn-ums'), badge = b?.querySelector('.n');
+      if (b) setInterval(() => { const n = this.doc ? umCount(this.doc) : 0; if (badge) badge.textContent = n ? String(n) : ''; b.classList.toggle('has', n > 0); }, 1000);
+    }
     loadShortcuts(this);
     for (const b of document.querySelectorAll('#toolstrip [data-tool]')) b.addEventListener('click', () => { if (b._held) { b._held = false; return; } this.timeline.setTool(b.dataset.tool); });
     { // press and hold SELECT (or right-click it): select all, or everything of one kind

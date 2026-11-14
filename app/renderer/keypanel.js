@@ -8,7 +8,7 @@ import { el, popMenu } from './ui.js';
 // REC and EXPORT are the two big master keys: the first and last thing you do
 const ROWS = [
   ['', ['btn-record']],
-  ['', ['btn-takes', 'btn-import', 'btn-autoedit']],
+  ['', ['btn-takes', 'btn-ums', 'btn-import', 'btn-autoedit']],
   ['', ['btn-voices', 'btn-clonevoice']],
   ['', ['btn-styles', 'btn-filmcuts']],
   ['', ['btn-automix', 'btn-sound', 'btn-spectral']],
@@ -31,6 +31,11 @@ export function initKeyPanel(app) {
   if (!document.getElementById('btn-clonevoice')) {
     deck.append(el('button', { id: 'btn-clonevoice', class: 'hw role-voice', text: '🎙 CLONE MY VOICE', title: 'CLONE MY VOICE: read a short passage into your microphone (or first select a clip of you talking, to use that). Reel saves your voice so 🗣 VOICES can say any text in it: fix a line without re-recording.', onclick: () => app.cmd('clone-voice') }));
   }
+  // UMS: beside TAKES (find the ums and uhs in the speech, cut them one by one or all at once)
+  if (!document.getElementById('btn-ums')) {
+    const b = el('button', { id: 'btn-ums', class: 'hw takes-btn', title: 'UMS: Reel listens to the speech and lists every um, uh and filler. Play each one, keep or cut it, or remove them all at once.', onclick: () => app.cmd('ums') }, '💬 UMS', el('span', { class: 'n' }));
+    deck.append(b);
+  }
   // STYLE PACKS and FILM CUTS: keys of their own
   if (!document.getElementById('btn-styles')) deck.append(el('button', { id: 'btn-styles', class: 'hw role-style', text: '🎬 STYLE PACKS', title: 'STYLE PACKS: give the whole edit a look in one click: Nature Documentary, Fizz Commercial, Movie Trailer, Retro VHS, Sports Highlight, Travel Vlog, Breaking News', onclick: () => app.cmd('styles') }));
   if (!document.getElementById('btn-filmcuts')) deck.append(el('button', { id: 'btn-filmcuts', class: 'hw role-style', text: '🎞 FILM CUTS', title: 'FILM CUTS: L-cut, J-cut, smash cut, jump cut, cut on action, cutaway and cross-cut, at the playhead', onclick: () => app.cmd('film-cuts') }));
@@ -40,7 +45,7 @@ export function initKeyPanel(app) {
     const hidden = IDS.map(id => document.getElementById(id)).filter(b => b && deck.contains(b) && b.classList.contains('adv'));
     popMenu(r.left, r.bottom + 4, hidden.map(b => [b.textContent.replace(/\s+/g, ' ').trim(), () => b.click()]));
   });
-  const rows = ROWS.map(([label, ids]) => ({ ids, row: el('div', { class: 'keys-row' + (ids.length === 1 ? ' wide' : ids.length === 2 ? ' two' : '') }, label ? el('span', { class: 'keys-label', text: label }) : null) }));
+  const rows = ROWS.map(([label, ids]) => ({ ids, row: el('div', { class: 'keys-row' + (ids.length === 1 ? ' wide' : ids.length === 2 ? ' two' : ids.length === 4 ? ' four' : '') }, label ? el('span', { class: 'keys-label', text: label }) : null) }));
   deck.append(...rows.map(r => r.row));
   rows[rows.length - 1].row.append(more);
 

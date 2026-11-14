@@ -1,5 +1,12 @@
 # Changelog
 
+## Unreleased
+
+- **💬 UMS** (beside TAKES, Edit › Ums and Fillers…, ⌥⌘U): Reel listens to the speech and lists every um, uh, er and
+  hmm, plus fillers like "you know" and a standalone "like". It also lists short sounds between words, which are
+  often ums the speech recogniser left out. Play each one, switch CUT / KEEP, remove one with 🗑, or remove every
+  one marked CUT at once. ⌘Z brings them back, and the list moves along as you edit.
+
 ## 1.7.0 — Style packs, film cuts and Randomize
 
 - **🎬 Style packs**: a whole look in one click, with live previews: **Nature Documentary**, **Fizz Commercial**,

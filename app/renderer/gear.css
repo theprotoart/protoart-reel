@@ -1960,3 +1960,14 @@ body.rec-paused #keypanel #btn-record .dot { animation: rk-blink 2s steps(2, sta
 
 /* the timeline's drag-select box sits inside the tracks, not the window */
 #tl-tracks > .marquee { position: absolute; z-index: 8; }
+
+/* 💬 UMS: four keys in the TAKES row; the panel is the TAKES panel with a delete key on each row */
+#keypanel .keys-row.four { grid-template-columns: repeat(4, minmax(0, 1fr)); }
+.ums-opts { display: flex; gap: 6px; margin: 2px 0 6px; }
+.ums-opts select { flex: 1; min-width: 0; }
+.ums-sum { display: flex; align-items: center; justify-content: space-between; gap: 8px; }
+.ums-sum span { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.ums-panel .take-row .take-name { flex: 0 1 120px; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.ums-panel .take-row.ums-sound .take-name { font-style: italic; opacity: .8; }
+.ums-panel .ums-del { flex: none; }
+.ums-status:empty { display: none; }

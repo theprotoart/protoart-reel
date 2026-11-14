@@ -7,6 +7,7 @@ import { deleteAllCaptions } from './textops.js';
 import { mediaById, removeRange, uid } from './model.js';
 import { wordsOnTimeline, mergeWords, buildCaptions, fillerRanges, pauseRanges, cutRanges } from './lib/words.js';
 
+export { prefs as speechPrefs, savePrefs as saveSpeechPrefs };
 export const LANGS = [['en-US', 'English (US)'], ['en-GB', 'English (UK)'], ['en-AU', 'English (Australia)'], ['es-ES', 'Spanish (Spain)'], ['es-MX', 'Spanish (Mexico)'],
   ['fr-FR', 'French'], ['de-DE', 'German'], ['it-IT', 'Italian'], ['pt-BR', 'Portuguese (Brazil)'], ['nl-NL', 'Dutch'], ['ja-JP', 'Japanese'], ['ko-KR', 'Korean'],
   ['zh-CN', 'Chinese (Mandarin)'], ['ru-RU', 'Russian'], ['ar-SA', 'Arabic'], ['hi-IN', 'Hindi']];
@@ -35,10 +36,13 @@ async function mediaWords(app, m, locale, onProgress) {
   } finally { listeners.delete(job); }
 }
 
+/** The clips whose sound is listened to: audible clips on the track (or every track). */
+export const speechClips = (doc, track = '') => doc.clips.filter(c => !c.disabled && !c.audio?.mute && soundOf(doc, c) && (!track || c.track === track) && !doc.tracks.find(t => t.id === c.track)?.muted);
+
 /** The timeline's speech: words of every audible clip on the chosen track (or all tracks). */
 export async function timelineWords(app, { locale, track = '' }, onStatus) {
   const doc = app.doc;
-  const clips = doc.clips.filter(c => !c.disabled && !c.audio?.mute && soundOf(doc, c) && (!track || c.track === track) && !doc.tracks.find(t => t.id === c.track)?.muted);
+  const clips = speechClips(doc, track);
   if (!clips.length) throw new Error('There’s no clip with sound to listen to.');
   const media = [...new Map(clips.map(c => [c.media, soundOf(doc, c)])).values()];
   const byMedia = new Map();
@@ -49,7 +53,7 @@ export async function timelineWords(app, { locale, track = '' }, onStatus) {
   return mergeWords(clips.map(c => wordsOnTimeline(byMedia.get(c.media) || [], c)));
 }
 
-function trackSelect(doc, value) {
+export function trackSelect(doc, value) {
   const audible = doc.tracks.filter(t => doc.clips.some(c => c.track === t.id && soundOf(doc, c)));
   const s = el('select', {}, el('option', { value: '', text: 'All tracks with sound' }), ...audible.map(t => el('option', { value: t.id, text: t.name || 'Track', selected: t.id === value })));
   if (!value) { const voice = audible.find(t => /voice|mic|dialog|vo\b/i.test(t.name || '')); if (voice) s.value = voice.id; }

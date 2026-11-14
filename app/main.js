@@ -1849,6 +1849,7 @@ function buildMenu() {
       { label: 'Splice at Playhead  (S)', click: m('split') },
       { label: 'Add Marker  (M)', click: m('marker') },
       { label: 'Takes…', accelerator: 'Command+Alt+T', click: m('takes') },
+      { label: 'Ums and Fillers…', accelerator: 'Command+Alt+U', click: m('ums') },
       { label: 'Find Clap Markers…', click: m('find-claps') },
       { type: 'separator' },
       { label: 'Mark In  (I)', click: m('mark-in') },

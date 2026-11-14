@@ -20,6 +20,10 @@ export const TOPICS = [
     'Messed up a line? **Clap three times** (or press `⌥⇧⌘M` / **MARK**), pause, and say it again. When you stop, Reel listens to the microphone and splits the recording into takes at each clap.',
     '**✂ TAKES** lists them. The take before each clap is marked **DROP**; the last one is kept. Play any take with ▶, switch **KEEP / DROP**, then **REMOVE DROPPED TAKES** cuts them, claps and all, and closes the gaps (`⌘Z` brings them back).',
     'For other footage: select a clip and press **LISTEN FOR CLAPS** in TAKES (or Edit › Find Clap Markers…). **Auto Edit** can find and cut claps too (its **Claps** setting).'], 'how'],
+  ['Ums: find and cut um, uh and fillers', 'um umm uh er erm hmm filler fillers ums uhs like you know stutter hesitation clean speech remove', [
+    'Press **💬 UMS** (beside TAKES, or Edit › Ums and Fillers…, `⌥⌘U`), pick the track with the voice and press **LISTEN FOR UMS**. Reel listens to the speech on this Mac and lists every **um**, **uh**, **er** and **hmm**, plus fillers like **"you know"** and a standalone **"like"**.',
+    'It also lists short **sounds between words** in italics: often an um the speech recogniser didn’t write down. Um and uh start as **CUT**; fillers and sounds start as **KEEP**, so play them (▶ plays a second either side) before you switch them.',
+    '**🗑** removes one now. **REMOVE N UMS** cuts every one marked CUT and closes the gaps on every track. **ALL CUT / ALL KEEP** switches the whole list. `⌘Z` brings anything back, and the list moves along as you edit.'], 'how'],
   ['Editing on the timeline', 'edit cut split splice blade trim delete move snap group ungroup select forward toolbar tool bar', [
     'Drag media from the left onto the timeline. Upper tracks draw on top. `S` splices at the playhead, `T` is the blade, `⌫` deletes, `⇧⌫` deletes and closes the gap, `M` adds a marker, `Space` plays.',
     'Drag a clip’s edges to trim it; a group (screen + its sound) trims together. `⌥` while trimming moves only that clip, or rolls a cut between two touching clips. **SNAP** makes clips land flush against each other, markers and the playhead.',
