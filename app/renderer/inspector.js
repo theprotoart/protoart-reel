@@ -1,6 +1,6 @@
 // Inspector: properties of the selected clip (or the project when nothing is selected).
 // When a zoom & pan action is selected, position/scale/crop edits change that action's target.
-import { el, section, slider, selectRow, colorRow, checkRow } from './ui.js';
+import { el, section, slider, selectRow, colorRow, checkRow, toast } from './ui.js';
 import { retimeSection } from './retimeui.js';
 import { applyCut, OVERLAP_CUTS, clipEnd, mediaById, fmtTime, ANIMATABLE, propsAt, paramAt, setParam, putKey, removeKey, keysOf, hasKeys, anyKeys, clamp, KEY_EASES, LABELS, setSpeed, SPEED_MIN, SPEED_MAX } from './model.js';
 import { effectsSection, addPluginToClip } from './fx.js';
@@ -12,7 +12,7 @@ import { canSeparate } from './ghost.js';
 import { captionPanel, captionStylePanel, annotationPanel } from './textops.js';
 import { filtersSection, matteSection, stabilizeSection } from './filters.js';
 import { MOTION_PRESETS, applyMotion, clearMotion } from './motion.js';
-import { hasDynZoom, getDynZoom, setDynZoomEase, swapDynZoom, removeDynZoom, DZ_EASES } from './lib/dynzoom.js';
+import { hasDynZoom, getDynZoom, setDynZoomEase, swapDynZoom, removeDynZoom, DZ_EASES, setDynZoomTimes, addZoomBackOut, hasZoomBackOut } from './lib/dynzoom.js';
 import { ELEMENTS } from './lib/elements.js';
 import { pref } from './prefs.js';
 
@@ -615,8 +615,15 @@ function dynZoomSection(app, insp, c) {
   const ease = el('select', { title: 'How it moves from START to END' }, ...DZ_EASES.map(([v, t]) => el('option', { value: v, text: t, selected: dz.ease === v })));
   ease.addEventListener('change', () => insp.edit(() => setDynZoomEase(c, ease.value)));
   const pct = f => Math.round(100 / f.s) + '%';
+  const at = () => clamp(app.player.time - c.start, 0, c.duration);
+  const back = hasZoomBackOut(c);
   sec.append(
-    el('p', { class: 'note', text: `${pct(dz.start)} → ${pct(dz.end)} over ${(dz.t1 - dz.t0).toFixed(1)} s. ${framing ? 'Drag the green START and red END frames in the preview (a corner resizes, ⇧ from the centre).' : 'Drag the diamonds on the clip to change when it starts and ends, or pick Zoom under the track to shape it.'}` }),
+    el('p', { class: 'note', text: `${pct(dz.start)} → ${pct(dz.end)}, from ${fmtTime(c.start + dz.t0)} to ${fmtTime(c.start + dz.t1)} (${(dz.t1 - dz.t0).toFixed(1)} s)${back ? ', then back out' : ''}. ${framing ? 'Drag the green START and red END frames in the preview (a corner resizes, ⇧ from the centre).' : 'Move the playhead and set where it starts and ends, or drag its points on the Zoom lane under the track.'}` }),
+    el('div', { class: 'btn-row dz-when' },
+      el('button', { class: 'tool', text: '⇤ START AT PLAYHEAD', title: 'The zoom starts where the playhead is', onclick: () => insp.edit(() => setDynZoomTimes(c, at(), Math.max(dz.t1, at() + 0.1))) }),
+      el('button', { class: 'tool', text: 'END AT PLAYHEAD ⇥', title: 'The zoom ends where the playhead is', onclick: () => insp.edit(() => setDynZoomTimes(c, Math.min(dz.t0, at() - 0.1), at())) }),
+      el('button', { class: 'tool', text: 'WHOLE CLIP', title: 'Zoom over the whole clip', onclick: () => insp.edit(() => setDynZoomTimes(c, 0, c.duration)) }),
+      el('button', { class: 'tool' + (back ? ' lit' : ''), text: back ? '↩ ZOOMS BACK OUT' : '↩ ZOOM BACK OUT', title: back ? 'It returns to the START framing after a second. Click to stay zoomed in instead' : 'After the zoom, hold a second, then go back to the START framing', onclick: () => insp.edit(() => { if (back) { for (const p of ['props.x', 'props.y', 'props.scale']) if (c.keys?.[p]) c.keys[p] = c.keys[p].slice(0, 2); } else if (!addZoomBackOut(c)) toast('No room after the zoom for it to go back out: end it earlier first.'); }) })),
     el('div', { class: 'row' }, el('label', { text: 'Ease' }), ease),
     el('div', { class: 'btn-row' },
       el('button', { class: 'tool dz-btn' + (framing ? ' lit' : ''), text: framing ? '✓ DONE' : '🔍 EDIT FRAMES', title: framing ? 'Finish framing (Esc)' : 'Show the START and END frames in the preview', onclick: () => app.cmd(framing ? 'dynamic-zoom-done' : 'dynamic-zoom') }),

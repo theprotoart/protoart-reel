@@ -83,3 +83,28 @@ test('ease in and ease out keyframes work on any keyed value', () => {
   list[0].ease = 'out'; near(keyAt(list, 0.5, 0), 0.75);
   list[0].ease = 'hold'; near(keyAt(list, 0.5, 0), 0);
 });
+
+test('a dynamic zoom on a section: before it the START frame, after it the END frame', async () => {
+  const { sectionIn, setDynZoomTimes, addZoomBackOut, hasZoomBackOut } = await import('../app/renderer/lib/dynzoom.js');
+  const c = clip(); // 4 s long
+  applyDynZoom(c, { t0: 1, t1: 2 });
+  const dz = getDynZoom(c);
+  near(dz.t0, 1); near(dz.t1, 2);
+  near(animated(c, 0.5).props.scale, 1);
+  near(animated(c, 3).props.scale, 1 / 0.75);
+  // move it later, past where it was: it keeps its frames
+  setDynZoomTimes(c, 2.5, 3.5);
+  near(getDynZoom(c).t0, 2.5); near(getDynZoom(c).t1, 3.5); near(getDynZoom(c).end.s, 0.75);
+  // and earlier again
+  setDynZoomTimes(c, 0.2, 1.2);
+  near(getDynZoom(c).t0, 0.2); near(getDynZoom(c).t1, 1.2);
+  // zoom back out: hold the END frame, then return to START before the clip ends
+  assert.ok(addZoomBackOut(c, 1));
+  assert.ok(hasZoomBackOut(c));
+  near(animated(c, 1.8).props.scale, 1 / 0.75);
+  near(animated(c, 4).props.scale, 1);
+  near(getDynZoom(c).t1, 1.2); // the zoom in is still the first two keys
+  // sections stay inside the clip and at least 0.1 s long
+  assert.deepEqual(sectionIn(c, -3, 99).map(v => +v.toFixed(3)), [0, 4]);
+  assert.deepEqual(sectionIn(c, 3.95, 3.95).map(v => +v.toFixed(3)), [3.9, 4]);
+});

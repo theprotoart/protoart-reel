@@ -13,7 +13,7 @@ export const MODULES = [
   { id: 'sound', label: 'Sound', ids: ['btn-automix', 'btn-sound', 'btn-spectral'] },
   { id: 'picture', label: 'Picture', ids: ['btn-aiimage', 'btn-thumb'] },
 ];
-const ROWS = [['', ['btn-record']], ...MODULES.map(m => [m.id, m.ids]), ['', ['btn-export']]];
+const ROWS = [['', ['btn-record', 'btn-export']], ...MODULES.map(m => [m.id, m.ids])];
 const IDS = ROWS.flatMap(r => r[1]);
 
 // the layout: { order: [module ids], folded: [module ids], hidden: [module ids], tools: false when all folded }
@@ -60,7 +60,8 @@ export function initKeyPanel(app) {
     popMenu(r.left, r.bottom + 4, hidden.map(b => [b.textContent.replace(/\s+/g, ' ').trim(), () => b.click()]));
   });
   // REC on top, EXPORT at the bottom, the tool modules between them
-  const recRow = el('div', { class: 'keys-row wide' }), exportRow = el('div', { class: 'keys-row wide' }, more);
+  // REC and EXPORT side by side at the top: the first and last thing you do, always in reach
+  const recRow = el('div', { class: 'keys-row two masters' }), exportRow = el('div', { class: 'keys-row wide more-row' }, more);
   let layout = loadLayout();
   const mods = new Map(MODULES.map(m => {
     const chev = el('span', { class: 'kmod-chev' }), count = el('span', { class: 'kmod-count' });
@@ -124,7 +125,7 @@ export function initKeyPanel(app) {
     toolsChev.textContent = layout.tools ? '▾' : '▸';
   };
   deck.append(recRow, toolsHead, modsEl, exportRow);
-  const rows = [{ ids: ['btn-record'], row: recRow }, ...MODULES.map(m => ({ ids: m.ids, row: mods.get(m.id).body })), { ids: ['btn-export'], row: exportRow }];
+  const rows = [{ ids: ['btn-record', 'btn-export'], row: recRow }, ...MODULES.map(m => ({ ids: m.ids, row: mods.get(m.id).body }))];
   draw();
   new MutationObserver(draw).observe(document.body, { attributes: true, attributeFilter: ['class'] }); // SIMPLE / FULL
 

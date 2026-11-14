@@ -6,8 +6,8 @@
   --line: rgba(255,255,255,0.07);
   --line-2: rgba(255,255,255,0.12);
   --text: #e9e5da;
-  --text-dim: rgba(233,229,218,0.55);
-  --text-faint: rgba(233,229,218,0.32);
+  --text-dim: rgba(233,229,218,0.7);   /* readable on the black faceplate: 4.5:1 or more */
+  --text-faint: rgba(233,229,218,0.52);
   --amber: #ffb02a;
   --amber-glow: rgba(255,166,30,0.75);
   /* the lit colour family (keys, lamps, readouts), changed by the colour scheme (theme.js); these are Amber */

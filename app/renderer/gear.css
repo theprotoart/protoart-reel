@@ -305,7 +305,7 @@ textarea.big.flash { box-shadow: var(--glass-shadow), 0 0 0 1.5px var(--amber), 
 .tl-head .th-top, .tl-head .th-bottom, .tl-lanehead .th-top { display: flex; align-items: center; gap: 3px; min-width: 0; }
 .tl-head .tname { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 #tl-heads .th-btn { min-width: 20px; height: 18px; padding: 0 4px; border: 0; border-radius: 3px; cursor: pointer; font: 700 9.5px/18px var(--font-engrave); letter-spacing: 0.06em;
-  color: rgba(220,212,195,0.62); background: linear-gradient(180deg, #4a4741, #1f1d1a); box-shadow: 0 0 0 1px #000, 0 1px 0 #000, inset 0 1px 0 rgba(255,255,255,0.18); }
+  color: rgba(220,212,195,0.8); background: linear-gradient(180deg, #4a4741, #1f1d1a); box-shadow: 0 0 0 1px #000, 0 1px 0 #000, inset 0 1px 0 rgba(255,255,255,0.18); }
 #tl-heads .th-btn:hover { color: var(--paint); }
 #tl-heads .th-btn.on { color: rgba(30,18,4,0.9); text-shadow: none; background: radial-gradient(ellipse at 50% 45%, var(--lit-hi) 0%, var(--lit-mid) 45%, var(--lit-lo) 100%); box-shadow: 0 0 0 1px #000, 0 0 7px rgba(var(--glow-e),.5); }
 #tl-heads .th-btn.solo.on { background: radial-gradient(ellipse at 50% 45%, #fffbd0 0%, #ffe24a 45%, #c9a40e 100%); box-shadow: 0 0 0 1px #000, 0 0 7px rgba(255,220,40,.55); }
@@ -785,7 +785,7 @@ input.switch:focus-visible, .row > input[type=checkbox]:focus-visible { outline:
 .newdoc label.row { gap: 8px; cursor: pointer; }
 .newdoc input[type=range] { flex: 1; }
 /* SELECT: the little ▾ says "press and hold for more" */
-#toolstrip [data-tool=select] .hold-mark { font-style: normal; font-size: 9px; opacity: .6; margin-left: 2px; }
+#toolstrip [data-tool=select] .hold-mark { font-style: normal; font-size: 9px; opacity: .9; margin-left: 2px; }
 
 /* =====================================================================================================
    SOUND console: SSL / Allen & Heath style channel strips. Dark charcoal desk, engraved white legends,
@@ -1279,10 +1279,10 @@ html[data-theme="light"] .ae-card.lit { background: linear-gradient(#fff3d6, #f1
 
 /* the SIMPLE / FULL lever */
 #mode-switch { display: flex; padding: 2px; border-radius: 7px; background: #0c0c0d; box-shadow: inset 0 1px 3px #000, 0 1px 0 rgba(255,255,255,0.08); flex: none; }
-#mode-switch button { border: 0; padding: 6px 10px; border-radius: 5px; background: transparent; color: rgba(236,230,214,0.5); font: 700 10.5px var(--font-engrave, sans-serif); letter-spacing: .12em; cursor: pointer; }
+#mode-switch button { border: 0; padding: 6px 10px; border-radius: 5px; background: transparent; color: rgba(236,230,214,0.66); font: 700 10.5px var(--font-engrave, sans-serif); letter-spacing: .12em; cursor: pointer; }
 #mode-switch button.on { background: radial-gradient(ellipse at 50% 40%, var(--lit-hi) 0%, var(--lit-mid) 50%, var(--lit-lo) 100%); color: var(--lit-ink); box-shadow: 0 0 8px rgba(var(--glow-a),0.45); }
 html[data-theme="light"] #mode-switch { background: #b9b9b4; box-shadow: inset 0 1px 3px rgba(0,0,0,0.45), 0 1px 0 rgba(255,255,255,0.7); }
-html[data-theme="light"] #mode-switch button { color: rgba(35,33,29,0.6); }
+html[data-theme="light"] #mode-switch button { color: rgba(35,33,29,0.86); }
 
 /* what SIMPLE leaves out (one click away under MORE) */
 body.simple .adv, body.simple .full-only { display: none !important; }
@@ -1645,7 +1645,7 @@ body.simple #keypanel .keys-more { display: block; }
   background: radial-gradient(circle at 35% 30%, #eaffe0 0%, #49e23a 40%, #136b0c 100%); box-shadow: 0 0 0 2px #2a2d27, 0 0 0 3px #000, 0 0 8px rgba(73,226,58,.55); }
 #keypanel #btn-export .ex-word { display: block; font: 800 17px/1 var(--font-engrave, system-ui); letter-spacing: .32em; text-align: left;
   color: #0e2a0a; text-shadow: 0 1px 0 rgba(255,255,255,.6); }
-#keypanel #btn-export .ex-sub { display: block; font: 700 8.5px/1 var(--font-engrave, system-ui); letter-spacing: .24em; text-align: left; color: rgba(14,42,10,.62); margin-top: 3px; }
+#keypanel #btn-export .ex-sub { display: block; font: 700 8.5px/1 var(--font-engrave, system-ui); letter-spacing: .24em; text-align: left; color: rgba(10,34,6,.9); margin-top: 3px; }
 #keypanel #btn-export:hover { filter: brightness(1.07) saturate(1.05); }
 #keypanel #btn-export:hover .ex-jewel { box-shadow: 0 0 0 2px #2a2d27, 0 0 0 3px #000, 0 0 14px rgba(73,226,58,.85); }
 /* pressed: the key travels down into the bezel, the lamp flares */
@@ -1701,7 +1701,7 @@ body.simple #keypanel .keys-more { display: block; }
 #keypanel #btn-record .dot { grid-row: 1 / 3; width: 14px; height: 14px; margin: 0; border-radius: 50%;
   background: radial-gradient(circle at 35% 30%, #ffd9d2 0%, #ff3b22 42%, #7a0e04 100%); box-shadow: 0 0 0 2px #2a2d27, 0 0 0 3px #000, 0 0 8px rgba(255,59,34,.45); }
 #keypanel #btn-record .rk-word { display: block; font: 800 17px/1 var(--font-engrave, system-ui); letter-spacing: .32em; text-align: left; color: #5a1208; text-shadow: 0 1px 0 rgba(255,255,255,.7); }
-#keypanel #btn-record .rk-sub { display: block; font: 700 8.5px/1 var(--font-engrave, system-ui); letter-spacing: .2em; text-align: left; color: rgba(90,18,8,.6); margin-top: 3px; }
+#keypanel #btn-record .rk-sub { display: block; font: 700 8.5px/1 var(--font-engrave, system-ui); letter-spacing: .2em; text-align: left; color: rgba(90,18,8,.88); margin-top: 3px; }
 #keypanel #btn-record:hover { filter: brightness(1.05); }
 #keypanel #btn-record:hover .dot { box-shadow: 0 0 0 2px #2a2d27, 0 0 0 3px #000, 0 0 14px rgba(255,59,34,.85); }
 #keypanel #btn-record:active { transform: translateY(2px); box-shadow: 0 0 0 4px #1b1c1f, 0 0 0 5px #000, 0 1px 0 4px #0c0c0d, 0 2px 4px 4px rgba(0,0,0,.5), inset 0 3px 8px rgba(0,0,0,.3); }
@@ -2019,8 +2019,8 @@ body.dragging-window, body.dragging-window * { cursor: move !important; user-sel
 /* the tool panel: REC and EXPORT always; the tools in groups you can fold, drag into another order or hide (⚙) */
 #keypanel .tools-head { display: flex; align-items: center; gap: 6px; margin: 1px 0 -2px; }
 #keypanel .tools-head .spacer { flex: 1; }
-#keypanel .tools-fold, #keypanel .kmod-head, #keypanel .tools-gear { width: auto; background: none; border: 0; box-shadow: none; padding: 2px 4px; color: #a59c8b;
-  font: 700 9.5px/1 var(--font-engrave, system-ui); letter-spacing: .18em; text-transform: uppercase; display: flex; align-items: center; gap: 5px; cursor: pointer; }
+#keypanel .tools-fold, #keypanel .kmod-head, #keypanel .tools-gear { width: auto; background: none; border: 0; box-shadow: none; padding: 2px 4px; color: #cfc6b2;
+  font: 700 10.5px/1 var(--font-engrave, system-ui); letter-spacing: .16em; text-transform: uppercase; display: flex; align-items: center; gap: 5px; cursor: pointer; }
 #keypanel .tools-gear { font-size: 13px; letter-spacing: 0; padding: 2px 6px; }
 #keypanel .tools-fold:hover, #keypanel .kmod-head:hover, #keypanel .tools-gear:hover { color: var(--amber, #f5b942); }
 #keypanel .kmods { display: flex; flex-direction: column; gap: 4px; }
@@ -2039,3 +2039,21 @@ body.dragging-window, body.dragging-window * { cursor: move !important; user-sel
 /* a group whose keys SIMPLE puts under MORE ▾ hides with them */
 body.simple #keypanel .kmod:not(:has(.kmod-body > button:not(.adv))) { display: none; }
 #keypanel .kmod-body > button { text-overflow: clip; }
+
+/* ◆ KEYS on each track: opens its keyframe lane (like Audition's envelopes) */
+.th-keys { flex: 1; min-width: 0; height: 20px; padding: 0 6px; border-radius: 4px; border: 1px solid var(--line-2, rgba(255,255,255,.12)); background: none; cursor: pointer;
+  font: 700 10px/1 var(--font-engrave); letter-spacing: .1em; color: var(--text-dim); text-align: left; white-space: nowrap; overflow: hidden; }
+.th-keys:hover { color: var(--amber); }
+.th-keys.has { color: var(--text); }
+.th-keys.on { color: var(--amber); border-color: var(--amber); }
+.lane-show { display: flex; align-items: center; gap: 4px; flex: 1; min-width: 0; }
+.lane-show .lane-name { font-style: normal; flex: none; }
+.lane-show select { flex: 1; min-width: 0; }
+.lane-x { flex: none; }
+/* REC and EXPORT side by side */
+#keypanel .keys-row.masters { grid-template-columns: 1fr 1fr; }
+#keypanel .more-row:not(:has(.keys-more:not([hidden]))) { display: none; }
+.dz-when { flex-wrap: wrap; }
+#keypanel .keys-row.masters :is(.rk-sub, .ex-sub) { letter-spacing: .08em; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+html[data-theme="light"] .zoom-lane .lane-line { stroke: #1d5f9a; }
+html[data-theme="light"] .zoom-lane .lane-pt { fill: #1d5f9a; stroke: #fff; }

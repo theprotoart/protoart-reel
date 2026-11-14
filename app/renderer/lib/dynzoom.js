@@ -22,10 +22,10 @@ export function frameAt(c, t) {
 /** On when the clip's scale has two or more keyframes. */
 export const hasDynZoom = c => (keysOf(c, 'props.scale') || []).length >= 2;
 
-/** The start and end times (clip-local): the first and last scale keyframes, or the whole clip. */
+/** The start and end times (clip-local): the first two scale keyframes (a zoom back out adds more), or the whole clip. */
 export function dzTimes(c) {
   const k = keysOf(c, 'props.scale');
-  return k && k.length >= 2 ? [k[0].t, k[k.length - 1].t] : [0, c.duration];
+  return k && k.length >= 2 ? [k[0].t, k[1].t] : [0, c.duration];
 }
 
 /** { start, end, ease, t0, t1 } for the inspector and the boxes in the preview. */
@@ -39,13 +39,53 @@ const writeFrame = (c, t, frame, ease) => {
   for (const k of ['x', 'y', 'scale']) putKey(c, 'props.' + k, t, p[k], 1e-4, ease);
 };
 
-/** Turns dynamic zoom on (or replaces it): keys at the clip's start and end. Other keyframes stay. */
-export function applyDynZoom(c, { start = { fx: 0.5, fy: 0.5, s: 1 }, end = { fx: 0.5, fy: 0.5, s: 0.75 }, ease = 'ease' } = {}) {
+/**
+ * Turns dynamic zoom on (or replaces it) for a section of the clip, t0 to t1 (clip-local; the whole clip by default).
+ * Before t0 the clip shows the START frame, after t1 the END frame. Other keyframes stay.
+ */
+export function applyDynZoom(c, { start = { fx: 0.5, fy: 0.5, s: 1 }, end = { fx: 0.5, fy: 0.5, s: 0.75 }, ease = 'ease', t0 = 0, t1 = c.duration } = {}) {
   for (const p of DZ) if (c.keys) delete c.keys[p];
   if (c.keys && !Object.keys(c.keys).length) delete c.keys;
-  writeFrame(c, 0, clampFrame(start), ease);
-  writeFrame(c, c.duration, clampFrame(end), 'linear');
+  [t0, t1] = sectionIn(c, t0, t1);
+  writeFrame(c, t0, clampFrame(start), ease);
+  writeFrame(c, t1, clampFrame(end), 'linear');
 }
+
+/** A section inside the clip, at least 0.1 s long. */
+export function sectionIn(c, t0, t1) {
+  const d = c.duration;
+  t0 = clamp(t0, 0, Math.max(0, d - 0.1));
+  t1 = clamp(t1, t0 + 0.1, d);
+  return [t0, Math.max(t1, Math.min(d, t0 + 0.1))];
+}
+
+/** Moves the zoom to start at t0 and end at t1 (clip-local), keeping its frames, ease, and any zoom back out after it. */
+export function setDynZoomTimes(c, t0, t1) {
+  const [a, b] = dzTimes(c);
+  const k = keysOf(c, 'props.scale') || [];
+  const next = k[2]?.t ?? Infinity;
+  t1 = Math.min(t1, next - 0.05);
+  [t0, t1] = sectionIn(c, t0, t1);
+  if (t1 <= t0) return;
+  // move the end first when moving later, the start first when moving earlier, so the two never cross
+  if (t0 >= b) { moveZoomKey(c, b, t1); moveZoomKey(c, a, t0); } else { moveZoomKey(c, a, t0); moveZoomKey(c, b, t1); }
+}
+
+/**
+ * Zoom back out: after the END frame, hold it for `hold` seconds, then go back to the START frame over as long as the
+ * zoom in took (both shortened to fit the clip). Replaces any earlier zoom back out.
+ */
+export function addZoomBackOut(c, hold = 1) {
+  const { t0, t1, start, end, ease } = getDynZoom(c);
+  for (const p of DZ) { const l = keysOf(c, p); if (l) c.keys[p] = l.filter(k => k.t <= t1 + 1e-4); }
+  const room = c.duration - t1;
+  if (room < 0.2) return false;
+  const back = Math.min(t1 - t0, room * 0.6), wait = Math.min(hold, room - back);
+  writeFrame(c, t1 + wait, end, ease);
+  writeFrame(c, Math.min(c.duration, t1 + wait + back), start, 'linear');
+  return true;
+}
+export const hasZoomBackOut = c => (keysOf(c, 'props.scale') || []).length > 2;
 
 /** Moves or resizes the START or END frame (which = 'start' | 'end'). */
 export function setDynZoomFrame(c, which, frame) {

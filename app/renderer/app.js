@@ -62,6 +62,19 @@ import { calloutsMenu, openCalloutPlanner } from './callouts.js';
 import { openTakes, initTakesButton, closeTakes } from './takes.js';
 import { openUms, closeUms, umCount } from './umspanel.js';
 import { applyDynZoom, hasDynZoom } from './lib/dynzoom.js';
+
+/**
+ * Which part of the clip a new dynamic zoom covers (clip-local): the In–Out range where it overlaps the clip, or two
+ * seconds from the playhead (the whole clip when it's shorter than three seconds).
+ */
+export function dzSection(app, c) {
+  const r = app.doc.range, d = c.duration;
+  if (r?.in != null && r?.out != null && r.out > c.start && r.in < c.start + d) return [Math.max(0, r.in - c.start), Math.min(d, r.out - c.start)];
+  if (d < 3) return [0, d];
+  let t0 = app.player.time - c.start;
+  if (t0 < 0 || t0 > d - 0.5) t0 = 0;
+  return [t0, Math.min(d, t0 + 2)];
+}
 import { loadShortcuts, handleShortcutKey } from './shortcuts.js';
 import { syncTrackPlugins, watchLive } from './trackplugins.js';
 import { openTransitions } from './transpicker.js';
@@ -526,8 +539,8 @@ class App {
     this.overlay.update();
   }
   /**
-   * Dynamic zoom on the selected picture: turns it on (START the whole picture, END a gentle zoom to the middle)
-   * and shows the START and END frames in the preview to drag. Pressed again while framing, it's done.
+   * Dynamic zoom on the selected picture: turns it on for a section (START the whole picture, END a gentle zoom to the
+   * middle) and shows the START and END frames in the preview to drag. Pressed again while framing, it's done.
    */
   dynamicZoom() {
     const doc = this.doc;
@@ -536,13 +549,17 @@ class App {
     const pics = this.selection.clips.map(id => doc.clips.find(c => c.id === id)).filter(c => c && !(c.type === 'media' && (c.audioOnly || mediaById(doc, c.media)?.kind === 'audio')));
     const c = pics.find(x => this.player.time >= x.start && this.player.time < clipEnd(x)) || pics[0];
     if (!c) { toast('Select a video or picture clip first, then 🔍 Dynamic zoom.', 4000); return; }
-    if (!hasDynZoom(c)) this.commit(() => applyDynZoom(c));
+    if (!hasDynZoom(c)) {
+      const [t0, t1] = dzSection(this, c);
+      this.commit(d => { applyDynZoom(c, { t0, t1 }); const tr = d.tracks.find(t => t.id === c.track); if (tr) { tr.lane = 'zoom'; tr.lastLane = 'zoom'; } });
+      const whole = t0 < 0.01 && t1 > c.duration - 0.01;
+      toast(whole ? 'Dynamic zoom over the whole clip.' : `Dynamic zoom from ${fmtTime(c.start + t0)} to ${fmtTime(c.start + t1)}. Set In and Out (I, O) first to pick another part, or move it in the inspector or on the Zoom lane under the track.`, 6000);
+    }
     this.select([c.id]);
     this.dzEdit = c.id;
     this.overlay.dzWhich = 'start';
     if (this.player.time < c.start || this.player.time >= clipEnd(c)) this.seek(c.start);
     this.player.queueDraw(); this.overlay.update(); this.inspector.render();
-    toast('Drag the green START and red END frames. The clip zooms from one to the other. Press Done (or Esc) when it looks right.', 6000);
   }
 
   select(ids, action, { noTimeline = false } = {}) {

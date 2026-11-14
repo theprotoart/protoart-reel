@@ -555,9 +555,13 @@ export class Timeline {
   _head(tr, i) {
     const app = this.app, doc = this.doc;
     const btn = (label, on, title, fn, cls = '') => el('button', { class: `th-btn ${cls}${on ? ' on' : ''}`, text: label, title, onclick: fn });
-    const laneSel = el('select', { class: 'th-lane', title: 'Show an automation lane under this track' },
-      el('option', { value: '', text: 'Clips' }), ...TRACK_LANES.map(([v, t]) => el('option', { value: v, text: t, selected: tr.lane === v })));
-    laneSel.addEventListener('change', () => app.commit(() => { tr.lane = laneSel.value || undefined; }));
+    // ◆ KEYS: opens the keyframe and automation lane under the track, like Audition's envelopes (zoom for a picture
+    // track, volume for sound; the lane's own menu switches it)
+    const isSound = (this._soundIds ||= new Set(soundTracks(doc).map(t => t.id))).has(tr.id) || !!tr.role;
+    const keyed = tr.auto && Object.values(tr.auto).some(l => l?.length) || doc.clips.some(c => c.track === tr.id && c.keys && Object.keys(c.keys).length);
+    const laneSel = el('button', { class: 'th-keys' + (tr.lane ? ' on' : '') + (keyed ? ' has' : ''), text: `${tr.lane ? '▾' : '▸'} ◆ KEYS`,
+      title: tr.lane ? 'Hide the keyframe lane' : 'Show this track’s keyframes and automation in a lane under it: zoom for pictures, volume and pan for sound',
+      onclick: () => app.commit(() => { tr.lane = tr.lane ? undefined : (tr.lastLane || (isSound ? 'volume' : 'zoom')); }) });
     const knob = (lane) => {
       const L = LANE[lane];
       const hasAuto = !!(tr.auto && tr.auto[lane] && tr.auto[lane].length) && tr.autoMode !== 'off';
@@ -586,7 +590,7 @@ export class Timeline {
     };
     const grip = el('span', { class: 'th-grip', text: '☰', title: 'Drag to move this track up or down' });
     grip.addEventListener('pointerdown', e => this._dragTrack(e, tr));
-    const sound = (this._soundIds ||= new Set(soundTracks(doc).map(t => t.id))).has(tr.id) || !!tr.role;
+    const sound = isSound;
     const head = el('div', { class: 'tl-head' + (tr.solo ? ' soloed' : ''), 'data-track': tr.id, style: { height: this.trackH() + 'px' }, oncontextmenu: e => { if (e.target.closest('select, input')) return; e.preventDefault(); app.trackMenu(tr, e.clientX, e.clientY); } },
       el('div', { class: 'th-top' }, grip,
         el('span', { class: 'tname', text: tr.name, title: 'Drag to move the track · double-click to rename', ondblclick: () => app.renameTrack(tr), onpointerdown: e => this._dragTrack(e, tr, true) }),
@@ -605,12 +609,21 @@ export class Timeline {
     return head;
   }
 
+  /** The lane's "Show:" menu: which keyframes or automation it shows (and × to close it). */
+  _laneShow(tr, lane) {
+    const app = this.app;
+    const sel = el('select', { class: 'th-lane', title: 'What this lane shows' }, ...TRACK_LANES.map(([v, t]) => el('option', { value: v, text: t, selected: lane === v })));
+    sel.addEventListener('change', () => app.commit(() => { tr.lane = sel.value; tr.lastLane = sel.value; }));
+    return el('span', { class: 'lane-show' }, el('i', { class: 'engr lane-name', text: 'Show' }), sel,
+      el('button', { class: 'th-btn lane-x', text: '×', title: 'Hide this lane (◆ KEYS on the track shows it again)', onclick: () => app.commit(() => { tr.lane = undefined; }) }));
+  }
+
   _laneHead(tr, lane) {
     const app = this.app;
     if (lane === 'zoom') {
       const n = this.doc.clips.filter(c => c.track === tr.id && (c.keys?.['props.scale'] || []).length).length;
       return el('div', { class: 'tl-lanehead', style: { height: LANE_H + 'px' } },
-        el('div', { class: 'th-top' }, el('span', { class: 'engr lane-name', text: 'Zoom' })),
+        el('div', { class: 'th-top' }, this._laneShow(tr, lane)),
         el('div', { class: 'th-top' }, el('span', { class: 'note', text: n ? `${n} clip${n > 1 ? 's' : ''} zoomed` : 'Click a clip’s line to add a key', title: 'Each clip’s zoom as a line: click to add a key · drag a key (sideways for when, up and down for how far) · ⌥-click or double-click to delete · right-click for the curve' })));
     }
     const mode = el('select', { class: 'th-lane', title: 'Read plays the automation · Touch records knob moves while playing · Off ignores it' },
@@ -618,7 +631,7 @@ export class Timeline {
     mode.addEventListener('change', () => app.commit(() => { tr.autoMode = mode.value === 'read' ? undefined : mode.value; }));
     const n = tr.auto?.[lane]?.length || 0;
     return el('div', { class: 'tl-lanehead', style: { height: LANE_H + 'px' } },
-      el('div', { class: 'th-top' }, el('span', { class: 'engr lane-name', text: LANE[lane].label }), mode),
+      el('div', { class: 'th-top' }, this._laneShow(tr, lane), mode),
       el('div', { class: 'th-top' }, el('span', { class: 'note', text: n ? `${n} point${n > 1 ? 's' : ''}`: 'Click the lane to add points', title: 'Click the line to add a point · drag to move · double-click a point (or select it and press ⌫) to delete · right-click for curves' }),
         n ? el('button', { class: 'th-btn', text: 'Clear', title: 'Remove this lane’s automation', onclick: () => app.commit(() => { delete tr.auto[lane]; }) }) : null));
   }

@@ -1,5 +1,15 @@
 # Changelog
 
+## Unreleased
+
+- **Dynamic zoom on part of a clip**: it uses your In–Out range, or two seconds from the playhead. Move it with
+  START / END AT PLAYHEAD, spread it over the WHOLE CLIP, or add ↩ ZOOM BACK OUT.
+- **◆ KEYS on every track** opens its keyframe lane (Zoom, Volume or Pan, picked in the lane's Show menu), like
+  Audition's envelopes. It opens by itself when you add a dynamic zoom.
+- **REC and EXPORT side by side** at the top of the tool panel.
+- **Easier to read**: every label checked for contrast in the light and dark finishes, and the faint ones made
+  darker (the light finish's dim text, track buttons, tool group names, knob values, REC / EXPORT subtitles…).
+
 ## 1.8.0 — Dynamic zoom, Ums, Clips and a modular tool panel
 
 - **🔍 Dynamic zoom**, like DaVinci Resolve (EFFECTS ▾, the inspector, right-click a clip, ⌥⌘Z):

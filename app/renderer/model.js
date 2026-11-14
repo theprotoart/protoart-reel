@@ -364,7 +364,7 @@ function shiftKeys(c, d, end) {
   }
 }
 
-export const TRACK_LANES = [['volume', 'Volume'], ['pan', 'Pan'], ['zoom', 'Zoom (keyframes)']];
+export const TRACK_LANES = [['zoom', 'Zoom'], ['volume', 'Volume'], ['pan', 'Pan']];
 /** Automation is read unless the track's mode is 'off' (then the knobs' fixed values apply). */
 const autoList = (tr, lane) => (tr.autoMode !== 'off' && tr.auto && tr.auto[lane] && tr.auto[lane].length ? tr.auto[lane] : null);
 export function trackGainAt(tr, t) { const l = autoList(tr, 'volume'); return l ? keyAt(l, t, 1) : (tr.volume ?? 1); }

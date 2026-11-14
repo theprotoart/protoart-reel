@@ -9,8 +9,8 @@ html[data-theme="light"] {
   --line: rgba(0,0,0,0.08);
   --line-2: rgba(0,0,0,0.14);
   --text: #23211d;
-  --text-dim: rgba(35,33,29,0.62);
-  --text-faint: rgba(35,33,29,0.4);
+  --text-dim: rgba(35,33,29,0.78);   /* readable on the aluminium: 4.5:1 or more */
+  --text-faint: rgba(35,33,29,0.66);
   --paint: rgba(34,31,27,0.92);
   --engrave: rgba(38,35,30,0.88);
   --engrave-shadow: 0 1px 0 rgba(255,255,255,0.7), 0 -1px 0 rgba(0,0,0,0.08);
@@ -30,7 +30,7 @@ html[data-theme="light"] :is(.hw, .tool, .tbtn, .mini, .rec-btn):hover { backgro
 html[data-theme="light"] .hw.amber { color: rgba(30,18,4,0.92); }
 html[data-theme="light"] .brand-plate { background: linear-gradient(#f4f4f1, #cfcfca); box-shadow: 0 0 0 1.5px rgba(0,0,0,0.35), 0 2px 4px rgba(0,0,0,0.2), inset 0 1px 0 #fff; }
 html[data-theme="light"] .brand-plate .bn { color: #1f1d1a; text-shadow: 0 1px 0 #fff; }
-html[data-theme="light"] .brand-plate .bm { color: rgba(35,33,29,0.6); border-left-color: rgba(0,0,0,0.2); }
+html[data-theme="light"] .brand-plate .bm { color: rgba(35,33,29,0.8); border-left-color: rgba(0,0,0,0.2); }
 
 /* scribble strips: text fields and menus are paper with dark writing */
 html[data-theme="light"] :is(select, input[type=text], input[type=number], input[type=search], textarea, .row select, .row input[type=text], textarea.big, .insp-section select, .modal input[type=text], .row input[type=number]) {
@@ -47,7 +47,7 @@ html[data-theme="light"] .tl-row { border-color: rgba(0,0,0,0.1); }
 html[data-theme="light"] #tl-ruler { background: linear-gradient(#ececea, #d4d4d0); }
 html[data-theme="light"] .lib-item, html[data-theme="light"] .recent { background: linear-gradient(#f7f7f4, #dcdcd7); box-shadow: 0 0 0 1px rgba(0,0,0,0.3), 0 2px 4px rgba(0,0,0,0.18), inset 0 1px 0 #fff; }
 html[data-theme="light"] .lib-item .lname, html[data-theme="light"] .recent .meta b { color: #1f1d1a; }
-html[data-theme="light"] .recent .meta span, html[data-theme="light"] .note, html[data-theme="light"] .hint, html[data-theme="light"] .lib-hint { color: rgba(35,33,29,0.66); }
+html[data-theme="light"] .recent .meta span, html[data-theme="light"] .note, html[data-theme="light"] .hint, html[data-theme="light"] .lib-hint { color: rgba(35,33,29,0.8); }
 html[data-theme="light"] .insp-tabs { background: linear-gradient(#ebebe8, #d8d8d3); }
 html[data-theme="light"] .insp-section .row label, html[data-theme="light"] .row > label { color: var(--engrave); }
 html[data-theme="light"] .val, html[data-theme="light"] .insp-section .val { color: #8a5a00; }
@@ -98,7 +98,7 @@ html[data-theme="light"] #tl-scroll { background: var(--glass-light); box-shadow
 html[data-theme="light"] .tl-row { border-color: rgba(0,0,0,0.08); }
 html[data-theme="light"] .chip { background: linear-gradient(#f6f6f3, #cfcfca); color: #2d2a25; box-shadow: 0 0 0 1px rgba(0,0,0,0.35); text-shadow: none; }
 html[data-theme="light"] .chip.on { background: radial-gradient(ellipse at 50% 45%, var(--lit-hi) 0%, var(--lit-mid) 45%, var(--lit-lo) 100%); color: rgba(30,18,4,0.9); }
-html[data-theme="light"] .dial-val { color: #8a5a00; text-shadow: none; }
+html[data-theme="light"] .dial-val { color: #5e3b00; text-shadow: none; }
 html[data-theme="light"] .lib-item .lthumb { background-color: #2a2a2c; }
 html[data-theme="light"] .lib-item .ldur { color: #8a5a00; opacity: 1; }
 /* the start screen's front panel */
@@ -126,3 +126,17 @@ html[data-theme="light"] .pl-rand-v { color: #7a4e00; }
 html[data-theme="light"] .pl-film-ic { background: #23211d; }
 /* transitions & fades panel: its words and labels readable on the light panel */
 html[data-theme="light"] .tp-panel :is(.tp-where, .row > label, .engr, .val) { color: #2d2a25; text-shadow: 0 1px 0 rgba(255,255,255,0.7); }
+
+/* readability: every label at least 4.5:1 on the aluminium (3:1 for large bold) */
+html[data-theme="light"] .th-k > i { opacity: 1; }
+html[data-theme="light"] #keypanel #btn-record .rk-sub { color: rgba(90,18,8,.88); }
+html[data-theme="light"] #keypanel #btn-export .ex-sub { color: rgba(10,34,6,.9); }
+html[data-theme="light"] #toolstrip [data-tool=select] .hold-mark { opacity: .9; }
+html[data-theme="light"] .deck-ips { color: rgba(236,230,214,.85); text-shadow: none; } /* on the black tape deck */
+html[data-theme="light"] #keypanel :is(.tools-fold, .kmod-head, .tools-gear) { color: rgba(35,33,29,.86); text-shadow: 0 1px 0 rgba(255,255,255,.6); }
+html[data-theme="light"] #keypanel :is(.tools-fold, .kmod-head, .tools-gear):hover { color: #7a4300; }
+html[data-theme="light"] .th-keys { color: rgba(35,33,29,.86); }
+html[data-theme="light"] .brand-plate .bs { color: #8a4e00; text-shadow: none; }
+html[data-theme="light"] .th-grip { color: rgba(35,33,29,.8); }
+html[data-theme="light"] .lane-show .lane-name { color: rgba(35,33,29,.9); }
+html[data-theme="light"] .tl-lanehead .note { color: rgba(25,23,20,.95); }
