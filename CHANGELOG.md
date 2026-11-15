@@ -1,6 +1,6 @@
 # Changelog
 
-## Unreleased
+## 1.9.1 — Rust core (ums, waveforms and loudness, sound-only export), clearer export status, fixes
 
 - **The first piece of Reel in Rust**: `reel-core` (native/reel-core, no third-party crates) now finds your ums
   by ear. It gives exactly the same answers as the JavaScript, about 3× faster, and the editor no longer
