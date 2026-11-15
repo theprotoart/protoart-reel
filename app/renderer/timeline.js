@@ -15,6 +15,7 @@ import { fxRack, fxRackH } from './fxrack.js';
 import { roleButton, tint } from './automix.js';
 import { setZoomAt, moveZoomKey, removeZoomKey, removeDynZoom } from './lib/dynzoom.js';
 import { soundTracks, ROLES } from './lib/automix.js';
+import { addFiller, playRange, fillerMenu, removeFiller } from './fillers.js';
 
 const LANE_H = 52;
 const CAP_H = 30;
@@ -76,9 +77,62 @@ export class Timeline {
   /** A (select) or T (blade, like ScreenFlow's split tool): click a clip with the blade to cut it there. */
   /** ✚ CLIPS (keep a part): while on, dragging across the timeline marks a part to keep for Auto Edit. */
   setMarking(on) {
+    if (on && this.filling) this.setFilling(false);
     this.marking = !!on;
     document.getElementById('timeline')?.classList.toggle('marking', this.marking);
     for (const b of document.querySelectorAll('.keep-part-btn')) b.classList.toggle('lit', this.marking);
+  }
+  /** 〰 FILLER: while on, dragging across a voice track marks an um (or any filler sound) to teach Reel. */
+  setFilling(on) {
+    if (on && this.marking) this.setMarking(false);
+    this.filling = !!on;
+    document.getElementById('timeline')?.classList.toggle('filling', this.filling);
+    for (const b of document.querySelectorAll('.filler-btn')) b.classList.toggle('lit', this.filling);
+  }
+  /** The track row under a point on the tracks (a layout row), or null. */
+  _fillRowAt(clientY) {
+    const y = clientY - this.tracksEl.getBoundingClientRect().top;
+    return this.layout().find(r => y >= r.top && y < r.top + r.h) || null;
+  }
+  /** Fillers: a red band with a black zig-zag on their track. Click to hear one; drag its edges; right-click to teach. */
+  _drawFillers() {
+    const rows = new Map(this.layout().map(r => [r.tr.id, r]));
+    for (const f of this.doc.fillers || []) {
+      const r = rows.get(f.track); if (!r) continue;
+      const tag = el('span', { class: 'filler-tag' },
+        el('button', { text: '▶', title: 'Play this filler', onclick: e => { e.stopPropagation(); playRange(this.app, f.t0, f.t1); } }),
+        el('b', { text: (f.taught ? '✓ ' : '') + (f.word === 'uh' ? 'UH' : f.word === 'not' ? 'NOT' : 'UM') }),
+        el('button', { text: '×', title: 'Remove this filler', onclick: e => { e.stopPropagation(); removeFiller(this.app, f.id); } }));
+      const hl = el('div', { class: 'filler-h l', title: 'Drag to change where it starts' }), hr = el('div', { class: 'filler-h r', title: 'Drag to change where it ends' });
+      const box = el('div', { class: 'filler' + (f.taught ? ' taught' : ''), 'data-filler': f.id,
+        title: `Filler ${fmtTime(f.t0)} – ${fmtTime(f.t1)} · click ▶ to hear it · drag the edges · right-click to teach it`,
+        style: { left: this.x(f.t0) + 'px', top: (r.top + 2) + 'px', width: Math.max(6, this.x(f.t1 - f.t0)) + 'px', height: (r.h - 4) + 'px' } }, tag, hl, hr);
+      hl.addEventListener('pointerdown', e => this._fillerDrag(e, f.id, 't0'));
+      hr.addEventListener('pointerdown', e => this._fillerDrag(e, f.id, 't1'));
+      box.addEventListener('contextmenu', e => { e.preventDefault(); e.stopPropagation(); fillerMenu(this.app, f, e.clientX, e.clientY); });
+      this.tracksEl.append(box);
+    }
+  }
+  _fillerDrag(e, id, edge) {
+    if (e.button !== 0) return;
+    e.preventDefault(); e.stopPropagation();
+    const app = this.app, f0 = (this.doc.fillers || []).find(f => f.id === id); if (!f0) return;
+    const orig = f0[edge], x0 = e.clientX, box = this.tracksEl.querySelector(`[data-filler="${id}"]`);
+    let v = orig, started = false;
+    const move = ev => {
+      if (!started) { if (Math.abs(ev.clientX - x0) < 2) return; started = true; }
+      v = Math.max(0, orig + this.t(ev.clientX - x0));
+      if (edge === 't0') v = Math.min(v, f0.t1 - 0.05); else v = Math.max(v, f0.t0 + 0.05);
+      const a = edge === 't0' ? v : f0.t0, b = edge === 't1' ? v : f0.t1;
+      if (box) { box.style.left = this.x(a) + 'px'; box.style.width = Math.max(6, this.x(b - a)) + 'px'; }
+    };
+    const up = () => {
+      window.removeEventListener('pointermove', move); window.removeEventListener('pointerup', up);
+      if (!started) return;
+      app.commit(d => { const f = (d.fillers || []).find(x => x.id === id); if (f) { f[edge] = v; delete f.taught; } });
+      const f = this.doc.fillers.find(x => x.id === id); if (f) playRange(app, f.t0, f.t1);
+    };
+    window.addEventListener('pointermove', move); window.addEventListener('pointerup', up);
   }
   /** Drag a kept part's edge (start / end) or the whole part (move); it never runs into its neighbours. */
   /** Snap for parts: clip edges, markers, the playhead and the edges of the other parts (so parts meet exactly). */
@@ -455,6 +509,7 @@ export class Timeline {
         this.tracksEl.append(el('div', { class: 'part-keep', 'data-part': p.id, style: { left: this.x(p.t0) + 'px', width: Math.max(4, this.x(p.t1 - p.t0)) + 'px', height: H + 'px' } }, tag, hl, hr));
       });
     }
+    this._drawFillers();
     this.tracksEl.style.height = this.totalH() + 'px';
     this.drawRuler();
     this.updatePlayhead(this.app.player.time);
@@ -1415,6 +1470,24 @@ export class Timeline {
       ]);
     });
     this.playheadEl.querySelector('.ph-head')?.addEventListener('pointerdown', e => { e.stopPropagation(); this._scrub(e); });
+    // 〰 FILLER: drag across an um on a track to mark it; click inside one to hear it
+    this.scroll.addEventListener('pointerdown', e => {
+      if (!this.filling || e.button !== 0 || e.target.closest('.filler-tag, .filler-h, #tl-ruler')) return;
+      const row = this._fillRowAt(e.clientY); if (!row) return;
+      e.preventDefault(); e.stopPropagation();
+      const t0 = Math.max(0, this._timeAt(e.clientX));
+      const inside = (this.doc.fillers || []).find(f => f.track === row.tr.id && t0 >= f.t0 && t0 <= f.t1);
+      if (inside) { playRange(this.app, inside.t0, inside.t1); return; }
+      const band = el('div', { class: 'filler new', style: { left: this.x(t0) + 'px', top: (row.top + 2) + 'px', width: '2px', height: (row.h - 4) + 'px' } });
+      this.tracksEl.append(band);
+      let t1 = t0;
+      const move = ev => { t1 = Math.max(0, this._timeAt(ev.clientX)); const a = Math.min(t0, t1), b = Math.max(t0, t1); band.style.left = this.x(a) + 'px'; band.style.width = Math.max(2, this.x(b - a)) + 'px'; };
+      const up = () => {
+        window.removeEventListener('pointermove', move); window.removeEventListener('pointerup', up); band.remove();
+        addFiller(this.app, t0, t1, row.tr.id);
+      };
+      window.addEventListener('pointermove', move); window.addEventListener('pointerup', up);
+    }, true);
     // ✚ CLIPS: drag anywhere over the ruler or the tracks to mark a part (before clips get the click)
     this.scroll.addEventListener('pointerdown', e => {
       if (!this.marking || e.button !== 0 || e.target.closest('.part-tag, .part-h')) return;

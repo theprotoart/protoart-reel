@@ -9,8 +9,9 @@
   **Only the selected clip**; and **Find a word** (the, like, so…) to keep or cut every time it's said.
 - **Far fewer false "sounds"**: only short pauses between heard words are checked (a long stretch with no words was
   turning every syllable into a "sound").
-- **Teach it from a recording**: pick a guest's um on the timeline (In–Out, or around the playhead) with
-  ＋ FROM TIMELINE, or press ✦ on a found um, so people who can't read lines still get learned. ✗ on a match tells
+- **〰 FILLER**, like ✚ CLIPS for ums: drag across each um on the voice track (a red band with a black zig-zag),
+  hear it with ▶, fit its edges, then send the ones you tick to the trainer (FROM YOUR RECORDING: um, uh or "not
+  an um" for each), so a guest who can't read lines still gets learned. ✦ on a found um teaches it too. ✗ on a match tells
   Reel "not an um" and it never matches that again. Every trainer step has ↺ to record it again.
 - **🏷 MARK** in 💬 UMS puts markers on the ruler at the ums instead of cutting them (they aren't chapters).
 - **Tracks name themselves**: Video 1, Video 2… then Audio 1, Audio 2…, top to bottom, until you rename one.

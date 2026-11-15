@@ -6,6 +6,8 @@ import { el, modal, toast } from './ui.js';
 import { train, findInSamples, packModel, unpackModel, to16k, RATE, addTake, addNot } from './lib/umvoice.js';
 import { openAudio } from './lib/sources.js';
 import { soundOf, speechClips } from './transcript.js';
+import { fmtTime as fmt } from './model.js';
+import { playRange, setFillerWord, teachFillers } from './fillers.js';
 
 const KEY = 'reel.umvoice';
 let cached;
@@ -92,28 +94,56 @@ export function teachUms(app, { onDone } = {}) {
     draw();
   }
   recB.onclick = () => (rec ? stop() : start());
-  // ＋ FROM TIMELINE: the In–Out range (or the selected clip's sound under the playhead, a second either side):
-  // for a guest who can't read the lines, or an um you already said on camera
-  const fromB = el('button', { class: 'hw', text: '＋ FROM TIMELINE', title: 'Use the sound between In and Out on the timeline for this step (set In and Out around one um with I and O): for a guest, or an um already in your recording' });
-  fromB.onclick = async () => {
-    if (rec) return;
-    const r = app.doc?.range;
-    const t0 = r?.in != null && r?.out != null ? r.in : Math.max(0, app.player.time - 0.6), t1 = r?.in != null && r?.out != null ? r.out : app.player.time + 0.6;
-    if (STEPS[cur].word !== 'speech' && t1 - t0 > 3) { status.textContent = 'That’s more than 3 seconds: set In and Out (I, O) tightly around one um.'; return; }
-    try {
-      const piece = await soundAt(app, t0, t1);
-      if (!piece) { status.textContent = 'There’s no sound there on the timeline.'; return; }
-      takes[cur] = { word: STEPS[cur].word, samples: piece.samples, from: true };
-      status.textContent = `Got it from the timeline (${(t1 - t0).toFixed(1)} s).`;
-      const next = takes.findIndex(t => !t); if (next >= 0) cur = next;
-    } catch (e) { status.textContent = e.message; }
-    draw();
+  // 〰 FILLERS: ums marked on the timeline with the FILLER tool (a guest's, or ones you already said on camera).
+  // Listen to each, say whether it's an um or an uh (or not one at all), tick the ones to use and send them.
+  const fillBox = el('div', { class: 'umt-fillers' });
+  const picked = new Set((app.doc?.fillers || []).filter(f => !f.taught).map(f => f.id));
+  const sendB = el('button', { class: 'hw amber' });
+  const drawFillers = () => {
+    const fs = app.doc?.fillers || [];
+    if (!fs.length) {
+      fillBox.replaceChildren(el('div', { class: 'umt-fill-head' },
+        el('span', { class: 'umt-fill-title', text: '〰 FROM YOUR RECORDING' }),
+        el('span', { class: 'note', text: 'For a guest who can’t read lines (or ums you already said on camera): close this, press 〰 FILLER on the timeline tool bar, drag across each um on the voice track, then come back.' }),
+        el('button', { class: 'hw role-filler', text: '〰 MARK FILLERS', onclick: () => { dlg?.close(); app.cmd('filler'); } })));
+      return;
+    }
+    const rows = fs.map(f => {
+      const tr = app.doc.tracks.find(t => t.id === f.track);
+      const word = el('select', { class: 'umt-word', title: 'What this one is' },
+        ...[['umm', 'um'], ['uh', 'uh'], ['not', 'not an um']].map(([v, l]) => el('option', { value: v, text: l, selected: (f.word || 'umm') === v })));
+      word.onchange = () => { setFillerWord(app, f.id, word.value); picked.add(f.id); drawFillers(); };
+      const tick = el('input', { type: 'checkbox', checked: picked.has(f.id) });
+      tick.onchange = () => { if (tick.checked) picked.add(f.id); else picked.delete(f.id); syncSend(); };
+      return el('label', { class: 'umt-fill' + (f.taught ? ' taught' : '') }, tick,
+        el('button', { class: 'mini', text: '▶', title: 'Play it', onclick: e => { e.preventDefault(); playRange(app, f.t0, f.t1); } }),
+        el('span', { class: 'umt-fill-t', text: `${fmt(f.t0)} · ${(f.t1 - f.t0).toFixed(2)} s · ${tr?.name || 'track'}${f.taught ? ' · learned' : ''}` }), word);
+    });
+    fillBox.replaceChildren(el('div', { class: 'umt-fill-head' },
+      el('span', { class: 'umt-fill-title', text: `〰 FROM YOUR RECORDING (${fs.length})` }),
+      el('button', { class: 'hw role-filler', text: '〰 MARK MORE', title: 'Close this and mark more on the timeline', onclick: () => { dlg?.close(); if (!app.timeline.filling) app.cmd('filler'); } })),
+      el('div', { class: 'umt-fill-list' }, ...rows), el('div', { class: 'btn-row' }, sendB));
+    syncSend();
   };
+  const syncSend = () => { const n = [...picked].filter(id => (app.doc?.fillers || []).some(f => f.id === id)).length; sendB.disabled = !n; sendB.textContent = n ? `SEND ${n} TO TRAINING` : 'TICK THE ONES TO SEND'; };
+  sendB.onclick = async () => {
+    const fs = (app.doc?.fillers || []).filter(f => picked.has(f.id));
+    if (!fs.length) return;
+    sendB.disabled = true;
+    try {
+      const n = await teachFillers(app, fs, msg => { status.textContent = msg; });
+      for (const f of fs) picked.delete(f.id);
+      status.textContent = n ? `Learned ${n} from your recording. 💬 UMS › LISTEN AGAIN uses them.` : 'Nothing was learned.';
+      onDone?.();
+    } catch (e) { status.textContent = e.message; }
+    drawFillers(); draw();
+  };
+  drawFillers();
   const model = umModel();
   const body = el('div', { class: 'umt' },
     el('p', { text: 'Record each one in a quiet room with the microphone you record with. Reel learns how your ums and uhs sound, then finds them in your videos for 💬 UMS and AUTO EDIT, even the ones speech recognition leaves out. Nothing leaves this Mac.' }),
     model ? el('p', { class: 'note', text: `Already learned: ${model.words.map(w => `${w.word} (${w.prints.length})`).join(', ')}${model.nots?.length ? `, and ${model.nots.length} that aren’t` : ''}. New takes are added to it (another voice, another way of saying it); FORGET MY UMS starts over.` }) : null,
-    list, el('div', { class: 'row kit-rec-row' }, recB, fromB, meter), status);
+    list, el('div', { class: 'row kit-rec-row' }, recB, meter), status, fillBox);
   draw();
   let dlg = null;
   saveB.onclick = () => {

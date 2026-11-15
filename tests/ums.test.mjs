@@ -54,3 +54,12 @@ test('no "sounds" in a long stretch the recogniser heard no words in (missed spe
   const s = soundHits(words, level);
   assert.ok(s.every(x => x.t >= 6 && x.end <= 6.5), JSON.stringify(s));
 });
+
+test('fillers marked for teaching follow cuts and inserted time', () => {
+  const doc = { tracks: [{ id: 't' }], clips: [{ id: 'a', track: 't', start: 0, duration: 20 }], markers: [], captions: [],
+    fillers: [{ id: 'f1', t0: 2, t1: 2.4, track: 't' }, { id: 'f2', t0: 5, t1: 5.3, track: 't' }, { id: 'f3', t0: 9, t1: 9.5, track: 't' }] };
+  removeRange(doc, 4.9, 5.4);
+  assert.deepEqual(doc.fillers.map(f => [f.id, +f.t0.toFixed(2)]), [['f1', 2], ['f3', 8.5]]);
+  insertTime(doc, 3, 1);
+  assert.deepEqual(doc.fillers.map(f => +f.t0.toFixed(2)), [2, 9.5]);
+});

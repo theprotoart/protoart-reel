@@ -1155,6 +1155,12 @@ class App {
         if (on) toast('Drag across the timeline over each part you want to keep. Grey parts are left out. Press ✚ CLIPS again (or Esc) when you’re done.', 7000);
         return;
       }
+      case 'filler': {
+        const on = !this.timeline.filling;
+        this.timeline.setFilling(on);
+        if (on) toast('Drag across each um (or uh) on the voice track, tightly from its start to its end. Click one to hear it; drag its edges to adjust. Then press 🎙 TEACH MY UMS and send them. Press 〰 FILLER again (or Esc) when you’re done.', 8000);
+        return;
+      }
       case 'clear-sections': return ops.clearSections(this);
       case 'copy-style': return ops.copyStyle(this);
       case 'writer': return openWriter(this);
@@ -2032,7 +2038,7 @@ class App {
       case 's': case 'S': if (!e.metaKey) this.cmd('split'); break;
       case 'm': case 'M': if (!e.metaKey) this.cmd(e.shiftKey ? 'clip-marker' : 'marker'); break;
       case 'Backspace': case 'Delete': this.cmd(e.altKey ? 'close-gaps' : e.shiftKey ? 'ripple-delete' : 'delete'); break;
-      case 'Escape': if (this.dzEdit) { this.cmd('dynamic-zoom-done'); break; } if (this.timeline.marking) { this.timeline.setMarking(false); break; } this.select([], null); break;
+      case 'Escape': if (this.dzEdit) { this.cmd('dynamic-zoom-done'); break; } if (this.timeline.marking) { this.timeline.setMarking(false); break; } if (this.timeline.filling) { this.timeline.setFilling(false); break; } this.select([], null); break;
       case 'i': case 'I': if (!e.metaKey) this.cmd('mark-in'); break;
       case 'o': case 'O': if (!e.metaKey) this.cmd('mark-out'); break;
       case 'x': case 'X': if (!e.metaKey && !e.altKey && !e.ctrlKey) this.cmd('add-section'); break;

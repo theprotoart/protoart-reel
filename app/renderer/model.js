@@ -609,6 +609,7 @@ export function insertTime(doc, t, d) {
 function shiftAfter(doc, t, d) {
   for (const m of doc.markers || []) if (m.t >= t - EPS) m.t += d;
   for (const u of doc.ums || []) if (u.t >= t - EPS) { u.t += d; u.end += d; }
+  for (const f of doc.fillers || []) if (f.t0 >= t - EPS) { f.t0 += d; f.t1 += d; }
   for (const cp of doc.captions || []) { if (cp.t >= t - EPS) { cp.t += d; cp.end += d; } else if (cp.end > t) cp.end = Math.max(cp.t + 0.1, cp.end + d); }
 }
 
@@ -666,6 +667,11 @@ export function removeRange(doc, t0, t1) {
   for (const m of doc.markers) if (m.t >= t1 - EPS) m.t -= d;
   // found ums follow the edit too: gone if cut out, moved if after
   if (doc.ums) { doc.ums = doc.ums.filter(u => u.end <= t0 + EPS || u.t >= t1 - EPS); for (const u of doc.ums) if (u.t >= t1 - EPS) { u.t -= d; u.end -= d; } }
+  // fillers marked for teaching: gone if cut out, shortened if cut into, moved if after
+  if (doc.fillers?.length) {
+    const sh = t => (t >= t1 ? t - d : t > t0 ? t0 : t);
+    doc.fillers = doc.fillers.map(f => ({ ...f, t0: sh(f.t0), t1: sh(f.t1) })).filter(f => f.t1 - f.t0 > 0.05);
+  }
   // Auto Edit sections follow the edit like markers do: gone if cut out, shortened if cut into, moved if after
   if (doc.sections?.length) {
     const sh = t => (t >= t1 ? t - d : t > t0 ? t0 : t);
