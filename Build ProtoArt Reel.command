@@ -79,7 +79,7 @@ CARGO="$(command -v cargo || true)"; [ -n "$CARGO" ] || { [ -x "$HOME/.cargo/bin
 if [ -n "$CARGO" ]; then
   CORE="$ROOT/native/reel-core"
   if ( cd "$CORE" && "$CARGO" test --release --offline -q && "$CARGO" build --release --offline -q ) >"$ROOT/core-helper-log.txt" 2>&1 \
-    && REEL_CORE="$CORE/target/release/reel-core" node --test "$ROOT/tests/rustcore.test.mjs" >>"$ROOT/core-helper-log.txt" 2>&1; then
+    && REEL_CORE="$CORE/target/release/reel-core" REEL_CORE_STRICT=1 node --test "$ROOT/tests/rustcore.test.mjs" >>"$ROOT/core-helper-log.txt" 2>&1; then
     cp "$CORE/target/release/reel-core" "$RES/app/bin/reel-core" && codesign --force --sign - "$RES/app/bin/reel-core" >/dev/null 2>&1 \
       && echo "Rust core built and checked against the JavaScript (reel-core)."
   else

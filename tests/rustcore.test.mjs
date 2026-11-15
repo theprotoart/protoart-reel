@@ -11,9 +11,16 @@ import { RATE, train, findInSamples, packModel, unpackModel } from '../app/rende
 const require = createRequire(import.meta.url);
 const core = require('../app/engine/core.js');
 const root = path.join(path.dirname(fileURLToPath(import.meta.url)), '..');
+// The core under test must be this source's: the version in Cargo.toml. A copy that won't run here (built for
+// another system) or is older is skipped, except in the build's own check (REEL_CORE_STRICT), which must not skip.
+const want = fs.readFileSync(path.join(root, 'native/reel-core/Cargo.toml'), 'utf8').match(/^version = "([^"]+)"/m)[1];
 const bin = [process.env.REEL_CORE, path.join(root, 'native/reel-core/target/release/reel-core')].find(p => p && fs.existsSync(p));
-const skip = bin ? false : 'no reel-core binary here (build it with cargo)';
 if (bin) core.useBinary(bin);
+const have = bin ? await core.version() : null;
+const skip = have === want ? false
+  : process.env.REEL_CORE_STRICT ? false
+  : bin ? `the reel-core here is ${have ? 'version ' + have : 'one this computer can’t run'}, not ${want}: rebuild it with cargo` : 'no reel-core binary here (build it with cargo)';
+test('the build\'s reel-core is this source\'s', { skip: !process.env.REEL_CORE_STRICT && 'only in the build\'s own check' }, () => assert.equal(have, want));
 
 let seed = 11; const rnd = () => ((seed = (seed * 16807) % 2147483647) / 2147483647);
 function voice(sec, formants, { f0 = 115, amp = 0.3 } = {}) {
@@ -60,7 +67,7 @@ test('reel-core refuses a damaged job instead of trusting it', { skip }, async (
   const lie = Buffer.from(good); lie.writeUInt32LE(0xffffffff, 'RCORE1\numfind\n'.length + 8); // claims 4 billion words
   await assert.rejects(core.run(lie), /larger than the job/);
   await assert.rejects(core.run(Buffer.from('hello')), /not a reel-core job|ended early/);
-  assert.equal(await core.version(), '0.1.0');
+  assert.equal(await core.version(), want);
 });
 
 // ---------------------------------------------------------------- step 2: the core reads a file and analyses it
