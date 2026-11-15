@@ -35,3 +35,6 @@ __pycache__/
 *.key
 *token*
 SAFE TO DELETE*/
+
+# Rust build output
+native/reel-core/target/

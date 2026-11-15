@@ -236,7 +236,10 @@ export async function findYourUms(app, clips, onStatus) {
     try { x = await clipSound(app, c); } catch { x = null; }
     if (!x) continue;
     const speed = c.speed || 1;
-    for (const h of findInSamples(model, x)) out.push({ t: c.start + h.t / speed, end: c.start + h.end / speed, word: h.word, sure: h.sure, track: c.track });
+    // the Rust helper when this build has it (faster, and the editor doesn't stall); the same answers either way
+    let hits = null;
+    try { hits = await app.api.coreUmFind?.(JSON.parse(packModel(model)), x); } catch { hits = null; }
+    for (const h of hits || findInSamples(model, x)) out.push({ t: c.start + h.t / speed, end: c.start + h.end / speed, word: h.word, sure: h.sure, track: c.track });
   }
   return out.sort((a, b) => a.t - b.t);
 }

@@ -68,6 +68,8 @@ contextBridge.exposeInMainWorld('reel', {
   recEnd: (ids, meta, stayHidden) => invoke('rec:end', ids, meta, stayHidden === true),
   recCancel: ids => invoke('rec:cancel', ids),
   recPause: paused => invoke('rec:pause', paused),
+  // the Rust helper (reel-core): null when it isn't part of this build
+  coreUmFind: (model, samples) => invoke('core:umFind', model, samples),
   shortcutsGet: () => invoke('shortcuts:get'),
   shortcutsSet: own => invoke('shortcuts:set', own),
   shortcutsCapture: on => invoke('shortcuts:capture', on),

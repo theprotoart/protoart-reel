@@ -1,5 +1,12 @@
 # Changelog
 
+## Unreleased
+
+- **The first piece of Reel in Rust**: `reel-core` (native/reel-core, no third-party crates) now finds your ums
+  by ear. It gives exactly the same answers as the JavaScript, about 3× faster, and the editor no longer
+  stalls while it listens. Built when Rust is installed (`tools/Get Rust.command`) and shipped only if it
+  matches the JavaScript; otherwise Reel uses the JavaScript as before. The plan is in ROADMAP.md.
+
 ## 1.9.0 — Teach Reel your ums, 〰 FILLER, track names and a RESUME that always resumes
 
 - **🎙 Teach Reel your ums**: record "umm" and "uh" a few times (slow, normal, quick) and read one sentence. Reel

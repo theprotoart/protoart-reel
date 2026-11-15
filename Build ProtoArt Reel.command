@@ -73,6 +73,21 @@ if xcrun --find clang >/dev/null 2>&1; then
 else
   echo "clang isn't installed (xcode-select --install); the built-in voice tools will be off."
 fi
+# reel-core: the Rust helper (step one of moving Reel's heavy work to Rust). Built only where Rust is installed
+# (tools/Get Rust.command), and shipped only if it gives exactly the same answers as the JavaScript it replaces.
+CARGO="$(command -v cargo || true)"; [ -n "$CARGO" ] || { [ -x "$HOME/.cargo/bin/cargo" ] && CARGO="$HOME/.cargo/bin/cargo"; }
+if [ -n "$CARGO" ]; then
+  CORE="$ROOT/native/reel-core"
+  if ( cd "$CORE" && "$CARGO" test --release --offline -q && "$CARGO" build --release --offline -q ) >"$ROOT/core-helper-log.txt" 2>&1 \
+    && REEL_CORE="$CORE/target/release/reel-core" node --test "$ROOT/tests/rustcore.test.mjs" >>"$ROOT/core-helper-log.txt" 2>&1; then
+    cp "$CORE/target/release/reel-core" "$RES/app/bin/reel-core" && codesign --force --sign - "$RES/app/bin/reel-core" >/dev/null 2>&1 \
+      && echo "Rust core built and checked against the JavaScript (reel-core)."
+  else
+    echo "The Rust core didn't build or didn't match (see core-helper-log.txt); Reel uses the JavaScript instead."
+  fi
+else
+  echo "Rust isn't installed (tools/Get Rust.command); Reel uses the JavaScript versions."
+fi
 
 step "4/6 Licenses"
 mkdir -p "$RES/Licenses"

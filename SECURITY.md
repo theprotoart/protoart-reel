@@ -22,6 +22,10 @@
 - **Audio helper:** `reel-audio` is compiled from `native/reel-audio.swift` and signed with the app. It
   only taps the apps you pick, writes only the WAV paths the main process creates inside the project,
   and its private audio routes are removed when it exits. App keys and mixer settings are validated.
+- **Rust core:** `reel-core` is compiled from `native/reel-core` (Rust, no third-party crates, so nothing
+  is downloaded to build it) and ships only if its answers match the JavaScript it replaces. It reads one job
+  on stdin and answers on stdout: no network, no files, an empty environment. Every count in a job is checked
+  against the job's size, so a damaged job is refused, not trusted (tested).
 
 ## Audit, 14 November 2026
 
@@ -79,7 +83,7 @@ Checked in the code, with the tests in `tests/security.test.mjs` (9 tests) guard
 | Model files that can hide code | Yes | Only weight files (`.safetensors`, JSON, tokenizers) are downloaded: no pickles (`.bin`, `.pt`, `.ckpt`). Models load with `local_files_only` and offline mode, and remote code is never trusted (`trust_remote_code` is off). | OK (tested) |
 | What the AI is allowed to do | Yes | It only returns text or pictures to you. It has no tools, no file access beyond its own input and output, and no internet while it runs. | OK |
 | Electron settings | Yes | Sandbox on, context isolation on, Node off in the page and its workers, web security on, no webviews, no navigation, no new windows, devtools off in the shipped app (unless you start it with `REEL_DEVTOOLS` set). Fuses turn off Node mode, `NODE_OPTIONS`, inspector flags and extra `file://` rights. | OK (tested) |
-| Electron version | Yes | Reel ships Electron **44.7.0**. Electron 44 is still supported, but its latest patch is **44.11.2** (12 Nov 2026), and Electron patch releases bring Chromium security fixes. | **Needs your OK** (update and rebuild) |
+| Electron version | Yes | Reel ships Electron **44.11.2**, the latest Electron 44 patch (12 Nov 2026), since 1.9.0. | OK (updated) |
 | Dependencies pinned | Yes | Electron and @electron/fuses are pinned to exact versions. There is **no `package-lock.json`**, so the helper packages Electron's installer uses aren't locked. This only affects building, not the app. | Recommend: commit a lockfile |
 | AI model versions pinned | Partly | FLUX is pinned. The Qwen writer, Kitten and SAM-Audio models download the latest version from their official repos. They are weights only, so they can't run code, but a changed model could behave differently. | Recommend: pin revisions (OK, low) |
 | App files sealed | Partly | The app's JavaScript is a plain folder, not a sealed `asar` archive with integrity checking. Changing it would already need write access to the app on your Mac. | Low; optional later |

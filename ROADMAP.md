@@ -14,6 +14,22 @@ position, callouts, text size, volume and pan; track solo/mute/volume/pan and au
 voice clean, dereverb, Audio Unit plug-ins, mastering with loudness targets; H.264/HEVC export;
 Thumbnail Studio and AI Image with ERNIE and LoRAs.
 
+## Moving to Rust, one piece at a time
+Reel stays an Electron app that keeps shipping, while its heavy work moves into `reel-core`, a Rust helper
+with no third-party crates. Each piece moves only with a test that runs the JavaScript and the Rust on the
+same input and checks they agree, and the build ships a piece only if that test passes (otherwise the
+JavaScript runs, as before). When little JavaScript is left, the window itself can follow.
+
+1. **Done: the bridge and the um detector.** `native/reel-core`, `tools/Get Rust.command`, the build step,
+   `app/engine/core.js`, and finding your ums by ear (same answers, about 3× faster on two cores and off the
+   editor's thread so it doesn't stall).
+2. **Sound analysis:** waveform peaks, loudness (LUFS) and the levels Auto Mix and Ums read.
+3. **Sound export:** the mix and master to WAV and AAC, without the window.
+4. **Decoding:** read sound and video straight from the files through Apple's frameworks.
+5. **Picture export:** drawing every frame and encoding H.264 / HEVC (VideoToolbox) in Rust.
+6. **Recording:** screen, window and camera through ScreenCaptureKit.
+7. **The window:** a plain Rust interface (egui or Slint), once the pieces above no longer need the browser.
+
 ## ScreenFlow features still to build (gear look throughout)
 **Stage A: editing basics — done**
 Freeze frame, play in reverse, lock, group, detach audio, mark in/out, trim to playhead, copy/paste

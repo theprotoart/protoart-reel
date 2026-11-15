@@ -17,6 +17,7 @@ const ai = require('./engine/ai');
 const kitten = require('./engine/kitten');
 const ghost = require('./engine/ghost');
 const audio = require('./engine/audio');
+const core = require('./engine/core'); // reel-core: the Rust helper (falls back to JavaScript when missing)
 const fx = require('./engine/fx');
 
 const APP_ORIGIN = 'app://reel';
@@ -1161,6 +1162,14 @@ handle('rec:begin', async (token, tracks, apps, input) => {
 });
 
 /** Pause or resume: the editor pauses its recorders; here the pointer track, the apps' sound and the panel follow. */
+// Your ums found by the Rust helper, off the editor's thread. Answers null when the helper isn't in this build
+// (the editor then does it in JavaScript). The model is the stored one (plain numbers); samples are 16 kHz mono.
+handle('core:umFind', async (model, samples) => {
+  if (!core.available()) return null;
+  if (!(samples instanceof Float32Array) || !model || typeof model !== 'object') return null;
+  try { return await core.umFind(model, samples); } catch { return null; }
+});
+
 handle('rec:pause', async paused => {
   if (!recording.active) return false;
   paused = !!paused;

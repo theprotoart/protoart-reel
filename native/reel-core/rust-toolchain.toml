@@ -1,0 +1,4 @@
+# The Rust version reel-core is built and tested with (tools/Get Rust.command installs it).
+[toolchain]
+channel = "1.97.0"
+profile = "minimal"
