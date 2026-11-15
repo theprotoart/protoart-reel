@@ -24,9 +24,10 @@
   and its private audio routes are removed when it exits. App keys and mixer settings are validated.
 - **Rust core:** `reel-core` is compiled from `native/reel-core` (Rust, no third-party crates, so nothing
   is downloaded to build it) and ships only if its answers match the JavaScript it replaces. It reads one job
-  on stdin and answers on stdout: no network, an empty environment, and no files except the one media file an
-  analysis names, read only. That path is chosen by the main process, never by the page: a checked media name,
-  inside the open project's media folder, a plain file and not a link. Every count in a job is checked against
+  on stdin and answers on stdout: no network, an empty environment, and no files except the media files a job
+  names (read only) and, for a sound export, one new file it creates (never overwrites). Every path is chosen by
+  the main process, never by the page: checked media names inside the open project's media folder, plain files
+  and not links, and a temporary file beside the export you picked, renamed into place only when complete. Every count in a job is checked against
   the job's size, so a damaged job is refused, not trusted (tested).
 
 ## Audit, 14 November 2026

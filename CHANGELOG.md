@@ -9,6 +9,10 @@
 - **Rust, step 2**: the timeline's waveforms and AUTO MIX's loudness now come from the Rust core, which reads
   the media file itself (WAV in Rust; AAC and the rest through Apple's own decoder, not the browser's) and does
   both in one pass, about 2.7× faster. Same answers as before; the JavaScript workers stay as the fallback.
+- **Rust, step 3**: sound-only exports (WAV, and AAC through Apple's own encoder instead of the browser's) are mixed
+  and written by the Rust core when the project uses nothing it can't do yet: the same file to the 24-bit
+  sample, about 2.2× faster. Projects with track effects, mastering, pitch-kept speed changes or click sounds
+  export as before.
 
 ## 1.9.0 — Teach Reel your ums, 〰 FILLER, track names and a RESUME that always resumes
 
