@@ -42,7 +42,7 @@ function encodeUmFind(model, samples) {
 }
 
 /** Runs one job; resolves with the parsed answer or rejects with a plain reason. */
-function run(job, { timeout = 120000 } = {}) {
+function run(job, { timeout = 120000, maxOut = 8e6 } = {}) {
   return new Promise((resolve, reject) => {
     if (!available()) { reject(new Error('reel-core isn’t part of this build')); return; }
     const proc = spawn(binPath, [], { stdio: ['pipe', 'pipe', 'pipe'], env: {} });
@@ -50,7 +50,7 @@ function run(job, { timeout = 120000 } = {}) {
     const finish = (err, v) => { if (done) return; done = true; clearTimeout(timer); if (err) { try { proc.kill(); } catch {} reject(err); } else resolve(v); };
     const timer = setTimeout(() => finish(new Error('reel-core took too long')), timeout);
     proc.stdout.setEncoding('utf8');
-    proc.stdout.on('data', d => { out += d; if (out.length > 8e6) finish(new Error('reel-core answered too much')); });
+    proc.stdout.on('data', d => { out += d; if (out.length > maxOut) finish(new Error('reel-core answered too much')); });
     proc.stderr.on('data', () => {});
     proc.on('error', e => finish(e));
     proc.on('close', () => {
@@ -69,6 +69,20 @@ async function umFind(model, samples) {
     .map(h => ({ t: h.t, end: h.end, word: h.word, d: h.d, sure: !!h.sure }));
 }
 
+/**
+ * One pass over a media file's sound (the core reads the file itself: WAV in Rust, everything else through
+ * Apple's decoder): { rate, peaks: Float32Array (100 a second), steps: Float32Array (K-weighted mean square
+ * per 100 ms) }. `file` must be a path the main process chose (inside an open project's media folder).
+ */
+async function analyze(file) {
+  if (typeof file !== 'string' || !path.isAbsolute(file) || file.includes('\0') || Buffer.byteLength(file) > 4096) throw new Error('Bad file');
+  const name = Buffer.from(file, 'utf8'), len = Buffer.alloc(4); len.writeUInt32LE(name.length);
+  const m = await run(Buffer.concat([Buffer.from('RCORE1\nanalyze\n'), len, name]), { timeout: 600000, maxOut: 256e6 });
+  const nums = a => Float32Array.from(Array.isArray(a) ? a : [], v => (Number.isFinite(v) ? v : 0));
+  if (!(m.rate > 0)) throw new Error('reel-core gave no sample rate');
+  return { rate: m.rate, peaks: nums(m.peaks), steps: nums(m.steps) };
+}
+
 async function version() { try { return (await run(Buffer.from('RCORE1\nversion\n'), { timeout: 5000 })).version; } catch { return null; } }
 
-module.exports = { available, umFind, version, encodeUmFind, run, useBinary };
+module.exports = { available, umFind, analyze, version, encodeUmFind, run, useBinary };

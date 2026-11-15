@@ -1164,6 +1164,21 @@ handle('rec:begin', async (token, tracks, apps, input) => {
 /** Pause or resume: the editor pauses its recorders; here the pointer track, the apps' sound and the panel follow. */
 // Your ums found by the Rust helper, off the editor's thread. Answers null when the helper isn't in this build
 // (the editor then does it in JavaScript). The model is the stored one (plain numbers); samples are 16 kHz mono.
+// A media file's waveform and loudness profile from the Rust core, which reads the file itself. Only a plain file
+// (no link) in the open project's media folder, named the way every media name is checked. null → the editor
+// uses its JavaScript workers instead.
+handle('core:analyze', async (token, name) => {
+  if (!core.available()) return null;
+  const p = projectOf(token);
+  if (!validate.mediaName(name)) return null;
+  const file = path.join(mediaDir(p), name);
+  try {
+    const st = await fs.promises.lstat(file);
+    if (!st.isFile() || st.size === 0) return null;
+    return await core.analyze(file);
+  } catch { return null; }
+});
+
 handle('core:umFind', async (model, samples) => {
   if (!core.available()) return null;
   if (!(samples instanceof Float32Array) || !model || typeof model !== 'object') return null;

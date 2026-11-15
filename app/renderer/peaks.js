@@ -1,4 +1,5 @@
 // Waveform peaks and poster frames for the timeline and library (computed once per file).
+import { coreAnalysis, forgetCoreAnalysis } from './coreanalysis.js';
 const peakCache = new Map(), posterCache = new Map();
 let worker = null, seq = 1;
 const waiting = new Map();
@@ -14,11 +15,12 @@ function peaksWorker() {
 export function peaksFor(app, m) {
   const key = app.token + '/' + m.file;
   if (!peakCache.has(key)) {
-    peakCache.set(key, new Promise(resolve => {
+    // the Rust core first (it reads the file itself); the worker when it can't
+    peakCache.set(key, coreAnalysis(app, m.file).then(r => r ? { rate: 100, data: r.peaks } : new Promise(resolve => {
       const id = seq++;
       waiting.set(id, resolve);
       peaksWorker().postMessage({ id, url: `app://reel/m/${app.token}/${encodeURIComponent(m.file)}`, file: m.file });
-    }));
+    })));
   }
   return peakCache.get(key);
 }
@@ -56,4 +58,4 @@ export function posterFor(app, m, w = 160, h = 90) {
   return posterCache.get(key);
 }
 
-export function forget(app, m) { const key = app.token + '/' + m.file; peakCache.delete(key); posterCache.delete(key); }
+export function forget(app, m) { const key = app.token + '/' + m.file; peakCache.delete(key); posterCache.delete(key); forgetCoreAnalysis(app, m.file); }

@@ -3,6 +3,7 @@
 // clip, and sets dialogue, music and effects against each other (see lib/automix.js). Preview first, then keep or
 // discard; everything it sets is ordinary clip volume, track ducking and Auto Level, so it can be changed by hand.
 import { el, modal, toast } from './ui.js';
+import { coreAnalysis } from './coreanalysis.js';
 import { uid, mediaById } from './model.js';
 import { ROLES, ROLE_ORDER, STYLES, nextRole, roleOf, guessRole, soundTracks, clipLoudness, planMix, applyMix, planTidy, applyTidy, removeMix } from './lib/automix.js';
 
@@ -79,11 +80,12 @@ function levelsWorker() {
 function profileFor(app, file) {
   const key = app.token + '/' + file;
   if (!profiles.has(key)) {
-    profiles.set(key, new Promise(resolve => {
+    // the Rust core first (one pass gives the waveform too); the worker when it can't
+    profiles.set(key, coreAnalysis(app, file).then(r => r ? { step: 0.1, steps: r.steps } : new Promise(resolve => {
       const id = seq++;
       waiting.set(id, resolve);
       levelsWorker().postMessage({ id, url: `app://reel/m/${app.token}/${encodeURIComponent(file)}`, file });
-    }));
+    })));
   }
   return profiles.get(key);
 }

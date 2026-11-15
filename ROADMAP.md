@@ -23,7 +23,10 @@ JavaScript runs, as before). When little JavaScript is left, the window itself c
 1. **Done: the bridge and the um detector.** `native/reel-core`, `tools/Get Rust.command`, the build step,
    `app/engine/core.js`, and finding your ums by ear (same answers, about 3× faster on two cores and off the
    editor's thread so it doesn't stall).
-2. **Sound analysis:** waveform peaks, loudness (LUFS) and the levels Auto Mix and Ums read.
+2. **Done: sound analysis, reading the files itself.** The core opens a media file and gives the timeline's
+   waveform and AUTO MIX's loudness profile in one pass: WAV in Rust, AAC and the rest through Apple's own
+   decoder (AudioToolbox), not the browser's. Identical to the JavaScript on WAV (to the bit), within 0.5 LU on
+   AAC; about 2.7× faster on two cores. (This is also step 4's start: decoding without the browser.)
 3. **Sound export:** the mix and master to WAV and AAC, without the window.
 4. **Decoding:** read sound and video straight from the files through Apple's frameworks.
 5. **Picture export:** drawing every frame and encoding H.264 / HEVC (VideoToolbox) in Rust.

@@ -6,6 +6,9 @@
   by ear. It gives exactly the same answers as the JavaScript, about 3× faster, and the editor no longer
   stalls while it listens. Built when Rust is installed (`tools/Get Rust.command`) and shipped only if it
   matches the JavaScript; otherwise Reel uses the JavaScript as before. The plan is in ROADMAP.md.
+- **Rust, step 2**: the timeline's waveforms and AUTO MIX's loudness now come from the Rust core, which reads
+  the media file itself (WAV in Rust; AAC and the rest through Apple's own decoder, not the browser's) and does
+  both in one pass, about 2.7× faster. Same answers as before; the JavaScript workers stay as the fallback.
 
 ## 1.9.0 — Teach Reel your ums, 〰 FILLER, track names and a RESUME that always resumes
 

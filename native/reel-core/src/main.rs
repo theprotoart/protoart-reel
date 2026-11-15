@@ -3,14 +3,20 @@
 //! One job per run. Reel's main process (app/engine/core.js) starts it, writes the job to stdin and reads one
 //! line of JSON from stdout. Jobs are binary, little-endian, so sound needs no conversion:
 //!
-//!   "RCORE1\n" then a command line ("version\n" or "umfind\n"), then the command's body.
+//!   "RCORE1\n" then a command line ("version\n", "umfind\n" or "analyze\n"), then the command's body.
+//!
+//! analyze body: path (u32 length + UTF-8) of one media file, which it only reads. Answers the file's sample
+//!   rate, waveform peaks (100 a second) and loudness profile (K-weighted mean square every 100 ms).
 //!
 //! umfind body: threshold f64 · words u32 · per word (name: u32 length + UTF-8, prints u32, per print a Print)
 //!   · nots u32 + Prints · samples u32 + that many f32 (16 kHz mono).  A Print is frames u32 + frames × 12 f32.
 //!
 //! Every count is checked against what's left of the input, so a bad job is refused, never trusted.
-//! No network, no files: it reads stdin and writes stdout, nothing else.
+//! No network, and no files except the one media file an analyze job names (read only, chosen by Reel's main
+//! process from the open project's media folder).
 
+mod analyze;
+mod media;
 mod umvoice;
 
 use std::io::{Read, Write};
@@ -91,12 +97,29 @@ fn umfind(inp: &mut Input) -> Result<String, String> {
     Ok(format!("{{\"ok\":true,\"hits\":[{}]}}", body.join(",")))
 }
 
+fn floats(v: &[f32]) -> String {
+    let mut o = String::with_capacity(v.len() * 8);
+    for (i, x) in v.iter().enumerate() { if i > 0 { o.push(','); } o.push_str(&format!("{}", if x.is_finite() { *x } else { 0.0 })); }
+    o
+}
+
+fn analyze_job(inp: &mut Input) -> Result<String, String> {
+    let len = inp.count(1)?;
+    if len == 0 || len > 4096 { return Err("bad path".into()); }
+    let path = std::str::from_utf8(inp.take(len)?).map_err(|_| "bad path")?;
+    if path.contains('\0') { return Err("bad path".into()); }
+    let mut src = media::open(path)?;
+    let a = analyze::analyze(src.as_mut())?;
+    Ok(format!("{{\"ok\":true,\"rate\":{},\"peaks\":[{}],\"steps\":[{}]}}", a.rate, floats(&a.peaks), floats(&a.steps)))
+}
+
 fn run(b: &[u8]) -> Result<String, String> {
     let mut inp = Input { b, at: 0 };
     if inp.take(7)? != b"RCORE1\n" { return Err("not a reel-core job".into()); }
     match inp.line()? {
         "version" => Ok(format!("{{\"ok\":true,\"version\":{}}}", json_str(env!("CARGO_PKG_VERSION")))),
         "umfind" => umfind(&mut inp),
+        "analyze" => analyze_job(&mut inp),
         other => Err(format!("unknown command {}", other.chars().take(20).collect::<String>())),
     }
 }
