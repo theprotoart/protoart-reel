@@ -63,3 +63,17 @@ test('fillers marked for teaching follow cuts and inserted time', () => {
   insertTime(doc, 3, 1);
   assert.deepEqual(doc.fillers.map(f => +f.t0.toFixed(2)), [2, 9.5]);
 });
+
+test('fillers follow the clip they were marked on: moved, trimmed, split by a cut', async () => {
+  const { followFillers } = await import('../app/renderer/model.js');
+  const doc = { tracks: [{ id: 't' }], markers: [], captions: [], clips: [{ id: 'a', type: 'media', media: 'm', track: 't', start: 10, in: 2, duration: 20, speed: 1 }],
+    fillers: [{ id: 'f', t0: 15, t1: 15.4, track: 't', clip: 'a', media: 'm', s0: 7, s1: 7.4 }, { id: 'g', t0: 25, t1: 25.3, track: 't', clip: 'a', media: 'm', s0: 17, s1: 17.3 }] };
+  doc.clips[0].start = 30; followFillers(doc); // moved
+  assert.deepEqual(doc.fillers.map(f => +f.t0.toFixed(2)), [35, 45]);
+  doc.clips[0].in = 4; doc.clips[0].start = 32; doc.clips[0].duration = 18; followFillers(doc); // trimmed at the start
+  assert.deepEqual(doc.fillers.map(f => +f.t0.toFixed(2)), [35, 45]);
+  removeRange(doc, 40, 41); followFillers(doc); // a cut between them splits the clip: the second follows its part
+  assert.deepEqual(doc.fillers.map(f => +f.t0.toFixed(2)), [35, 44]);
+  removeRange(doc, 34.9, 35.5); followFillers(doc); // its sound cut out: it goes
+  assert.deepEqual(doc.fillers.map(f => f.id), ['g']);
+});

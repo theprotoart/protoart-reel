@@ -1067,3 +1067,23 @@ export function mergeOverlapTracks(doc) {
   doc.tracks = doc.tracks.filter(t => !/\(overlap\)\s*$/.test(t.name || '') || used.has(t.id));
   return moved;
 }
+
+/**
+ * Fillers stay with the recording they were marked on: each keeps its place in its clip's source (s0–s1), so
+ * moving, trimming or re-timing the clip carries it along. If the clip was split, the part holding that source
+ * time takes it; a filler whose sound is no longer on the timeline goes.
+ */
+export function followFillers(doc) {
+  if (!doc.fillers?.length) return;
+  const holds = (c, f) => c.type === 'media' && c.media === f.media && (c.in || 0) <= f.s0 + 1e-6 && f.s0 < (c.in || 0) + c.duration * (c.speed || 1) - 1e-6;
+  doc.fillers = doc.fillers.filter(f => {
+    if (f.clip == null || f.s0 == null) return true; // marked before fillers followed clips: left where it is
+    let c = doc.clips.find(x => x.id === f.clip);
+    if (!c || !holds(c, f)) c = doc.clips.find(x => x.track === f.track && holds(x, f)) || doc.clips.find(x => holds(x, f));
+    if (!c) return false;
+    const sp = c.speed || 1, at = s => c.start + (s - (c.in || 0)) / sp;
+    f.clip = c.id; f.track = c.track; f.t0 = at(f.s0); f.t1 = Math.min(at(f.s1), c.start + c.duration);
+    return f.t1 - f.t0 > 0.02;
+  });
+  if (!doc.fillers.length) delete doc.fillers;
+}

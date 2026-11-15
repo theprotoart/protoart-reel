@@ -13,6 +13,9 @@
   and written by the Rust core when the project uses nothing it can't do yet: the same file to the 24-bit
   sample, about 2.2× faster. Projects with track effects, mastering, pitch-kept speed changes or click sounds
   export as before.
+- 〰 FILLER: right-click › ✂ Cut this filler (or all of them) cuts the sound out of the recording, keeping what
+  Reel learned from it; Unmark keeps the sound. Fillers now move with the clip they were marked on (moved,
+  trimmed, re-timed or split).
 - A sound-only export now says which mixer made it: "mixed by the Rust core", or "mixed the usual way" and why
   (a loudness target, track effects…).
 - **Fixed**: a stray "null" under the export Preset (and, in some cases, in the voice list and the title writer).

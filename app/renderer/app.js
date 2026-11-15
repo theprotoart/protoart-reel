@@ -1,4 +1,5 @@
 // ProtoArt Reel editor: project state, commands, keyboard, and wiring between the parts.
+import { followFillers } from './model.js';
 import { Explain } from './explain.js';
 import { Deck, makeReel } from './deck.js';
 import { el, $, toast, modal, ask, promptText, popMenu } from './ui.js';
@@ -477,6 +478,7 @@ class App {
   _smooth() { const xf = Number(pref('smoothCuts') ?? 0.1); if (xf > 0 && this.doc) { try { smoothCuts(this.doc, xf); } catch (e) { console.warn('smooth cuts', e); } } }
   changed({ light = false, keepInspector = false, quiet = false, noTimeline = false } = {}) {
     if (this.doc && !light) autoNameTracks(this.doc); // Video 1, Audio 1… by what's on them
+    if (this.doc) followFillers(this.doc); // fillers move with the clip they were marked on
     if (!light) { syncTrackPlugins(this); this._menuLabels(); } // track plug-ins follow the edit (rendered in the background)
     this.setDirty(true);
     clearTimeout(this._proxyKick); this._proxyKick = setTimeout(() => this.proxies.kick(), 1200); // new media → proxy

@@ -2,7 +2,7 @@
 // any filler sound) on the voice track. Each one becomes a red, zig-zagged band on that track that you can play,
 // nudge and then send to 🎙 Teach Reel your ums, for a guest who can't read lines as easily as for yourself.
 import { popMenu, toast } from './ui.js';
-import { uid } from './model.js';
+import { uid, removeRange } from './model.js';
 import { teachFromTimeline, notAnUm } from './umvoice.js';
 
 export const WORDS = [['umm', 'um'], ['uh', 'uh']];
@@ -18,7 +18,12 @@ export function addFiller(app, t0, t1, track) {
     const list = d.fillers || (d.fillers = []);
     const over = list.find(f => f.track === track && f.t0 < t1 && f.t1 > t0);
     if (over) { over.t0 = Math.min(over.t0, t0); over.t1 = Math.max(over.t1, t1); delete over.taught; id = over.id; }
-    else list.push({ id, t0, t1, track, word: 'umm' });
+    else {
+      // tie it to the clip it's on (its place in that recording), so it follows the clip around
+      const mid = (t0 + t1) / 2, c = d.clips.find(x => x.track === track && x.type === 'media' && x.start <= mid && mid < x.start + x.duration);
+      const src = t => (c.in || 0) + (t - c.start) * (c.speed || 1);
+      list.push({ id, t0, t1, track, word: 'umm', ...(c ? { clip: c.id, media: c.media, s0: src(Math.max(t0, c.start)), s1: src(Math.min(t1, c.start + c.duration)) } : {}) });
+    }
     list.sort((a, b) => a.t0 - b.t0);
   });
   const n = app.doc.fillers.length;
@@ -31,6 +36,16 @@ export function removeFiller(app, id) {
   app.commit(d => { d.fillers = (d.fillers || []).filter(f => f.id !== id); if (!d.fillers.length) delete d.fillers; });
 }
 export function clearFillers(app) { app.commit(d => { delete d.fillers; }); }
+/** Cuts fillers' sound out of the timeline (everything after closes up). What Reel learned from them stays. */
+export function cutFillers(app, ids) {
+  const cut = (app.doc.fillers || []).filter(f => ids.includes(f.id)).sort((a, b) => b.t0 - a.t0);
+  if (!cut.length) return;
+  app.commit(d => {
+    for (const f of cut) removeRange(d, f.t0, f.t1);
+    if (d.fillers) { d.fillers = d.fillers.filter(f => !ids.includes(f.id)); if (!d.fillers.length) delete d.fillers; }
+  });
+  toast(`Cut ${cut.length} filler${cut.length === 1 ? '' : 's'} from the recording. What Reel learned from them stays. (⌘Z puts them back.)`, 5000);
+}
 export function setFillerWord(app, id, word) {
   app.commit(d => { const f = (d.fillers || []).find(x => x.id === id); if (f) { f.word = word; delete f.taught; } });
 }
@@ -84,7 +99,10 @@ export function fillerMenu(app, f, x, y) {
     ['🎙 Teach it as an uh', () => one('uh')],
     ['✗ Teach that this isn’t an um', () => one('not')],
     null,
-    ['Remove this filler', () => removeFiller(app, f.id)],
-    (app.doc.fillers || []).length > 1 ? [`Remove all ${app.doc.fillers.length} fillers`, () => clearFillers(app)] : null,
+    ['✂ Cut this filler from the recording', () => cutFillers(app, [f.id])],
+    (app.doc.fillers || []).length > 1 ? [`✂ Cut all ${app.doc.fillers.length} fillers from the recording`, () => cutFillers(app, app.doc.fillers.map(x => x.id))] : null,
+    null,
+    ['Unmark this filler (keep the sound)', () => removeFiller(app, f.id)],
+    (app.doc.fillers || []).length > 1 ? [`Unmark all ${app.doc.fillers.length} fillers (keep the sound)`, () => clearFillers(app)] : null,
   ]);
 }
