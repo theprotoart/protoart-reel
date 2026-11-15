@@ -1,5 +1,18 @@
 // Small DOM helpers: element builder, modal dialogs, toast messages, form rows.
 import { screwCorners } from './gear.js';
+// replaceChildren / append / prepend skip null, undefined and false, the way el() does: the browser's own turn
+// them into the text "null" (it showed as "null" under the export Preset when a preset had no hint).
+for (const name of ['replaceChildren', 'append', 'prepend']) {
+  // (only in the page: tests load this file without a document)
+  for (const proto of typeof Element === 'undefined' ? [] : [Element.prototype, DocumentFragment.prototype]) {
+    const orig = proto[name];
+    if (typeof orig !== 'function' || orig.__reel) continue;
+    const f = function (...kids) { return orig.apply(this, kids.filter(k => k !== null && k !== undefined && k !== false)); };
+    f.__reel = true;
+    proto[name] = f;
+  }
+}
+
 export function el(tag, attrs = {}, ...kids) {
   const e = document.createElement(tag);
   for (const [k, v] of Object.entries(attrs || {})) {
