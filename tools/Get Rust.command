@@ -26,9 +26,18 @@ if [ ! -x "$RUSTUP" ]; then
   "$TMP/rustup-init" -y --no-modify-path --profile minimal --default-toolchain stable || fail "the Rust installer failed"
   rm -f "$TMP/rustup-init" "$TMP/rustup-init.sha256"; rmdir "$TMP" 2>/dev/null
 else
-  echo "== Rust is already installed: $("$HOME/.cargo/bin/rustc" --version 2>/dev/null)"
-  # an update is nice to have, not needed: reel-core builds with any Rust from $NEED on
-  "$RUSTUP" update stable --no-self-update >/dev/null 2>&1 && echo "(updated to the latest stable)" || echo "(couldn't check for an update; using what's installed)"
+  echo "== rustup is already installed"
+  # rustup's own downloader can't connect on some Macs (a firewall or VPN); macOS's curl then does the download
+  get() { "$RUSTUP" "$@" || RUSTUP_USE_CURL=1 "$RUSTUP" "$@"; }
+  if "$HOME/.cargo/bin/rustc" --version >/dev/null 2>&1; then
+    echo "Rust: $("$HOME/.cargo/bin/rustc" --version)"
+    # an update is nice to have, not needed: reel-core builds with any Rust from $NEED on
+    get update stable --no-self-update >/dev/null 2>&1 && echo "(updated to the latest stable)" || echo "(couldn't check for an update; using what's installed)"
+  else
+    echo "No Rust version is installed yet: getting the latest stable (a few hundred MB)"
+    get toolchain install stable --profile minimal || fail "couldn't download Rust (is static.rust-lang.org blocked by a firewall or VPN?)"
+    "$RUSTUP" default stable >/dev/null || fail "couldn't make stable the default"
+  fi
 fi
 echo
 echo "== Checking it builds Reel's Rust core"
