@@ -103,7 +103,9 @@ test('secrets: no keys, tokens, passwords or personal paths in the tracked files
   try { files = execFileSync('git', ['ls-files'], { cwd: root, encoding: 'utf8', stdio: ['ignore', 'pipe', 'ignore'] }).split('\n'); }
   catch {
     const skip = /^(\.git|\.spike|node_modules|dist|_incoming|__pycache__|bin|.*\.app|.*\.screenflow|SAFE TO DELETE.*)$/;
-    const walk = d => fs.readdirSync(path.join(root, d), { withFileTypes: true }).flatMap(e => skip.test(e.name) ? [] : e.isDirectory() ? walk(path.join(d, e.name)) : [path.join(d, e.name)]);
+    // and Rust's build output (git ignores it too, and it never ships; its build notes record local paths)
+    const ignored = d => /^native[\\/]reel-core[\\/]target$/.test(d);
+    const walk = d => fs.readdirSync(path.join(root, d), { withFileTypes: true }).flatMap(e => skip.test(e.name) || ignored(path.join(d, e.name)) ? [] : e.isDirectory() ? walk(path.join(d, e.name)) : [path.join(d, e.name)]);
     files = walk('').filter(f => !/(^|\/)(\.DS_Store|.*-log\.txt|.*\.log|.*\.pyc)$/.test(f) && !/\.(mov|mp4|m4a|wav|dmg|zip|tgz)$/.test(f));
   }
   files = files.filter(f => f && !/\.(png|jpg|icns|sqlite|woff2)$/.test(f));
