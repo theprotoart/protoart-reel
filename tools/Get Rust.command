@@ -1,5 +1,5 @@
 #!/bin/bash
-# Double-click to install Rust (rustup, cargo and the Rust version native/reel-core pins) into your own user
+# Double-click to install Rust (rustup, cargo and the latest stable Rust) into your own user
 # folder: ~/.rustup and ~/.cargo, about 1 GB, no administrator password. It doesn't change your shell settings;
 # Reel's build finds it in ~/.cargo/bin. The installer comes from Rust's own server (static.rust-lang.org) over
 # HTTPS and is checked against the SHA-256 published next to it before it runs.
@@ -9,7 +9,7 @@ ROOT="$(pwd)"
 exec > >(tee "$ROOT/rust-log.txt") 2>&1
 fail() { printf '\nSTATUS: FAILED (%s)\n' "$*"; read -r -p "Press Return to close this window." _; exit 1; }
 
-WANT="$(sed -n 's/^channel *= *"\(.*\)"/\1/p' native/reel-core/rust-toolchain.toml)"
+NEED="$(sed -n 's/^rust-version *= *"\([^"]*\)".*/\1/p' native/reel-core/Cargo.toml)"
 RUSTUP="$HOME/.cargo/bin/rustup"
 if [ ! -x "$RUSTUP" ]; then
   case "$(uname -m)" in arm64) TRIPLE=aarch64-apple-darwin ;; x86_64) TRIPLE=x86_64-apple-darwin ;; *) fail "unknown Mac type $(uname -m)" ;; esac
@@ -23,11 +23,12 @@ if [ ! -x "$RUSTUP" ]; then
   [ -n "$EXPECT" ] && [ "$EXPECT" = "$GOT" ] || fail "the installer's checksum didn't match"
   echo "Checksum OK ($GOT)."
   chmod +x "$TMP/rustup-init"
-  "$TMP/rustup-init" -y --no-modify-path --profile minimal --default-toolchain "$WANT" || fail "the Rust installer failed"
+  "$TMP/rustup-init" -y --no-modify-path --profile minimal --default-toolchain stable || fail "the Rust installer failed"
   rm -f "$TMP/rustup-init" "$TMP/rustup-init.sha256"; rmdir "$TMP" 2>/dev/null
 else
-  echo "== rustup is already installed; making sure Rust $WANT is there"
-  "$RUSTUP" toolchain install "$WANT" --profile minimal || fail "couldn't install Rust $WANT"
+  echo "== Rust is already installed: $("$HOME/.cargo/bin/rustc" --version 2>/dev/null)"
+  # an update is nice to have, not needed: reel-core builds with any Rust from $NEED on
+  "$RUSTUP" update stable --no-self-update >/dev/null 2>&1 && echo "(updated to the latest stable)" || echo "(couldn't check for an update; using what's installed)"
 fi
 echo
 echo "== Checking it builds Reel's Rust core"

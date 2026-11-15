@@ -1,4 +1,4 @@
-# The Rust version reel-core is built and tested with (tools/Get Rust.command installs it).
+# Build reel-core with the stable Rust you have (any from rust-version in Cargo.toml on); no exact pin, so a
+# Mac that can't reach Rust's servers still builds it.
 [toolchain]
-channel = "1.97.0"
-profile = "minimal"
+channel = "stable"
