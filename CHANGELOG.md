@@ -1,6 +1,6 @@
 # Changelog
 
-## Unreleased
+## 1.9.0 — Teach Reel your ums, 〰 FILLER, track names and a RESUME that always resumes
 
 - **🎙 Teach Reel your ums**: record "umm" and "uh" a few times (slow, normal, quick) and read one sentence. Reel
   learns them in your voice (a sound fingerprint, compared with dynamic time warping, calibrated against your own
