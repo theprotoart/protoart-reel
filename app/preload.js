@@ -71,6 +71,8 @@ contextBridge.exposeInMainWorld('reel', {
   // the Rust helper (reel-core): null when it isn't part of this build
   coreUmFind: (model, samples) => invoke('core:umFind', model, samples),
   coreAnalyze: (token, name) => invoke('core:analyze', token, name),
+  coreMixExport: (id, token, job) => invoke('core:mixExport', id, token, job),
+  onCoreProgress: fn => { const l = (_e, id, f) => fn(id, f); ipcRenderer.on('core:progress', l); return () => ipcRenderer.removeListener('core:progress', l); },
   shortcutsGet: () => invoke('shortcuts:get'),
   shortcutsSet: own => invoke('shortcuts:set', own),
   shortcutsCapture: on => invoke('shortcuts:capture', on),

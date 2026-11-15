@@ -41,20 +41,33 @@ function encodeUmFind(model, samples) {
   return Buffer.concat(parts);
 }
 
-/** Runs one job; resolves with the parsed answer or rejects with a plain reason. */
-function run(job, { timeout = 120000, maxOut = 8e6 } = {}) {
+/** Runs one job; resolves with the parsed answer or rejects with a plain reason. Lines {"progress": f} on the
+ * way go to onProgress; the last other line is the answer. */
+function run(job, { timeout = 120000, maxOut = 8e6, onProgress = null } = {}) {
   return new Promise((resolve, reject) => {
     if (!available()) { reject(new Error('reel-core isn’t part of this build')); return; }
     const proc = spawn(binPath, [], { stdio: ['pipe', 'pipe', 'pipe'], env: {} });
-    let out = '', done = false;
+    let buf = '', answer = '', size = 0, done = false;
     const finish = (err, v) => { if (done) return; done = true; clearTimeout(timer); if (err) { try { proc.kill(); } catch {} reject(err); } else resolve(v); };
     const timer = setTimeout(() => finish(new Error('reel-core took too long')), timeout);
+    const line = l => {
+      if (!l) return;
+      if (l.startsWith('{"progress"')) { try { const f = JSON.parse(l).progress; if (onProgress && Number.isFinite(f)) onProgress(f); } catch {} return; }
+      answer = l;
+    };
     proc.stdout.setEncoding('utf8');
-    proc.stdout.on('data', d => { out += d; if (out.length > maxOut) finish(new Error('reel-core answered too much')); });
+    proc.stdout.on('data', d => {
+      size += d.length;
+      if (size > maxOut) { finish(new Error('reel-core answered too much')); return; }
+      buf += d;
+      let i;
+      while ((i = buf.indexOf('\n')) >= 0) { line(buf.slice(0, i)); buf = buf.slice(i + 1); }
+    });
     proc.stderr.on('data', () => {});
     proc.on('error', e => finish(e));
     proc.on('close', () => {
-      let m; try { m = JSON.parse(out.trim().split('\n').pop()); } catch { finish(new Error('reel-core gave no answer')); return; }
+      line(buf.trim());
+      let m; try { m = JSON.parse(answer); } catch { finish(new Error('reel-core gave no answer')); return; }
       if (m && m.ok) finish(null, m); else finish(new Error((m && m.error) || 'reel-core failed'));
     });
     proc.stdin.on('error', () => {});
@@ -83,6 +96,33 @@ async function analyze(file) {
   return { rate: m.rate, peaks: nums(m.peaks), steps: nums(m.steps) };
 }
 
+/**
+ * The export's sound mixed by the core and written to `out` (a new file): job = { rate, total, mixGain, limiters, soft,
+ * codec: 'wav' | 'aac', bitrate, sources: [absolute paths], plans: [{ src, first, last, s0, speed, env }] }
+ * (env a Float32Array, from lib/mixplan.js). Paths must be ones the main process chose.
+ */
+async function mix(job, out, onProgress) {
+  const parts = [Buffer.from('RCORE1\nmix\n')];
+  const u32 = n => { const b = Buffer.alloc(4); b.writeUInt32LE(n >>> 0); parts.push(b); };
+  const u64 = n => { const b = Buffer.alloc(8); b.writeBigUInt64LE(BigInt(Math.max(0, Math.floor(n)))); parts.push(b); };
+  const f64 = v => { const b = Buffer.alloc(8); b.writeDoubleLE(v); parts.push(b); };
+  const u8 = v => parts.push(Buffer.from([v & 255]));
+  const str = p => { if (typeof p !== 'string' || !path.isAbsolute(p) || p.includes('\0')) throw new Error('Bad file'); const b = Buffer.from(p, 'utf8'); u32(b.length); parts.push(b); };
+  f64(job.rate); u64(job.total); f64(job.mixGain);
+  const lims = Array.isArray(job.limiters) ? job.limiters.slice(0, 16) : [];
+  u32(lims.length); for (const l of lims) { f64(+l.ceil); f64(+l.rel); }
+  u8(job.soft ? 1 : 0); u8(job.codec === 'aac' ? 1 : 0); u32(job.bitrate || 192000);
+  str(out);
+  u32(job.sources.length); job.sources.forEach(str);
+  u32(job.plans.length);
+  for (const p of job.plans) {
+    if (!(p.env instanceof Float32Array)) throw new Error('Bad plan');
+    u32(p.src); u64(p.first); u64(p.last); f64(p.s0); f64(p.speed); u32(p.env.length);
+    parts.push(Buffer.from(p.env.buffer, p.env.byteOffset, p.env.byteLength));
+  }
+  return run(Buffer.concat(parts), { timeout: 4 * 3600000, onProgress });
+}
+
 async function version() { try { return (await run(Buffer.from('RCORE1\nversion\n'), { timeout: 5000 })).version; } catch { return null; } }
 
-module.exports = { available, umFind, analyze, version, encodeUmFind, run, useBinary };
+module.exports = { available, umFind, analyze, mix, version, encodeUmFind, run, useBinary };

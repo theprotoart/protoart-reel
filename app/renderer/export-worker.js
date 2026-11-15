@@ -14,6 +14,7 @@ import { HttpReader, WavAudio } from './lib/sources.js';
 import { GifEncoder, ApngEncoder } from './lib/anim.js';
 import { stretch, warp } from './lib/stretch.js';
 import { mapAt } from './lib/retime.js';
+import { clipPlan, sourceRange, mixClip, softClip as softClipMix, pcm24 } from './lib/mixplan.js';
 
 let cancelled = false;
 const RATE = 48000, BLOCK = 1024;
@@ -175,6 +176,7 @@ async function run({ doc, token, opts }) {
   const chains = new Map();
   for (const tr of doc.tracks) if ((tr.fx || []).some(f => !f.off)) chains.set(tr.id, new FxChain(RATE).setup(tr.fx));
   const mixChain = (doc.mixFx || []).some(f => !f.off) ? new FxChain(RATE).setup(doc.mixFx) : null;
+  const plans = new Map();
   const mixBlock = async (t0, n) => {
     const L = new Float32Array(n), R = new Float32Array(n);
     const t1 = t0 + n / RATE;
@@ -197,35 +199,13 @@ async function run({ doc, token, opts }) {
         }
         continue;
       }
-      const s0 = Math.max(0, sourceTime(c, Math.max(t0, cs))), firstOut = Math.max(0, Math.ceil((cs - t0) * RATE));
-      const lastOut = Math.min(n, Math.floor((ce - t0) * RATE));
-      if (lastOut <= firstOut) continue;
-      const ratio = (src.rate / RATE) * speed;
-      const nativeStart = Math.floor(s0 * src.rate) - 2;
-      const need = Math.ceil((lastOut - firstOut) * ratio) + 6;
-      const pcm = await src.read(nativeStart, need);
-      // gain and pan (volume, fades, keyframes, track automation) sampled every 256 samples
-      const S = 256, segs = Math.ceil((lastOut - firstOut) / S) + 1;
-      const GL = new Float32Array(segs + 1), GR = new Float32Array(segs + 1);
-      for (let j = 0; j <= segs; j++) {
-        const lt = t0 + Math.min(lastOut, firstOut + j * S) / RATE - c.start;
-        const g = gainAt(doc, c, lt), [pl, pr] = panGains(panAt(doc, c, lt));
-        GL[j] = g * pl; GR[j] = g * pr;
-      }
-      const stereo = pcm.length > 1;
-      const base = s0 * src.rate - nativeStart;
-      const a = pcm[0], b = stereo ? pcm[1] : pcm[0];
-      for (let i = firstOut; i < lastOut; i++) {
-        const pos = base + (i - firstOut) * ratio, k = Math.floor(pos), f = pos - k;
-        const q = (i - firstOut) / S, j = q | 0, u = q - j;
-        const gl = GL[j] + (GL[j + 1] - GL[j]) * u, gr = GR[j] + (GR[j + 1] - GR[j]) * u;
-        // Catmull-Rom interpolation between native samples
-        const p0 = a[k - 1] ?? a[k] ?? 0, p1 = a[k] ?? 0, p2 = a[k + 1] ?? p1, p3 = a[k + 2] ?? p2;
-        const l = p1 + 0.5 * f * (p2 - p0 + f * (2 * p0 - 5 * p1 + 4 * p2 - p3 + f * (3 * (p1 - p2) + p3 - p0)));
-        let r = l;
-        if (stereo) { const q0 = b[k - 1] ?? b[k] ?? 0, q1 = b[k] ?? 0, q2 = b[k + 1] ?? q1, q3 = b[k + 2] ?? q2; r = q1 + 0.5 * f * (q2 - q0 + f * (2 * q0 - 5 * q1 + 4 * q2 - q3 + f * (3 * (q1 - q2) + q3 - q0))); }
-        TL[i] += l * gl; TR[i] += r * gr;
-      }
+      // the clip's plan for the whole export (lib/mixplan.js: the same one the Rust core mixes from)
+      if (!plans.has(c.id)) plans.set(c.id, clipPlan(doc, c, start, Infinity, RATE));
+      const p = plans.get(c.id), j0 = Math.round((t0 - start) * RATE);
+      const range = p && sourceRange(p, j0, n, RATE, src.rate);
+      if (!range) continue;
+      const pcm = await src.read(range[0], range[1] - range[0]);
+      mixClip(TL, TR, j0, n, p, pcm, range[0], RATE, src.rate);
     }
     for (const [id, ch] of chains) {
       const [a, b] = tb.get(id) || [new Float32Array(n), new Float32Array(n)];
@@ -248,13 +228,7 @@ async function run({ doc, token, opts }) {
     }
     return [L, R];
   };
-  const softClip = (L, R) => {
-    for (let i = 0; i < L.length; i++) {
-      const l = L[i], r = R[i];
-      L[i] = Math.abs(l) > 0.9 ? Math.sign(l) * (0.9 + 0.1 * Math.tanh((Math.abs(l) - 0.9) / 0.1)) : l;
-      R[i] = Math.abs(r) > 0.9 ? Math.sign(r) * (0.9 + 0.1 * Math.tanh((Math.abs(r) - 0.9) / 0.1)) : r;
-    }
-  };
+  const softClip = softClipMix;
 
   // Mix-only pass (for mastering): mix + built-in master chain, streamed to the page as float PCM.
   if (opts.mode === 'mix') {
@@ -325,7 +299,7 @@ async function run({ doc, token, opts }) {
         const out = new Uint8Array(k * 6);
         for (let i = 0, o = 0; i < k; i++) {
           for (const v of [L[i], R[i]]) {
-            const x = Math.max(-8388608, Math.min(8388607, Math.round(Math.max(-1, Math.min(1, v)) * 8388607)));
+            const x = pcm24(v);
             out[o++] = x & 255; out[o++] = (x >> 8) & 255; out[o++] = (x >> 16) & 255;
           }
         }

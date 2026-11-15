@@ -9,6 +9,7 @@ import { duration, fmtTime, clipEnd, toSRT } from './model.js';
 import { masterOf, openMaster, LOUDNESS, mixToFile, addMasterPlugin } from './master-ui.js';
 import { LOUDNESS_TARGETS } from './lib/master.js';
 import { builtInPresets, GROUPS, QUALITY, SIZE_LIMITS, presetFps, videoBitrate, fromHandBrake } from './lib/exportpresets.js';
+import { exportMixJob } from './lib/mixplan.js';
 
 const SOUND = new Set(['aac', 'wav']); // sound-only formats
 const FORMATS = [['avc', 'MP4 · H.264 (plays everywhere)'], ['hevc', 'MP4 · HEVC (smaller, newer devices)'], ['aac', 'Sound only · AAC (.m4a)'], ['wav', 'Sound only · WAV (uncompressed, 24-bit)'], ['gif', 'Animated GIF'], ['apng', 'Animated PNG']];
@@ -214,6 +215,22 @@ export function openExport(app) {
           try { masterFile = await app.api.fxRenderFile(app.token, mix, plugChain); temps.push(masterFile); } finally { app.fxListeners.delete(listener); }
         }
       } catch (err) { cleanup(); app.api.exportCancel(h.id); reject(new Error(`Mastering failed: ${err.message}`)); return; }
+    }
+    // sound only, unmastered: the Rust core mixes and writes it (WAV, or AAC by Apple's encoder) when this build
+    // has it and the project uses nothing it can't do yet; otherwise the JavaScript export below, as before
+    if (SOUND.has(s.codec) && !masterFile && !loud && app.api.coreMixExport) {
+      const plan = exportMixJob(doc, from, to, { codec: s.codec === 'wav' ? 'wav' : 'aac', bitrate: s.abr ? s.abr * 1000 : Number(pref('audioBitrate')) || 192000 });
+      if (plan.job) {
+        status.textContent = 'Mixing the sound…';
+        const off = app.api.onCoreProgress?.((id, f) => { if (id === h.id) { progress.firstChild.style.width = (f * 100).toFixed(1) + '%'; status.textContent = `Mixing the sound… ${Math.round(f * 100)}%`; } });
+        let r = null, failed = null;
+        try { r = await app.api.coreMixExport(h.id, app.token, plan.job); } catch (err) { failed = err; } finally { off?.(); }
+        if (r) { progress.firstChild.style.width = '100%'; cleanup(); resolve({ name: r.name, secs: (performance.now() - started) / 1000 }); return; }
+        if (failed) {
+          if (/Cancelled/.test(failed.message)) { cleanup(); reject(new Error('Export cancelled.')); return; }
+          toast(`The fast sound mixer couldn’t do this one (${failed.message}); mixing it the usual way.`, 5000);
+        }
+      }
     }
     worker = new Worker('export-worker.js', { type: 'module' });
     worker.onmessage = async e => {

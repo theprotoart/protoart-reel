@@ -132,3 +132,83 @@ test('reel-core refuses what isn\'t sound, and paths it shouldn\'t take', { skip
   await assert.rejects(core.analyze('relative/path.wav'), /Bad file/);
   await assert.rejects(core.analyze(path.join(os.tmpdir(), 'reel-core-missing.wav')), /can't open/);
 });
+
+// ---------------------------------------------------------------- step 3: the core mixes a sound-only export
+import { exportMixJob, sourceRange, mixClip, softClip, pcm24 } from '../app/renderer/lib/mixplan.js';
+import { FxChain } from '../app/renderer/lib/trackfx.js';
+
+function mixDoc() {
+  return {
+    canvas: { width: 1920, height: 1080, fps: 30 }, mixGain: 2.5,
+    mixFx: [{ id: 'lim', type: 'limiter', params: { ceiling: -3, release: 60 } }],
+    media: [{ id: 'm1', kind: 'audio', hasAudio: true, file: 'voice.wav' }, { id: 'm2', kind: 'audio', hasAudio: true, file: 'music.wav' }],
+    tracks: [{ id: 't1', auto: { volume: [{ t: 0, v: 1 }, { t: 3, v: 0.6 }, { t: 5, v: 1.1 }] } }, { id: 't2', auto: { pan: [{ t: 0, v: -0.5 }, { t: 6, v: 0.5 }] } }],
+    clips: [
+      { id: 'a', type: 'media', media: 'm1', track: 't1', start: 0.2, in: 0.5, duration: 4, speed: 1, xfadeOut: 0.5, audio: { volume: 1.6, pan: 0.2, fadeIn: 0.3, fadeOut: 0.6 } },
+      { id: 'b', type: 'media', media: 'm1', track: 't1', start: 4.2, in: 2, duration: 2.5, speed: 1.25, xfadeIn: 0.5, audio: { keepPitch: false, fadeOut: 0.4 } },
+      { id: 'c', type: 'media', media: 'm2', track: 't2', start: 0, in: 0, duration: 7, speed: 1, audio: { volume: 0.9 } },
+      { id: 'd', type: 'media', media: 'm2', track: 't2', start: 1, in: 1, duration: 1, audio: { mute: true } },
+    ],
+  };
+}
+
+test('reel-core mixes a sound-only export the same as the JavaScript export, to the 24-bit sample', { skip }, async t => {
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'reel-mix-'));
+  try {
+    let s2 = 3; const r = () => ((s2 = (s2 * 16807) % 2147483647) / 2147483647);
+    writeWav(path.join(dir, 'voice.wav'), { rate: 48000, channels: 2, bits: 16, frames: 48000 * 8, sample: (i, c) => 0.45 * Math.sin(i * (c ? 0.031 : 0.027)) + 0.2 * (r() - 0.5) });
+    writeWav(path.join(dir, 'music.wav'), { rate: 44100, channels: 1, bits: 24, frames: 44100 * 9, sample: i => 0.5 * Math.sin(i * 0.011) * Math.sin(i * 0.0002) });
+    const doc = mixDoc();
+    const { job, why } = exportMixJob(doc, 0.3, 6.9, { codec: 'wav', bitrate: 192000 });
+    assert.ok(job, why);
+    assert.equal(job.plans.length, 3, 'the muted clip is left out');
+    // the JavaScript export's steps (export-worker.js mixBlock → mix gain → mix bus → softClip → 24-bit), block by block
+    const RATE = 48000, BLOCK = 1024, chain = new FxChain(RATE).setup(doc.mixFx);
+    const srcs = await Promise.all(job.sources.map(f => jsAudio(path.join(dir, f))));
+    const want = Buffer.alloc(job.total * 6);
+    for (let pos = 0, o = 0; pos < job.total; pos += BLOCK) {
+      const n = Math.min(BLOCK, job.total - pos), L = new Float32Array(n), R = new Float32Array(n);
+      for (const p of job.plans) {
+        const src = srcs[p.src], range = sourceRange(p, pos, n, RATE, src.rate);
+        if (range) mixClip(L, R, pos, n, p, await src.read(range[0], range[1] - range[0]), range[0], RATE, src.rate);
+      }
+      for (let i = 0; i < n; i++) { L[i] *= job.mixGain; R[i] *= job.mixGain; }
+      for (let q = 0; q < n; q += 512) chain.process(L.subarray(q, Math.min(n, q + 512)), R.subarray(q, Math.min(n, q + 512)));
+      softClip(L, R);
+      for (let i = 0; i < n; i++) for (const v of [L[i], R[i]]) want.writeIntLE(pcm24(v), (o++) * 3, 3);
+    }
+    srcs.forEach(a => a.close());
+    const out = path.join(dir, 'out.wav');
+    let ticks = 0;
+    await core.mix({ ...job, sources: job.sources.map(f => path.join(dir, f)) }, out, () => { ticks++; });
+    const got = fs.readFileSync(out);
+    assert.equal(got.length, 44 + want.length);
+    assert.equal(got.toString('latin1', 0, 4) + got.toString('latin1', 8, 12), 'RIFFWAVE');
+    assert.equal(got.readUInt16LE(34), 24); assert.equal(got.readUInt32LE(24), 48000); assert.equal(got.readUInt32LE(40), want.length);
+    let diff = 0, worst = 0, loud = 0;
+    for (let i = 0; i < job.total * 2; i++) {
+      const a = got.readIntLE(44 + i * 3, 3), b = want.readIntLE(i * 3, 3);
+      if (Math.abs(b) > 0.3 * 8388607) loud++;
+      if (a !== b) { diff++; worst = Math.max(worst, Math.abs(a - b)); }
+    }
+    assert.ok(loud > 1000, 'loud enough to test the limiter and soft limit');
+    // tanh may differ in its last bit between JavaScript and Rust: at most a 24-bit step, very rarely
+    assert.ok(worst <= 1 && diff < job.total * 2 * 1e-4, `${diff} samples differ, by up to ${worst}`);
+    t.diagnostic(`${job.total * 2} samples, ${loud} of them loud; ${diff} differ (by up to ${worst} in 8388607)`);
+    assert.ok(ticks >= 1, 'progress was reported');
+  } finally { fs.rmSync(dir, { recursive: true, force: true }); }
+});
+
+test('what the core can\'t mix yet goes to the JavaScript export, with the reason', () => {
+  const doc = mixDoc();
+  assert.ok(exportMixJob(doc, 0, 5, { codec: 'wav' }).job);
+  assert.equal(exportMixJob({ ...doc, mixFx: [...doc.mixFx, { type: 'reverb' }] }, 0, 5, { codec: 'wav' }).why, 'mix bus effects');
+  assert.equal(exportMixJob({ ...doc, tracks: [{ ...doc.tracks[0], fx: [{ type: 'eq' }] }, doc.tracks[1]] }, 0, 5, { codec: 'wav' }).why, 'track effects');
+  const pitched = mixDoc(); pitched.clips[1].audio.keepPitch = true;
+  assert.equal(exportMixJob(pitched, 0, 7, { codec: 'wav' }).why, 'speed changes that keep pitch');
+  const clicks = mixDoc(); clicks.clips[0].cursor = { clickSound: 0.5 };
+  assert.equal(exportMixJob(clicks, 0, 5, { codec: 'wav' }).why, 'click sounds');
+  // a bypassed limiter is simply not there
+  const off = mixDoc(); off.mixFx[0].off = true;
+  assert.deepEqual(exportMixJob(off, 0, 5, { codec: 'wav' }).job.limiters, []);
+});

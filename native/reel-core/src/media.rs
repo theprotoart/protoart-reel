@@ -13,6 +13,8 @@ pub trait Source {
     fn info(&self) -> &Info;
     /// The next chunk (up to `max` frames per channel); empty when the sound is over.
     fn read(&mut self, max: usize) -> Result<Vec<Vec<f32>>, String>;
+    /// Moves to source frame `frame` (the next read starts there).
+    fn seek(&mut self, frame: u64) -> Result<(), String>;
 }
 
 /// Opens a media file for its sound: WAV in Rust, anything else through Apple's decoder.
@@ -27,7 +29,7 @@ pub fn open(path: &str) -> Result<Box<dyn Source>, String> {
 
 // ---------------------------------------------------------------- WAV
 
-pub struct Wav { f: File, info: Info, format: u16, bits: u16, next: u64 }
+pub struct Wav { f: File, info: Info, format: u16, bits: u16, next: u64, data: u64 }
 
 impl Wav {
     pub fn open(path: &str) -> Result<Wav, String> {
@@ -59,7 +61,7 @@ impl Wav {
                 let length = if len == 0 { size - data } else { len.min(size - data) };
                 let frame = channels as u64 * bits as u64 / 8;
                 f.seek(SeekFrom::Start(data)).map_err(|e| e.to_string())?;
-                return Ok(Wav { f, format, bits, next: 0, info: Info { rate: rate as f64, channels: channels as usize, frames: length / frame } });
+                return Ok(Wav { f, format, bits, next: 0, data, info: Info { rate: rate as f64, channels: channels as usize, frames: length / frame } });
             }
             p += 8 + len + (len & 1);
         }
@@ -87,6 +89,13 @@ impl Source for Wav {
             _ => for (i, fr) in frames.enumerate() { for c in 0..ch { let p = c * 4; out[c][i] = (i32::from_le_bytes([fr[p], fr[p + 1], fr[p + 2], fr[p + 3]]) as f64 / 2147483648.0) as f32; } },
         }
         Ok(out)
+    }
+    fn seek(&mut self, frame: u64) -> Result<(), String> {
+        let frame = frame.min(self.info.frames);
+        let bytes = self.info.channels as u64 * self.bits as u64 / 8;
+        self.f.seek(SeekFrom::Start(self.data + frame * bytes)).map_err(|e| e.to_string())?;
+        self.next = frame;
+        Ok(())
     }
 }
 
@@ -119,6 +128,7 @@ mod apple {
         fn ExtAudioFileSetProperty(f: ExtAudioFileRef, id: u32, size: u32, data: *const c_void) -> OSStatus;
         fn ExtAudioFileRead(f: ExtAudioFileRef, frames: *mut u32, list: *mut AudioBufferList) -> OSStatus;
         fn ExtAudioFileDispose(f: ExtAudioFileRef) -> OSStatus;
+        fn ExtAudioFileSeek(f: ExtAudioFileRef, frame: i64) -> OSStatus;
     }
     #[link(name = "CoreFoundation", kind = "framework")]
     extern "C" {
@@ -183,6 +193,12 @@ mod apple {
             }
             for i in 0..got { for (c, o) in out.iter_mut().enumerate() { o.push(buf[i * ch + c]); } }
             Ok(out)
+        }
+        fn seek(&mut self, frame: u64) -> Result<(), String> {
+            let st = unsafe { ExtAudioFileSeek(self.f, frame as i64) };
+            if st != 0 { return Err(format!("macOS couldn't move to that point in the file ({st})")); }
+            self.done = false;
+            Ok(())
         }
     }
 

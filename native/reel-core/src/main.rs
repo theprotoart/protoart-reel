@@ -3,7 +3,7 @@
 //! One job per run. Reel's main process (app/engine/core.js) starts it, writes the job to stdin and reads one
 //! line of JSON from stdout. Jobs are binary, little-endian, so sound needs no conversion:
 //!
-//!   "RCORE1\n" then a command line ("version\n", "umfind\n" or "analyze\n"), then the command's body.
+//!   "RCORE1\n" then a command line ("version\n", "umfind\n", "analyze\n" or "mix\n"), then the command's body.
 //!
 //! analyze body: path (u32 length + UTF-8) of one media file, which it only reads. Answers the file's sample
 //!   rate, waveform peaks (100 a second) and loudness profile (K-weighted mean square every 100 ms).
@@ -12,11 +12,17 @@
 //!   · nots u32 + Prints · samples u32 + that many f32 (16 kHz mono).  A Print is frames u32 + frames × 12 f32.
 //!
 //! Every count is checked against what's left of the input, so a bad job is refused, never trusted.
-//! No network, and no files except the one media file an analyze job names (read only, chosen by Reel's main
-//! process from the open project's media folder).
+//! mix body: rate f64 · total u64 · mix gain f64 · limiters u32 + (ceiling f64, release f64) each · soft limit u8 · codec u8 (0 WAV, 1 AAC) · bitrate u32 · output
+//!   path · sources u32 + paths · plans u32, each: source u32 · first u64 · last u64 · s0 f64 · speed f64 ·
+//!   envelope u32 + that many f32. Writes the export's sound to the output path (a new file) and prints
+//!   {"progress":…} lines on the way. Paths are u32 length + UTF-8.
+//!
+//! No network, and no files except the media files a job names (read only) and a mix job's one new output file:
+//! all chosen by Reel's main process (the open project's media folder; the export's own temporary file).
 
 mod analyze;
 mod media;
+mod mix;
 mod umvoice;
 
 use std::io::{Read, Write};
@@ -35,6 +41,15 @@ impl<'a> Input<'a> {
     }
     fn u32(&mut self) -> Result<usize, String> { Ok(u32::from_le_bytes(self.take(4)?.try_into().unwrap()) as usize) }
     fn f64(&mut self) -> Result<f64, String> { Ok(f64::from_le_bytes(self.take(8)?.try_into().unwrap())) }
+    fn u64(&mut self) -> Result<u64, String> { Ok(u64::from_le_bytes(self.take(8)?.try_into().unwrap())) }
+    fn u8(&mut self) -> Result<u8, String> { Ok(self.take(1)?[0]) }
+    fn path(&mut self) -> Result<String, String> {
+        let len = self.count(1)?;
+        if len == 0 || len > 4096 { return Err("bad path".into()); }
+        let p = std::str::from_utf8(self.take(len)?).map_err(|_| "bad path")?;
+        if p.contains('\0') || !p.starts_with('/') { return Err("bad path".into()); }
+        Ok(p.to_string())
+    }
     fn line(&mut self) -> Result<&'a str, String> {
         let rest = &self.b[self.at..];
         let n = rest.iter().take(64).position(|&c| c == b'\n').ok_or("no command")?;
@@ -113,6 +128,51 @@ fn analyze_job(inp: &mut Input) -> Result<String, String> {
     Ok(format!("{{\"ok\":true,\"rate\":{},\"peaks\":[{}],\"steps\":[{}]}}", a.rate, floats(&a.peaks), floats(&a.steps)))
 }
 
+fn mix_job(inp: &mut Input) -> Result<String, String> {
+    let rate = inp.f64()?;
+    let total = inp.u64()?;
+    let mix_gain = inp.f64()?;
+    let nl = inp.count(16)?;
+    if nl > 16 { return Err("too many limiters".into()); }
+    let mut limiters = Vec::with_capacity(nl);
+    for _ in 0..nl {
+        let (ceil, rel) = (inp.f64()?, inp.f64()?);
+        if !(ceil > 0.0 && ceil <= 4.0 && (0.0..1.0).contains(&rel)) { return Err("bad limiter".into()); }
+        limiters.push((ceil, rel));
+    }
+    let soft = inp.u8()? != 0;
+    let codec = inp.u8()?;
+    let bitrate = inp.u32()? as u32;
+    if !(rate >= 8000.0 && rate <= 192000.0) || total > (rate as u64) * 60 * 60 * 24 || !mix_gain.is_finite() { return Err("bad mix settings".into()); }
+    let out = inp.path()?;
+    let ns = inp.count(4)?;
+    let sources = (0..ns).map(|_| inp.path()).collect::<Result<Vec<_>, _>>()?;
+    let np = inp.count(36)?;
+    let mut plans = Vec::with_capacity(np);
+    for _ in 0..np {
+        let src = inp.u32()?;
+        let (first, last) = (inp.u64()?, inp.u64()?);
+        let (s0, speed) = (inp.f64()?, inp.f64()?);
+        let ne = inp.count(4)?;
+        let env = inp.f32s(ne)?;
+        if src >= sources.len() || last < first || last > total || !s0.is_finite() || !(speed > 0.0 && speed < 100.0) { return Err("bad clip plan".into()); }
+        if env.len() < ((last - first).div_ceil(256) as usize + 2) * 2 || env.iter().any(|v| !v.is_finite()) { return Err("a clip's volume plan is too short".into()); }
+        plans.push(mix::Plan { src, first, last, s0, speed, env });
+    }
+    let job = mix::Job { rate, total, mix_gain, limiters, soft, sources, plans };
+    let mut sink: Box<dyn mix::Sink> = match codec {
+        0 => Box::new(mix::WavSink::create(&out, rate as u32)?),
+        #[cfg(target_os = "macos")]
+        1 => Box::new(mix::aac::AacSink::create(&out, rate, bitrate)?),
+        _ => return Err(format!("this build can't write that kind of sound ({codec}, {bitrate})")),
+    };
+    let mut so = std::io::stdout();
+    let result = mix::run(&job, sink.as_mut(), |f| { let _ = writeln!(so, "{{\"progress\":{f}}}"); let _ = so.flush(); });
+    let finished = result.and_then(|_| sink.finish());
+    if let Err(e) = finished { let _ = std::fs::remove_file(&out); return Err(e); }
+    Ok(format!("{{\"ok\":true,\"frames\":{total}}}"))
+}
+
 fn run(b: &[u8]) -> Result<String, String> {
     let mut inp = Input { b, at: 0 };
     if inp.take(7)? != b"RCORE1\n" { return Err("not a reel-core job".into()); }
@@ -120,6 +180,7 @@ fn run(b: &[u8]) -> Result<String, String> {
         "version" => Ok(format!("{{\"ok\":true,\"version\":{}}}", json_str(env!("CARGO_PKG_VERSION")))),
         "umfind" => umfind(&mut inp),
         "analyze" => analyze_job(&mut inp),
+        "mix" => mix_job(&mut inp),
         other => Err(format!("unknown command {}", other.chars().take(20).collect::<String>())),
     }
 }

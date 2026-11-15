@@ -1359,7 +1359,47 @@ handle('export:finish', async (id, head) => {
   exportedFiles.add(h.dst);
   return { name: path.basename(h.dst) };
 });
+// A sound-only export mixed and written by the Rust core (the editor sends the clip plans, see lib/mixplan.js):
+// sources are checked media names in this project (plain files, no links); the core writes a new temporary file
+// beside the destination, which replaces the destination only once it's complete. Answers null when the core
+// isn't in this build (the editor then exports in JavaScript); the export handle stays open for that.
+const coreMixes = new Map();
+handle('core:mixExport', async (id, token, job) => {
+  if (!core.available()) return null;
+  const h = handleOf(id, 'export');
+  const p = projectOf(token);
+  if (!job || typeof job !== 'object' || !Array.isArray(job.sources) || !Array.isArray(job.plans) || job.sources.length > 2000 || job.plans.length > 20000) throw new Error('Bad mix');
+  const sources = [];
+  for (const name of job.sources) {
+    if (!validate.mediaName(name)) throw new Error('Bad media name');
+    const f = path.join(mediaDir(p), name), st = await fs.promises.lstat(f);
+    if (!st.isFile()) throw new Error('Not a media file');
+    sources.push(f);
+  }
+  const codec = job.codec === 'aac' ? 'aac' : job.codec === 'wav' ? 'wav' : null;
+  if (!codec || ![44100, 48000].includes(job.rate) || !(job.total > 0) || !Number.isFinite(job.mixGain)) throw new Error('Bad mix');
+  if (!Array.isArray(job.limiters) || job.limiters.length > 16 || job.limiters.some(l => !(l && l.ceil > 0 && l.ceil <= 4 && l.rel >= 0 && l.rel < 1))) throw new Error('Bad limiter');
+  for (const pl of job.plans) if (!(pl && Number.isInteger(pl.src) && pl.src >= 0 && pl.src < sources.length && pl.env instanceof Float32Array)) throw new Error('Bad clip plan');
+  const tmp = `${h.dst}.${process.pid}.core.tmp`;
+  await fs.promises.rm(tmp, { force: true });
+  const send = f => { if (win && !win.isDestroyed()) win.webContents.send('core:progress', id, f); };
+  coreMixes.set(id, tmp);
+  try {
+    await core.mix({ ...job, codec, sources, bitrate: Math.max(64000, Math.min(320000, job.bitrate | 0 || 192000)) }, tmp, send);
+    if (!coreMixes.has(id)) throw new Error('Cancelled');
+    await closeHandle(id);
+    await fs.promises.rm(h.file, { force: true }); // the JavaScript export's part file, unused
+    await fs.promises.rename(tmp, h.dst);
+    exportedFiles.add(h.dst);
+    return { name: path.basename(h.dst) };
+  } catch (e) {
+    await fs.promises.rm(tmp, { force: true }).catch(() => {});
+    throw e;
+  } finally { coreMixes.delete(id); }
+});
+
 handle('export:cancel', async id => {
+  coreMixes.delete(id); // a mix the core is still writing is thrown away when it ends
   const h = await closeHandle(id);
   if (h) await fs.promises.rm(h.file, { force: true });
 });
