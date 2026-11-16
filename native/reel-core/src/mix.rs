@@ -322,7 +322,7 @@ pub fn run(job: &Job, sink: &mut dyn Sink, mut progress: impl FnMut(f64)) -> Res
 /// then held under the ceiling by the true-peak limiter, exactly as the JavaScript master path does. `ceil` (gain),
 /// `rel` and `look` come from Reel worked out the same way as there; `measure` is how many frames the JavaScript
 /// mix pass measures (its own rounding of the length).
-pub struct Loud { pub target: f64, pub ceil: f64, pub rel: f64, pub look: usize, pub measure: u64 }
+pub struct Loud { pub target: Option<f64>, pub ceil: f64, pub rel: f64, pub look: usize, pub measure: u64, pub master: Option<Vec<f64>> }
 
 /// One biquad (transposed direct form II) with f64 state; its output is stored as f32, like the JavaScript's
 /// Float32Array in place.
@@ -432,23 +432,27 @@ pub fn run_loud(job: &Job, loud: &Loud, sink: &mut dyn Sink, mut progress: impl 
     let (mut l, mut r) = (vec![0f32; BLOCK as usize], vec![0f32; BLOCK as usize]);
     // pass 1: measure (as long as the JavaScript's mix file)
     let mut meter = Meter::new(job.rate);
-    {
+    let master = |v: &Option<Vec<f64>>| -> Result<Option<crate::master::Master>, String> { v.as_ref().map(|v| crate::master::Master::new(v)).transpose() };
+    if loud.target.is_some() {
         let mut live: Vec<Option<Live>> = (0..job.plans.len()).map(|_| None).collect();
         let mut limiters: Vec<Limiter> = job.limiters.iter().map(|&(ceil, rel)| Limiter { ceil, rel, g: 1.0 }).collect();
         let mut fx = job.fx()?;
+        let mut m1 = master(&loud.master)?;
         let (mut j0, mut last) = (0u64, 0u64);
         let measure = loud.measure.max(job.total);
         while j0 < measure {
             let n = BLOCK.min(measure - j0) as usize;
             l[..n].iter_mut().for_each(|v| *v = 0.0); r[..n].iter_mut().for_each(|v| *v = 0.0);
             mix_block(job, &mut live, &mut limiters, &mut fx, j0, &mut l[..n], &mut r[..n])?;
+            if let Some(m) = m1.as_mut() { m.process(&mut l[..n], &mut r[..n]); }
             meter.push(&l[..n], &r[..n]);
             j0 += n as u64;
             if j0 - last >= job.rate as u64 * 30 { progress(0.5 * j0 as f64 / measure as f64); last = j0; }
         }
     }
-    let lufs = meter.integrated();
-    let gain = if lufs.is_finite() { 10f64.powf((loud.target - lufs).min(20.0) / 20.0) } else { 1.0 };
+    let lufs = if loud.target.is_some() { meter.integrated() } else { f64::NAN };
+    let gain = match loud.target { Some(t) if lufs.is_finite() => 10f64.powf((t - lufs).min(20.0) / 20.0), _ => 1.0 };
+    let mut m2 = master(&loud.master)?;
     // pass 2: mix again, turn it to the target, limit, write
     let mut live: Vec<Option<Live>> = (0..job.plans.len()).map(|_| None).collect();
     let mut limiters: Vec<Limiter> = job.limiters.iter().map(|&(ceil, rel)| Limiter { ceil, rel, g: 1.0 }).collect();
@@ -459,11 +463,12 @@ pub fn run_loud(job: &Job, loud: &Loud, sink: &mut dyn Sink, mut progress: impl 
         let n = BLOCK.min(job.total - j0) as usize;
         l[..n].iter_mut().for_each(|v| *v = 0.0); r[..n].iter_mut().for_each(|v| *v = 0.0);
         mix_block(job, &mut live, &mut limiters, &mut fx, j0, &mut l[..n], &mut r[..n])?;
+        if let Some(m) = m2.as_mut() { m.process(&mut l[..n], &mut r[..n]); }
         for i in 0..n { l[i] = (l[i] as f64 * gain) as f32; r[i] = (r[i] as f64 * gain) as f32; }
         tp.process(&mut l[..n], &mut r[..n]);
         sink.write(&l[..n], &r[..n])?;
         j0 += n as u64;
-        if j0 - last >= job.rate as u64 * 30 || j0 >= job.total { progress(0.5 + 0.5 * j0 as f64 / job.total as f64); last = j0; }
+        if j0 - last >= job.rate as u64 * 30 || j0 >= job.total { let p = j0 as f64 / job.total as f64; progress(if loud.target.is_some() { 0.5 + 0.5 * p } else { p }); last = j0; }
     }
     Ok(lufs)
 }

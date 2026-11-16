@@ -1,6 +1,7 @@
 # Changelog
 
 ## Unreleased
+- Rust (reel-core 1.0): the built-in master (input, tape EQ, tone, filters, compressor, spread, fader) is run by the Rust core too, with or without a loudness target, then the true-peak limiter. A sound-only export now goes through the Rust core for everything except master plug-ins (Audio Units) and time maps. Identical to the JavaScript, tested to the 24-bit sample.
 - Rust (reel-core 0.9): track effects (EQ, compressor, de-esser, gate, reverb, delay, limiter, Auto Level, gain, de-click) and every mix-bus effect are run by the Rust core in a sound-only export, identical to the JavaScript to the 24-bit sample, so projects with a voice preset or Auto Edit’s voice chain no longer fall back to the slower mixer.
 - Rust (reel-core 0.8): sped-up or slowed clips that keep their pitch (the default) are stretched and mixed by the Rust core in a sound-only export, the same WSOLA as before, identical to the JavaScript to the 24-bit sample.
 - Rust (reel-core 0.7): click sounds in a sound-only export are added by the Rust core too, so screen recordings with click sounds no longer fall back to the JavaScript mixer. Identical to it, tested to the 24-bit sample.

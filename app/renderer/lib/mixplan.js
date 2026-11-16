@@ -6,6 +6,7 @@
 import { sourceTime, gainAt, panAt, panGains, spanStart, spanEnd, mediaById, duration as docDuration } from '../model.js';
 import { FX_TYPES, FxChain } from './trackfx.js';
 import { clickSample } from './click.js';
+import { MasterChain } from './master.js';
 
 export const SEG = 256;
 
@@ -48,6 +49,29 @@ export function fxUnitNumbers(u) {
     case 'declick': return [FX_KIND.declick, [f.thr, f.len]];
     default: throw new Error(`no core version of ${u.type}`);
   }
+}
+
+/**
+ * The built-in master as the numbers reel-core takes (src/master.rs Master::new), worked out by the very MasterChain
+ * the JavaScript export runs: input gains, tape EQ, tone bands, filters, compressor constants and make-up, spread, fader.
+ */
+export function masterNumbers(settings, rate) {
+  const mc = new MasterChain(settings, rate), s = mc.s, c = s.comp, g = db => Math.pow(10, db / 20);
+  const bq = b => [b.b0, b.b1, b.b2, b.a1, b.a2], list = arr => [arr.length, ...arr.flatMap(bq)];
+  const ig = g(s.input.gain), bal = s.input.balance;
+  const tape = s.input.tape !== 'flat';
+  const ORDER = { tone: 0, comp: 1, filter: 2 }, order = (s.order || ['tone', 'comp', 'filter']).map(m => ORDER[m]).filter(x => x != null);
+  return [
+    ig * g(-bal / 2) * (s.input.polarityL ? -1 : 1), ig * g(bal / 2) * (s.input.polarityR ? -1 : 1), s.input.swap ? 1 : 0,
+    tape ? 1 : 0, ...(tape ? [...bq(mc.tapeLo), ...bq(mc.tapeHi)] : []),
+    order.length, ...order,
+    s.tone.on ? 1 : 0, ...list(mc.toneF.filter(b => b.on).map(b => b.f)),
+    s.filter.on ? 1 : 0, ...list(mc.hp || []), ...list(mc.pres ? [mc.pres] : []), ...list(mc.lp || []),
+    s.comp.on ? 1 : 0, ...list(mc.scHp || []),
+    mc.atk, mc.rel, c.type === 'limit' ? 2 : c.type === 'original' ? 1 : 0, Math.max(1, Math.min(100, c.ratio)) / 100,
+    g(mc.curve(-14) * 0.6 + (c.makeup || 0)), Math.max(0, Math.min(1, c.mix ?? 1)), c.type === 'original' ? 1.25 : c.type === 'limit' ? 1.4 : 1,
+    g(s.output.spread), g(s.output.gain),
+  ];
 }
 
 /** lib/stretch.js's window (the same numbers, so the core uses exactly them). */
@@ -128,7 +152,7 @@ export const pcm24 = v => Math.max(-8388608, Math.min(8388607, Math.round(Math.m
  * file names), plans }, or { why } when the project uses something only the JavaScript export does so far (track
  * or mix-bus effects other than the limiter, sped-up clips that keep their pitch, time maps, click sounds).
  */
-export function exportMixJob(doc, from, to, { codec, bitrate, rate = 48000, loudness = null, ceiling = -1, cursors = null, stretchMax = 600 }) {
+export function exportMixJob(doc, from, to, { codec, bitrate, rate = 48000, loudness = null, ceiling = -1, cursors = null, stretchMax = 600, master = null }) {
   const start = Math.max(0, from || 0), end = Math.min(docDuration(doc), to || Infinity);
   if (!(end > start)) return { why: 'nothing to export' };
   const used = doc.clips.filter(c => c.type === 'media' && !c.disabled && spanStart(c) < end && spanEnd(c) > start);
@@ -150,7 +174,7 @@ export function exportMixJob(doc, from, to, { codec, bitrate, rate = 48000, loud
   if (clickers.some(c => c.retime)) return { why: 'click sounds on a clip with a time map' };
   if (clickers.some(c => !cursors?.get(c.media)?.clicks)) return { why: 'click sounds' };
   const total = Math.floor((end - start) * rate), sources = [], index = new Map(), plans = [], stretched = [], order = [], plannedClips = [], stretchedClips = [];
-  const block = loudness == null ? 1024 : 8192; // export-worker.js's block (its mix pass for loudness: 8192)
+  const block = loudness == null && !(master && master.on) ? 1024 : 8192; // export-worker.js's block (its mix pass for mastering: 8192)
   const srcOf = file => { if (!index.has(file)) { index.set(file, sources.length); sources.push(file); } return index.get(file); };
   for (const c of heard) {
     const m = mediaById(doc, c.media), file = c.fx && c.fx.file && !c.fx.bypass ? c.fx.file : m.file;
@@ -166,7 +190,10 @@ export function exportMixJob(doc, from, to, { codec, bitrate, rate = 48000, loud
   }
   // a loudness target: the core measures the mix and turns it to the target, then the true-peak limiter (instead of
   // the soft limit), with the very numbers the JavaScript master path uses (lib/master.js, export-worker.js)
-  const loud = loudness == null ? null : { target: loudness, ceil: Math.pow(10, (ceiling ?? -1) / 20), rel: Math.exp(-1 / (0.08 * rate)), look: Math.round(rate * 0.0015), measure: Math.round((end - start) * rate) };
+  // the built-in master (when it's on) runs on the mix before that, as the JavaScript's mix pass does; with it on and no
+  // loudness target, the true-peak limiter still holds the ceiling (export-worker.js master path)
+  const mastered = master && master.on ? masterNumbers(master, rate) : null;
+  const loud = loudness == null && !mastered ? null : { target: loudness, ceil: Math.pow(10, (ceiling ?? -1) / 20), rel: Math.exp(-1 / (0.08 * rate)), look: Math.round(rate * 0.0015), measure: Math.round((end - start) * rate), master: mastered };
   // export-worker.js adds them block by block (1024 frames; 8192 in the mix pass that's measured for loudness)
   const clicks = clickers.length ? { start, block: loud ? 8192 : 1024, wave: clickSample(rate), clips: clickers.map(c => {
     const m = mediaById(doc, c.media), data = cursors.get(c.media);

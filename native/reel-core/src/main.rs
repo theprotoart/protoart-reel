@@ -28,6 +28,7 @@ mod media;
 mod mix;
 mod stretch;
 mod fx;
+mod master;
 mod umvoice;
 
 use std::io::{Read, Write};
@@ -133,14 +134,19 @@ fn analyze_job(inp: &mut Input) -> Result<String, String> {
     Ok(format!("{{\"ok\":true,\"rate\":{},\"peaks\":[{}],\"steps\":[{}]}}", a.rate, floats(&a.peaks), floats(&a.steps)))
 }
 
-fn mix_job(inp: &mut Input, loudness: bool) -> Result<String, String> {
+fn mix_job(inp: &mut Input, loudness: bool, mastered: bool) -> Result<String, String> {
     // mixloud: the loudness target first (target LUFS · ceiling gain · release · look-ahead u32 · frames measured u64)
-    let loud = if loudness {
+    // mixmaster (1.0): whether there's a loudness target u8 first, and after the limiter numbers the built-in
+    // master's numbers (u8 on · count u32 + f64s); mixloud (0.6): a target, no master
+    let loud = if loudness || mastered {
+        let has_target = if mastered { inp.u8()? != 0 } else { true };
         let (target, ceil, rel) = (inp.f64()?, inp.f64()?, inp.f64()?);
         let look = inp.u32()? as usize;
         let measure = inp.u64()?;
-        if !(target > -70.0 && target < 0.0) || !(ceil > 0.0 && ceil <= 1.0) || !(0.0..1.0).contains(&rel) || !(1..=4800).contains(&look) { return Err("bad loudness target".into()); }
-        Some(mix::Loud { target, ceil, rel, look, measure })
+        let master = if mastered && inp.u8()? != 0 { let nv = inp.count(8)?; Some((0..nv).map(|_| inp.f64()).collect::<Result<Vec<_>, _>>()?) } else { None };
+        if let Some(v) = &master { master::Master::new(v)?; }
+        if (has_target && !(target > -70.0 && target < 0.0)) || !(ceil > 0.0 && ceil <= 1.0) || !(0.0..1.0).contains(&rel) || !(1..=4800).contains(&look) { return Err("bad loudness target".into()); }
+        Some(mix::Loud { target: if has_target { Some(target) } else { None }, ceil, rel, look, measure, master })
     } else { None };
     let rate = inp.f64()?;
     let total = inp.u64()?;
@@ -257,8 +263,9 @@ fn run(b: &[u8]) -> Result<String, String> {
         "version" => Ok(format!("{{\"ok\":true,\"version\":{}}}", json_str(env!("CARGO_PKG_VERSION")))),
         "umfind" => umfind(&mut inp),
         "analyze" => analyze_job(&mut inp),
-        "mix" => mix_job(&mut inp, false),
-        "mixloud" => mix_job(&mut inp, true),
+        "mix" => mix_job(&mut inp, false, false),
+        "mixloud" => mix_job(&mut inp, true, false),
+        "mixmaster" => mix_job(&mut inp, false, true),
         other => Err(format!("unknown command {}", other.chars().take(20).collect::<String>())),
     }
 }

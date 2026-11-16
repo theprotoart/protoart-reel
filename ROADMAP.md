@@ -32,8 +32,8 @@ JavaScript runs, as before). When little JavaScript is left, the window itself c
    export's soft limit, as 24-bit WAV or as AAC by Apple's encoder. The same file as the JavaScript export, to
    the 24-bit sample; about 2.2× faster. **Loudness targets too** (0.6): the core measures the mix (BS.1770-4,
    gated), turns it to the target and runs the true-peak limiter; identical to the JavaScript master path, sample
-   for sample, with no temporary mix file. **Click sounds too** (0.7), **sped-up clips that keep their pitch** (0.8), and **track and mix-bus effects** (0.9). Still in JavaScript, and used automatically when a project needs them:
-   the built-in master chain, master plug-ins (Audio Units) and time maps. They move next, one at a time, then picture export (step 5) can use it.
+   for sample, with no temporary mix file. **Click sounds too** (0.7), **sped-up clips that keep their pitch** (0.8), **track and mix-bus effects** (0.9), and **the built-in master** (1.0). Still in JavaScript, and used automatically when a project needs them:
+   master plug-ins (Audio Units, which only macOS can run) and time maps (Elastic Wave, retime curves). They move next, one at a time, then picture export (step 5) can use it.
 4. **Decoding:** read sound and video straight from the files through Apple's frameworks.
 5. **Picture export:** drawing every frame and encoding H.264 / HEVC (VideoToolbox) in Rust.
 6. **Recording:** screen, window and camera through ScreenCaptureKit.

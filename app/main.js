@@ -1413,8 +1413,9 @@ handle('core:mixExport', async (id, token, job) => {
   if (!codec || ![44100, 48000].includes(job.rate) || !(job.total > 0) || !Number.isFinite(job.mixGain)) throw new Error('Bad mix');
   if (!Array.isArray(job.limiters) || job.limiters.length > 16 || job.limiters.some(l => !(l && l.ceil > 0 && l.ceil <= 4 && l.rel >= 0 && l.rel < 1))) throw new Error('Bad limiter');
   for (const pl of job.plans) if (!(pl && Number.isInteger(pl.src) && pl.src >= 0 && pl.src < sources.length && pl.env instanceof Float32Array)) throw new Error('Bad clip plan');
-  // what each newer part of the core needs: a loudness target 0.6, click sounds 0.7; an older core isn't asked
-  const needs = job.fx != null ? 9 : job.stretch != null ? 8 : job.clicks != null ? 7 : job.loud != null ? 6 : 0;
+  // what each newer part of the core needs: a loudness target 0.6, click sounds 0.7, keep-pitch 0.8, effects 0.9,
+  // the built-in master 1.0; an older core isn't asked
+  const needs = job.loud != null && (job.loud.master != null || job.loud.target == null) ? 10 : job.fx != null ? 9 : job.stretch != null ? 8 : job.clicks != null ? 7 : job.loud != null ? 6 : 0;
   if (job.fx != null) {
     const okChain = list => Array.isArray(list) && list.length <= 64 && list.every(u => Array.isArray(u) && Number.isInteger(u[0]) && u[0] >= 0 && u[0] <= 9 && Array.isArray(u[1]) && u[1].length <= 64 && u[1].every(Number.isFinite));
     const F = job.fx;
@@ -1434,11 +1435,14 @@ handle('core:mixExport', async (id, token, job) => {
   if (needs) {
     coreVersion ??= core.version();
     const v = String((await coreVersion) || '0').split('.').map(Number);
-    if (v[0] === 0 && (v[1] || 0) < needs) return null;
+    // needs 6–9: reel-core 0.6–0.9; 10: 1.0 (the built-in master)
+    const has = (v[0] || 0) >= 1 ? 10 + (v[1] || 0) : (v[1] || 0);
+    if (has < needs) return null;
   }
   if (job.loud != null) {
     const L = job.loud;
-    if (!(L && L.target > -70 && L.target < 0 && L.ceil > 0 && L.ceil <= 1 && L.rel >= 0 && L.rel < 1 && Number.isInteger(L.look) && L.look >= 1 && L.look <= 4800 && L.measure > 0)) throw new Error('Bad loudness target');
+    if (L.master != null && !(Array.isArray(L.master) && L.master.length <= 400 && L.master.every(Number.isFinite))) throw new Error('Bad master');
+    if (!(L && (L.target == null || (L.target > -70 && L.target < 0)) && L.ceil > 0 && L.ceil <= 1 && L.rel >= 0 && L.rel < 1 && Number.isInteger(L.look) && L.look >= 1 && L.look <= 4800 && L.measure > 0)) throw new Error('Bad loudness target');
   }
   const tmp = `${h.dst}.${process.pid}.core.tmp`;
   await fs.promises.rm(tmp, { force: true });

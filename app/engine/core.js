@@ -103,13 +103,19 @@ async function analyze(file) {
  * (needs reel-core 0.6). Paths must be ones the main process chose.
  */
 async function mix(job, out, onProgress) {
-  const parts = [Buffer.from(job.loud ? 'RCORE1\nmixloud\n' : 'RCORE1\nmix\n')];
+  const mastered = job.loud && (job.loud.master != null || job.loud.target == null); // the built-in master, or just its limiter: 1.0
+  const parts = [Buffer.from(mastered ? 'RCORE1\nmixmaster\n' : job.loud ? 'RCORE1\nmixloud\n' : 'RCORE1\nmix\n')];
   const u32 = n => { const b = Buffer.alloc(4); b.writeUInt32LE(n >>> 0); parts.push(b); };
   const u64 = n => { const b = Buffer.alloc(8); b.writeBigUInt64LE(BigInt(Math.max(0, Math.floor(n)))); parts.push(b); };
   const f64 = v => { const b = Buffer.alloc(8); b.writeDoubleLE(v); parts.push(b); };
   const u8 = v => parts.push(Buffer.from([v & 255]));
   const str = p => { if (typeof p !== 'string' || !path.isAbsolute(p) || p.includes('\0')) throw new Error('Bad file'); const b = Buffer.from(p, 'utf8'); u32(b.length); parts.push(b); };
-  if (job.loud) { const L = job.loud; f64(+L.target); f64(+L.ceil); f64(+L.rel); u32(L.look); u64(L.measure); }
+  if (job.loud) {
+    const L = job.loud;
+    if (mastered) u8(L.target == null ? 0 : 1);
+    f64(L.target == null ? -14 : +L.target); f64(+L.ceil); f64(+L.rel); u32(L.look); u64(L.measure);
+    if (mastered) { if (L.master) { u8(1); u32(L.master.length); for (const v of L.master) f64(+v); } else u8(0); }
+  }
   f64(job.rate); u64(job.total); f64(job.mixGain);
   const lims = Array.isArray(job.limiters) ? job.limiters.slice(0, 16) : [];
   u32(lims.length); for (const l of lims) { f64(+l.ceil); f64(+l.rel); }
