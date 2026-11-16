@@ -97,6 +97,7 @@ export class Library {
       unused ? el('button', { class: 'lib-sumchip', text: `${unused} not used`, title: 'Show only the files that aren’t on the timeline', onclick: () => { this.filter = 'unused'; this.render(); } }) : null,
       missing ? el('button', { class: 'lib-sumchip bad', text: `${missing} missing`, title: 'Show the files that aren’t in the project folder any more', onclick: () => { this.filter = 'missing'; this.render(); } }) : null,
       el('span', { class: 'spacer' }),
+      el('button', { class: 'lib-view lib-repair', text: '🩺 CHECK & REPAIR', title: 'Check every file and recording: missing files, sound out of sync, picture without its microphone, and fix it', onclick: () => this.app.cmd('repair') }),
       el('button', { class: 'lib-view', text: this.view === 'grid' ? '☰ LIST' : '▦ GRID', title: 'Show the media as a list (names first) or as a grid of pictures', onclick: () => { this.view = this.view === 'grid' ? 'list' : 'grid'; try { localStorage.setItem('reel.libView', this.view); } catch { /* fine */ } this.render(); } })));
     if (!shown.length) { this.list.append(el('div', { class: 'note', text: 'Nothing matches.' })); return; }
     // groups: each recording (its screen, camera, mic… together, newest first), then everything else

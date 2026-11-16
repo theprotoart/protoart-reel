@@ -35,7 +35,7 @@ test('a sound clip that slipped is spotted and put back', () => {
   assert.ok(Math.abs(bad[0].shift + 0.7) < 1e-9);
   const r = resync(d);
   assert.equal(r.moved, 1);
-  assert.ok(Math.abs(d.clips[3].start - 10) < 1e-9);
+  assert.ok(Math.abs(d.clips.find(c => c.id === 'a2').start - 10) < 1e-9);
   assert.equal(outOfSync(d).length, 0);
 });
 
@@ -53,8 +53,8 @@ test('only the clips asked for move; a picture fixes its own sound', () => {
   d.clips[3].start = 10.5; d.clips[5].start = 19.5;
   const r = resync(d, ['v3']);
   assert.equal(r.moved, 1);
-  assert.equal(d.clips[3].start, 10.5);
-  assert.ok(Math.abs(d.clips[5].start - 20) < 1e-9);
+  assert.equal(d.clips.find(c => c.id === 'a2').start, 10.5);
+  assert.ok(Math.abs(d.clips.find(c => c.id === 'a3').start - 20) < 1e-9);
 });
 
 const free = (doc, track, start, dur, ignore) => !doc.clips.some(c => c.track === track && !ignore.includes(c.id) && start < c.start + c.duration - 1e-6 && start + dur > c.start + 1e-6);
@@ -66,4 +66,27 @@ test('it moves back into its own place; a clip in the way stops it', () => {
   d.clips.push({ id: 'x', type: 'media', media: 'other', track: 'a', start: 10, duration: 0.3 });
   const r = resync(d, null, free);
   assert.deepEqual(r, { moved: 0, blocked: 1 });
+});
+
+test('a recording whose only pair slipped minutes apart is still caught (they started together)', () => {
+  const d = { tracks: [{ id: 'v' }, { id: 'a' }], media: media(), clips: [clip('v1', 'scr', 'v', 0, 700, 0), clip('a1', 'mic', 'a', 169, 700, 0)] };
+  const bad = outOfSync(d);
+  assert.equal(bad.length, 1);
+  assert.ok(Math.abs(bad[0].shift + 169) < 1e-9);
+  resync(d);
+  assert.equal(d.clips.find(c => c.id === 'a1').start, 0);
+});
+
+test('a run of sound clips that slipped together goes back together, and missing sound is found', async () => {
+  const { missingHalves } = await import('../app/renderer/lib/sync.js');
+  // three cuts of one recording; the sound track lost a 5 s piece and everything after slid 5 s early
+  const d = { tracks: [{ id: 'v' }, { id: 'a' }], media: media({ scr: { duration: 60 }, mic: { duration: 60 } }),
+    clips: [clip('v1', 'scr', 'v', 0, 10, 0), clip('v2', 'scr', 'v', 10, 10, 10), clip('v3', 'scr', 'v', 20, 10, 20),
+      clip('a1', 'mic', 'a', 0, 5, 0), clip('a2', 'mic', 'a', 5, 10, 10), clip('a3', 'mic', 'a', 15, 10, 20)] };
+  const free = (doc, track, start, dur, ignore) => !doc.clips.some(c => c.track === track && !ignore.includes(c.id) && start < c.start + c.duration - 1e-6 && start + dur > c.start + 1e-6);
+  assert.equal(resync(d, null, free).moved, 2);
+  assert.deepEqual(d.clips.filter(c => c.media === 'mic').map(c => c.start).sort((a, b) => a - b), [0, 10, 20]);
+  const h = missingHalves(d);
+  assert.equal(h.length, 1);
+  assert.equal(h[0].start, 5); assert.equal(h[0].in, 5); assert.equal(h[0].duration, 5);
 });

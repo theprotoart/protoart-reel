@@ -6,6 +6,7 @@
 // No DOM here, so it's tested in Node.
 
 const EPS = 0.02; // a frame at 50 fps: closer than this is in sync
+const MAX_START = 2; // seconds: how far apart one recording's files can start
 
 const mediaOf = (doc, c) => (c.type === 'media' ? doc.media.find(m => m.id === c.media) : null);
 const isSound = (doc, c) => { const m = mediaOf(doc, c); return !!m && (c.audioOnly || m.kind === 'audio'); };
@@ -38,9 +39,11 @@ export function recordingOffsets(doc, recId) {
         votes.push({ v: (lead(r) - lead(c)) / speed(c), w: ov });
       }
     }
-    if (!votes.length) continue; // nothing to tell from: leave it out (it can't be checked)
-    let best = votes[0], bestW = -1;
-    for (const a of votes) { const w = votes.reduce((k, b) => k + (Math.abs(b.v - a.v) <= EPS ? b.w : 0), 0); if (w > bestW) { bestW = w; best = a; } }
+    // files of one recording start within a second or two of each other: a vote for more than that is a clip that
+    // slipped, not the true offset (with one slipped pair and nothing else, it's assumed they started together)
+    const ok = votes.filter(x => Math.abs(x.v) <= MAX_START);
+    let best = { v: 0 }, bestW = -1;
+    for (const a of ok) { const w = ok.reduce((k, b) => k + (Math.abs(b.v - a.v) <= EPS ? b.w : 0), 0); if (w > bestW) { bestW = w; best = a; } }
     out.set(m.id, out.get(ref.id) + best.v);
   }
   return out;
@@ -72,7 +75,7 @@ export function syncPartner(doc, c, offs) {
     const ov = Math.min(a1, b1) - Math.max(a0, b0);
     if (ov <= 0.05) continue;
     const shift = (o.start + (a0 - b0) / speed(c)) - c.start;
-    if (Math.abs(shift) > Math.max(30, c.duration)) continue;
+    if (Math.abs(shift) > Math.max(600, c.duration * 2)) continue;
     if (ov > bestOv) { bestOv = ov; best = { pic: o, shift: Math.abs(shift) < EPS ? 0 : shift }; }
   }
   return best;
@@ -94,21 +97,64 @@ export function outOfSync(doc) {
 
 /**
  * Puts sound clips back in sync with their pictures by moving the sound (the picture is what you cut to). ids: the
- * clips to fix (a picture fixes its sound), or all. Returns how many moved; a clip that would land on another on its
- * track goes to a free sound track, or stays put (counted in `blocked`).
+ * clips to fix (a picture fixes its sound), or all. The clips that move are lifted off first and put back one by one,
+ * so a whole run of clips that slipped together goes back together. One that would land on another clip goes to a free
+ * sound track, or a new one when `newTrack` is given (else it stays put, counted in `blocked`).
  */
-export function resync(doc, ids = null, isFree = () => true) {
+export function resync(doc, ids = null, isFree = () => true, newTrack = null) {
   let list = outOfSync(doc);
   if (ids) {
     const want = new Set(ids);
     list = list.filter(x => want.has(x.clip.id) || want.has(x.pic.id));
   }
+  if (!list.length) return { moved: 0, blocked: 0 };
+  const lifting = new Set(list.map(x => x.clip));
+  doc.clips = doc.clips.filter(c => !lifting.has(c));
   let moved = 0, blocked = 0;
-  for (const { clip: c, shift } of list) {
+  for (const { clip: c, shift } of [...list].sort((a, b) => (a.clip.start + a.shift) - (b.clip.start + b.shift))) {
     const to = Math.max(0, c.start + shift);
-    if (isFree(doc, c.track, to, c.duration, [c.id])) { c.start = to; moved++; continue; }
-    const other = doc.tracks.find(t => t.id !== c.track && doc.clips.some(o => o.track === t.id && isSound(doc, o)) && isFree(doc, t.id, to, c.duration, [c.id]));
-    if (other) { c.track = other.id; c.start = to; moved++; } else blocked++;
+    let track = isFree(doc, c.track, to, c.duration, [c.id]) ? c.track
+      : doc.tracks.find(t => t.id !== c.track && doc.clips.some(o => o.track === t.id && isSound(doc, o)) && isFree(doc, t.id, to, c.duration, [c.id]))?.id;
+    if (!track && newTrack) track = newTrack(doc, c.track);
+    if (track) { c.track = track; c.start = to; moved++; } else blocked++;
+    doc.clips.push(c);
   }
   return { moved, blocked };
+}
+
+/**
+ * Where a recording's picture is on the timeline but its sound isn't (or the sound with no picture): the stretches
+ * missing, as new clips of the other file, in sync, ready to add. [{ media, start, in, duration, beside }] where
+ * beside is a clip of that kind from the same recording (to copy its track and settings). Gaps under `min` s are left.
+ */
+export function missingHalves(doc, { min = 0.5, both = false } = {}) {
+  const out = [];
+  const recs = new Set(doc.media.map(m => m.recording).filter(Boolean));
+  for (const r of recs) {
+    const offs = recordingOffsets(doc, r), ms = doc.media.filter(m => m.recording === r && !m.hidden);
+    const pics = ms.filter(m => m.kind === 'video'), snds = ms.filter(m => m.kind === 'audio' && m.role === 'mic');
+    const pairs = [];
+    for (const pm of pics) for (const sm of snds) pairs.push([pm, sm, false]);
+    if (both) for (const pm of pics) for (const sm of snds) pairs.push([sm, pm, true]);
+    for (const [from, want] of pairs) {
+      if (!offs.has(from.id) || !offs.has(want.id)) continue;
+      const have = doc.clips.filter(c => c.media === want.id && !c.reversed).map(c => { const a = (c.in || 0) + offs.get(want.id); return [a, a + c.duration * speed(c), c]; });
+      for (const c of doc.clips) {
+        if (c.media !== from.id || c.reversed || c.disabled || (c.speed && c.speed !== 1)) continue;
+        const a0 = (c.in || 0) + offs.get(from.id), a1 = a0 + c.duration;
+        // the parts of [a0, a1] (recording time) no clip of `want` plays
+        let t = a0;
+        const holes = [];
+        for (const [x, y] of have.filter(([x, y]) => y > a0 && x < a1).sort((p, q) => p[0] - q[0])) { if (x > t) holes.push([t, x]); t = Math.max(t, y); }
+        if (t < a1) holes.push([t, a1]);
+        for (const [h0, h1] of holes) {
+          const inn = h0 - offs.get(want.id);
+          if (h1 - h0 < min || inn < 0 || (want.duration && inn >= want.duration)) continue;
+          const dur = Math.min(h1 - h0, (want.duration || Infinity) - inn);
+          out.push({ media: want.id, start: c.start + (h0 - a0), in: inn, duration: dur, beside: have[0]?.[2] || null, from: c });
+        }
+      }
+    }
+  }
+  return out;
 }

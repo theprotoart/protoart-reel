@@ -2281,3 +2281,20 @@ html[data-theme="light"] .umt-fill-title { color: #9e2618; }
 .lib-grip { position: absolute; top: 0; right: -3px; bottom: 0; width: 7px; cursor: col-resize; z-index: 5; }
 .lib-grip:hover, #library.sizing .lib-grip { background: rgba(245,185,66,.35); }
 .lib-list.grid .lib-item .linfo { overflow: visible; padding-bottom: 6px; } .lib-list.grid .lib-item .linfo .lstat { margin: 0; }
+
+/* 🩺 check & repair */
+.rp { display: flex; flex-direction: column; gap: 8px; max-height: 70vh; overflow: auto; min-width: min(760px, 86vw); }
+.rp-sum { display: flex; flex-direction: column; gap: 6px; }
+.rp-row { display: grid; grid-template-columns: 26px 1fr; gap: 10px; align-items: start; padding: 8px 10px; border-radius: 6px; background: rgba(0,0,0,.25); }
+.rp-row b { width: 22px; height: 22px; border-radius: 50%; display: grid; place-items: center; font-size: 13px; }
+.rp-row.ok b { background: #5ccf6c; color: #0b2410; }
+.rp-row.bad b { background: #e0503f; color: #fff; }
+.rp-row small { display: block; opacity: .75; margin-top: 2px; }
+.rp-h { margin-top: 6px; }
+.rp-list { display: flex; flex-direction: column; gap: 3px; }
+.rp-rec { display: flex; flex-wrap: wrap; gap: 4px 12px; align-items: baseline; padding: 6px 10px; border-radius: 5px; background: rgba(255,255,255,.04); font-size: 12.5px; }
+.rp-rec.unused { background: rgba(245,185,66,.08); box-shadow: inset 3px 0 0 var(--amber, #f5b942); }
+.rp-len { font-family: var(--font-mono, monospace); opacity: .7; }
+.rp-files { opacity: .85; }
+.rp-tag { margin-left: auto; padding: 1px 6px; border-radius: 3px; font: 800 9px/1.4 var(--font-engrave, system-ui); letter-spacing: .08em; color: #1e1204; background: var(--amber, #f5b942); }
+.lib-repair { color: #fff; }

@@ -31,6 +31,7 @@ contextBridge.exposeInMainWorld('reel', {
   deleteMedia: (token, name) => invoke('media:delete', token, name),
   revealMedia: (token, name) => invoke('media:reveal', token, name),
   missingMedia: (token, names) => invoke('media:missing', token, names),
+  backupEdit: (token, why) => invoke('project:backupEdit', token, why),
   archiveProject: (token, onlyUsed) => invoke('project:archive', token, onlyUsed),
   templateSave: (token, name) => invoke('template:save', token, name),
   templateList: () => invoke('template:list'),

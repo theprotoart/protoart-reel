@@ -845,6 +845,16 @@ handle('project:archive', async (token, onlyUsed) => {
   shell.showItemInFolder(dest);
   return { name: path.basename(dest), files: res.files };
 });
+/** A copy of the edit (project.json) in the project's own Backups folder, before a big change. Media isn't copied. */
+handle('project:backupEdit', async (token, why) => {
+  const p = projectOf(token);
+  const dir = path.join(p.dir, 'Backups');
+  await fs.promises.mkdir(dir, { recursive: true });
+  const d = new Date(), pad = n => String(n).padStart(2, '0');
+  const name = `${validate.fileStem(String(why || 'backup')) || 'backup'} ${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())} ${pad(d.getHours())}${pad(d.getMinutes())}${pad(d.getSeconds())}.json`;
+  await fs.promises.copyFile(path.join(p.dir, 'project.json'), path.join(dir, name));
+  return { name, folder: path.basename(p.dir) + '/Backups' };
+});
 const templatesDir = () => path.join(app.getPath('userData'), 'Templates');
 handle('template:save', async (token, name) => {
   const p = projectOf(token);
@@ -1887,6 +1897,7 @@ function buildMenu() {
       { label: 'Save', accelerator: 'Command+S', click: m('save') },
       { label: 'Show Project in Finder', click: m('reveal') },
       { label: 'Save as Template…', click: m('save-template') },
+      { label: 'Check & Repair Project…', click: m('repair') },
       { label: 'Archive Project…', click: m('archive') },
       { label: 'Save Frame…', accelerator: 'Command+Alt+F', click: m('save-frame') },
       { label: 'Delete Unused Media…', click: m('delete-unused') },
@@ -1942,6 +1953,7 @@ function buildMenu() {
       { label: 'Takes…', accelerator: 'Command+Alt+T', click: m('takes') },
       { label: 'Filler Words…', accelerator: 'Command+Alt+U', click: m('ums') },
       { label: 'Put Sound Back in Sync', click: m('resync') },
+      { label: 'Check & Repair Project…', click: m('repair') },
       { label: 'Teach Reel Your Ums…', click: m('teach-ums') },
       { label: 'Find Clap Markers…', click: m('find-claps') },
       { type: 'separator' },
