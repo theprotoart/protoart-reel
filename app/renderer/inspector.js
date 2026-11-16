@@ -24,7 +24,7 @@ export const TRANSITIONS = [['none', 'None'], ['fade', 'Fade'], ['dip-black', 'D
   ['barn', 'Barn doors'], ['blinds', 'Blinds'], ['diagonal', 'Diagonal wipe'],
   ['zoom-through', 'Zoom through (cut)'], ['spin-through', 'Spin through (cut)'], ['whip-through', 'Whip through (cut)'], ['blur-through', 'Blur through (cut)'],
   ['light-leak', 'Light leak'], ['film-burn', 'Film burn'], ['flash-cut', 'Flash (cut)'], ['glitch-cut', 'Glitch (cut)'], ['shake-cut', 'Shake (cut)'],
-  ['cine-fade', 'Cinematic fade'], ['dip-film', 'Dip to film'], ['dreamy', 'Dreamy glow'], ['letterbox', 'Letterbox close'],
+  ['cine-fade', 'Cinematic fade'], ['dip-film', 'Dip to film'], ['dreamy', 'Dreamy glow'], ['letterbox', 'Letterbox'],
   ['lens-defocus', 'Lens defocus (cut)'], ['exposure-burn', 'Exposure burn (cut)'], ['flare-sweep', 'Lens flare sweep (cut)'], ['punch-zoom', 'Punch zoom (cut)'], ['chroma-split', 'Chromatic split (cut)'], ['shutter', 'Radial shutter (cut)'],
   ['fast-wipe', 'Fast wipe (cut)'], ['glitch-blocks', 'Glitch blocks (cut)'], ['warp-zoom', 'Warp zoom (cut)'], ['slide-shake', 'Slide + shake (cut)'], ['film-burn-vintage', 'Vintage film burn (cut)'],
   ['match-move', 'Movement match cut'], ['match-graphic', 'Graphic match cut'], ['vertigo', 'Vertigo ramp (cut)'], ['text-reveal', 'Text reveal (cut)']];

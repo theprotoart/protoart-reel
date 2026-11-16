@@ -24,6 +24,8 @@
 - **Long recordings come back faster**: STOP brings the editor back at once with "Saving your N-minute
   recording…", and the recording is rewritten in large reads (a few hundred, not one per frame).
 - The tape reels turn counterclockwise, as on a real deck.
+- **Iris** and **Letterbox** in the transitions picker (Iris was called Circle; Letterbox closes black bars in from the
+  top and bottom).
 - A sound-only export now says which mixer made it: "mixed by the Rust core", or "mixed the usual way" and why
   (a loudness target, track effects…).
 - **Fixed**: a stray "null" under the export Preset (and, in some cases, in the voice list and the title writer).

@@ -12,7 +12,7 @@ export const CUT_CHOICES = [
   ['whip-through', 'Whip'], ['slide-left', 'Slide'], ['push-left', 'Push'], ['blur-through', 'Blur'], ['spin-through', 'Spin'],
   ['flash-cut', 'Flash'], ['glitch-cut', 'Glitch'], ['shake-cut', 'Shake'], ['light-leak', 'Light leak'], ['film-burn', 'Film burn'],
   ['shutter', 'Radial shutter'], ['slide-shake', 'Slide + shake'], ['fast-wipe', 'Fast wipe'], ['glitch-blocks', 'Glitch blocks'], ['warp-zoom', 'Warp zoom'],
-  ['film-burn-vintage', 'Vintage film burn'], ['match-move', 'Movement match'], ['match-graphic', 'Graphic match'], ['vertigo', 'Vertigo ramp'], ['wipe-left', 'Wipe'], ['iris', 'Circle'], ['clock', 'Clock'], ['barn', 'Barn doors'], ['blinds', 'Blinds'], ['zoom', 'Zoom in'], ['pop', 'Pop'], ['text-reveal', 'Text reveal'],
+  ['film-burn-vintage', 'Vintage film burn'], ['match-move', 'Movement match'], ['match-graphic', 'Graphic match'], ['vertigo', 'Vertigo ramp'], ['wipe-left', 'Wipe'], ['iris', 'Iris'], ['clock', 'Clock'], ['barn', 'Barn doors'], ['letterbox', 'Letterbox'], ['blinds', 'Blinds'], ['zoom', 'Zoom in'], ['pop', 'Pop'], ['text-reveal', 'Text reveal'],
 ];
 const NAME = Object.fromEntries(CUT_CHOICES);
 
