@@ -32,7 +32,7 @@ export class Library {
     // CapCut-style: MEDIA and the presets share this panel. Pick a tab; drag anything from it onto the timeline.
     this.presetPage = null;
     this.presetHost = el('div', { class: 'lib-presets hidden' });
-    const SHORT = { title: 'TITLES', trans: 'TRANSITIONS', cut: 'CUTS', element: 'ELEMENTS', motion: 'MOTION', sound: 'SOUNDS', style: 'STYLES', film: 'FILM', auto: 'AUTO' };
+    const SHORT = { fav: '★ FAVS', title: 'TITLES', trans: 'TRANSITIONS', cut: 'CUTS', element: 'ELEMENTS', motion: 'MOTION', sound: 'SOUNDS', style: 'STYLES', film: 'FILM', auto: 'AUTO' };
     this.tabs = el('div', { class: 'lib-tabs', role: 'tablist' },
       el('button', { class: 'lib-tab on', 'data-k': 'media', text: 'MEDIA', title: 'Your recordings, videos, pictures and sound', onclick: () => this.showPresets(null) }),
       ...PRESET_PAGES.map(([k, label]) => el('button', { class: 'lib-tab', 'data-k': k, text: SHORT[k] || label, title: `${label}: click one to use it, or drag it onto the timeline`, onclick: () => this.showPresets(k) })));

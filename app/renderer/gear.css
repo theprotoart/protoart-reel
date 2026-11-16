@@ -2368,3 +2368,16 @@ html[data-theme="light"] .sp-place { background: rgba(0,0,0,.07); }
 .snap-guide { position: absolute; top: 0; width: 2px; margin-left: -1px; pointer-events: none; z-index: 30; display: none;
   background: #ff4fd8; box-shadow: 0 0 6px #ff4fd8, 0 0 14px rgba(255,79,216,.6); }
 .snap-guide.on { display: block; }
+
+/* ☆ on every preset tile: keep it in ★ FAVS */
+.pl-has-star { position: relative; }
+.pl-star { position: absolute; top: 5px; right: 5px; z-index: 3; width: 28px; height: 28px; padding: 0; border: 0; border-radius: 50%; cursor: pointer;
+  display: grid; place-items: center; font: 700 17px/1 system-ui, sans-serif; color: rgba(255,255,255,.9); background: rgba(0,0,0,.55);
+  box-shadow: 0 0 0 1px rgba(255,255,255,.25); opacity: 0; transition: opacity .12s, transform .12s; }
+.pl-has-star:hover .pl-star, .pl-has-star:focus-within .pl-star, .pl-star.on { opacity: 1; }
+.pl-star:hover { transform: scale(1.12); }
+.pl-star.on { color: #ffc31a; background: rgba(20,14,0,.75); box-shadow: 0 0 0 1px #ffc31a, 0 0 10px rgba(255,195,26,.55); }
+.pl-sound.pl-has-star { padding-right: 40px; }
+.pl-sound .pl-star { top: 50%; transform: translateY(-50%); }
+.pl-sound .pl-star:hover { transform: translateY(-50%) scale(1.12); }
+.lib-tab[data-k="fav"]:not(.on) { color: #ffc31a; }

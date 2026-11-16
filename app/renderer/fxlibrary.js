@@ -304,15 +304,36 @@ export function tile(kind, id, name, onApply, extra) {
   t.addEventListener('blur', () => t.dispatchEvent(new Event('pointerleave')));
   t.addEventListener('pointerenter', () => { cancelAnimationFrame(raf); t0 = performance.now(); const loop = n => { frame((n - t0) / 1000); raf = requestAnimationFrame(loop); }; raf = requestAnimationFrame(loop); });
   t.addEventListener('pointerleave', () => { cancelAnimationFrame(raf); still(); });
-  t.addEventListener('click', e => { if (!e.target.closest('.pl-side')) onApply(e); });
+  t.addEventListener('click', e => { if (!e.target.closest('.pl-side, .pl-star')) onApply(e); });
   requestAnimationFrame(still);
   return t;
+}
+
+// ------------------------------------------------------------------ favourites
+// ☆ on a tile keeps it in ★ FAVS (on this Mac, for every project). Stored as "kind:id", newest first.
+const FAV_KEY = 'reel.favs';
+export const favs = () => { try { const v = JSON.parse(localStorage.getItem(FAV_KEY) || '[]'); return Array.isArray(v) ? v.filter(x => typeof x === 'string') : []; } catch { return []; } };
+export const isFav = (kind, id) => favs().includes(`${kind}:${id}`);
+export function toggleFav(kind, id) {
+  const key = `${kind}:${id}`, list = favs(), on = !list.includes(key);
+  try { localStorage.setItem(FAV_KEY, JSON.stringify(on ? [key, ...list].slice(0, 300) : list.filter(x => x !== key))); } catch { /* fine */ }
+  return on;
+}
+/** The star in a tile's corner: ☆ to keep it, ★ when kept. */
+function withStar(node, kind, id, name, onChange) {
+  const b = el('button', { class: 'pl-star', type: 'button' });
+  const draw = () => { const on = isFav(kind, id); b.textContent = on ? '★' : '☆'; b.classList.toggle('on', on); b.title = on ? `Take “${name}” out of your favorites` : `Keep “${name}” in your favorites (★ FAVS)`; b.setAttribute('aria-label', b.title); b.setAttribute('aria-pressed', on); };
+  b.addEventListener('pointerdown', e => e.stopPropagation());
+  b.addEventListener('click', e => { e.stopPropagation(); e.preventDefault(); const on = toggleFav(kind, id); draw(); toast(on ? `★ “${name}” is in your favorites (★ FAVS).` : `“${name}” taken out of your favorites.`, 2200); onChange?.(); });
+  b.draggable = false; b.addEventListener('dragstart', e => { e.preventDefault(); e.stopPropagation(); });
+  draw(); node.classList.add('pl-has-star'); node.append(b);
+  return node;
 }
 
 // ------------------------------------------------------------------ the browser
 let panel = null;
 /** The preset pages: [key, label]. The left panel shows them as tabs beside MEDIA. */
-export const PRESET_PAGES = [['title', 'TITLES'], ['trans', 'TRANSITIONS'], ['cut', 'CUT TRANSITIONS'], ['element', 'ELEMENTS'], ['motion', 'MOTION'], ['sound', 'SOUNDS'], ['style', 'STYLE PACKS'], ['film', 'FILM CUTS'], ['auto', 'AUTO']];
+export const PRESET_PAGES = [['fav', '★ FAVORITES'], ['title', 'TITLES'], ['trans', 'TRANSITIONS'], ['cut', 'CUT TRANSITIONS'], ['element', 'ELEMENTS'], ['motion', 'MOTION'], ['sound', 'SOUNDS'], ['style', 'STYLE PACKS'], ['film', 'FILM CUTS'], ['auto', 'AUTO']];
 /** Kinds of preset that can be dragged onto the timeline (the rest are whole-edit clicks). */
 const DRAGGABLE = new Set(['title', 'trans', 'cut', 'element', 'motion', 'sound']);
 const draggable = (node, kind, id, name) => {
@@ -338,12 +359,39 @@ export function openPresetBrowser(app, page = 'cut', host = null) {
   const grid = el('div', { class: 'pl-grid' }), note = el('p', { class: 'note pl-note' });
   const PAGES = PRESET_PAGES;
   const tabs = el('div', { class: 'pl-tabs' }, ...PAGES.map(([k, l]) => el('button', { class: 'cs-tab', 'data-k': k, text: l, onclick: () => show(k) })));
+  // one tile of a kind (null when that preset no longer exists), with its star
+  const nameOf = (kind, id) => kind === 'title' ? (TITLE_LOOKS[id]?.name || TEXT_ANIMS.find(a => a[0] === id)?.[1]) : kind === 'element' ? ELEMENTS[id]?.name
+    : kind === 'motion' ? MOTION_PRESETS[id]?.name : kind === 'cut' ? CUT_TRANSITIONS.find(c => c[0] === id)?.[1] : kind === 'trans' ? TRANSITIONS.find(c => c[0] === id)?.[1] : kind === 'sound' ? SFX[id]?.name : null;
+  const make = (kind, id) => {
+    const n = nameOf(kind, id); if (!n) return null;
+    let node;
+    if (kind === 'title') node = tile('title', id, n, () => applyTitle(app, id));
+    else if (kind === 'element') node = tile('element', id, n, () => addElement(app, id));
+    else if (kind === 'motion') node = tile('motion', id, n, () => applyMotionPreset(app, id));
+    else if (kind === 'cut') node = tile('cut', id, n, e => applyCutTransition(app, id, sound, e.altKey));
+    else if (kind === 'trans') {
+      const side = el('div', { class: 'pl-side' }, el('button', { class: 'mini', text: 'IN', onclick: () => applyTransition(app, id, 'in', sound) }), el('button', { class: 'mini', text: 'OUT', onclick: () => applyTransition(app, id, 'out', sound) }));
+      node = tile('trans', id, n, () => applyTransition(app, id, 'both', sound), side);
+    } else if (kind === 'sound') {
+      const s = SFX[id], play = el('button', { class: 'mini', text: '▶', title: 'Listen', onclick: e => { e.stopPropagation(); preview(id); } });
+      node = el('div', { class: 'pl-sound', onclick: e => { if (!e.target.closest('.pl-star')) addSound(app, id); } }, play, el('div', {}, el('b', { text: s.name }), el('small', { text: s.hint })));
+    }
+    return withStar(draggable(node, kind, id, n), kind, id, n, () => { if (page === 'fav') show('fav'); });
+  };
+  // favourites first on their own page
+  const favFirst = (kind, ids) => { const f = favs(); return [...ids].sort((a, b) => (f.includes(`${kind}:${b}`) ? 1 : 0) - (f.includes(`${kind}:${a}`) ? 1 : 0)); };
   const show = k => {
     page = k;
     for (const b of tabs.children) b.classList.toggle('on', b.dataset.k === k);
     const q = search.value.trim().toLowerCase(), match = n => !q || n.toLowerCase().includes(q);
     grid.replaceChildren(); grid.className = 'pl-grid' + (k === 'sound' ? ' sounds' : '') + (k === 'auto' || k === 'film' ? ' auto' : '');
-    if (k === 'style') {
+    if (k === 'fav') {
+      const list = favs().map(x => x.split(':')).filter(([kind, id]) => nameOf(kind, id) && match(nameOf(kind, id)));
+      note.textContent = list.length ? 'Your favorites, newest first: click one to use it, or drag it onto the timeline. ★ takes one off this page.'
+        : 'Nothing here yet. Click the ☆ in the corner of any title, element or callout, transition, motion or sound to keep it here, for every project.';
+      for (const [kind, id] of list) { const n = make(kind, id); if (n) grid.append(n); }
+      grid.className = 'pl-grid pl-favs';
+    } else if (k === 'style') {
       note.textContent = 'A whole look in one click: transitions on every cut, colour, camera moves, titles and graphics, sound effects, and (if you like) cuts snapped to the music’s beat. Point at one to preview it. Applying another style replaces it; ⌘Z undoes.';
       for (const [id, p] of Object.entries(STYLES)) if (match(p.name) || match(p.hint)) grid.append(tile('style', id, p.name, () => openStyle(app, id)));
     } else if (k === 'film') {
@@ -358,31 +406,25 @@ export function openPresetBrowser(app, page = 'cut', host = null) {
       grid.append(el('div', { class: 'pl-scan' }, leadRow(), randomRow()));
     } else if (k === 'cut') {
       note.textContent = 'Plays across a cut: the end of one clip hands over to the next. Click to put it on the cut nearest the playhead (on the selected clip’s track). ⌥-click puts it on every cut.';
-      for (const [id, n] of CUT_TRANSITIONS) if (match(n)) grid.append(draggable(tile('cut', id, n, e => applyCutTransition(app, id, sound, e.altKey)), 'cut', id, n));
+      for (const id of favFirst('cut', CUT_TRANSITIONS.filter(([, n]) => match(n)).map(c => c[0]))) grid.append(make('cut', id));
     } else if (k === 'trans') {
       note.textContent = 'In and out of a clip. Click for both ends of the selected clips; IN or OUT for one end.';
-      for (const [id, n] of TRANSITIONS) if (id !== 'none' && !CUT_TRANSITIONS.some(c => c[0] === id) && match(n)) {
-        const side = el('div', { class: 'pl-side' }, el('button', { class: 'mini', text: 'IN', onclick: () => applyTransition(app, id, 'in', sound) }), el('button', { class: 'mini', text: 'OUT', onclick: () => applyTransition(app, id, 'out', sound) }));
-        grid.append(draggable(tile('trans', id, n, () => applyTransition(app, id, 'both', sound), side), 'trans', id, n));
-      }
+      for (const id of favFirst('trans', TRANSITIONS.filter(([id, n]) => id !== 'none' && !CUT_TRANSITIONS.some(c => c[0] === id) && match(n)).map(c => c[0]))) grid.append(make('trans', id));
     } else if (k === 'title') {
       note.textContent = 'Text animations. Click to use it on the selected titles, or to add a new title at the playhead; drag one onto the timeline. Put a word between stars (*like this*) to make it the accent.';
-      for (const [id, L] of Object.entries(TITLE_LOOKS)) if (match(L.name)) grid.append(draggable(tile('title', id, L.name, () => applyTitle(app, id)), 'title', id, L.name));
-      for (const [id, n] of TEXT_ANIMS) if (id !== 'none' && match(n)) grid.append(draggable(tile('title', id, n, () => applyTitle(app, id)), 'title', id, n));
+      const ids = [...Object.entries(TITLE_LOOKS).filter(([, L]) => match(L.name)).map(([id]) => id), ...TEXT_ANIMS.filter(([id, n]) => id !== 'none' && match(n)).map(([id]) => id)];
+      for (const id of favFirst('title', ids)) grid.append(make('title', id));
     } else if (k === 'motion') {
       note.textContent = 'Moves made of keyframes you can adjust afterwards. Click to put it on the selected clips.';
-      for (const [id, p] of Object.entries(MOTION_PRESETS)) if (match(p.name) || match(p.group)) grid.append(draggable(tile('motion', id, p.name, () => applyMotionPreset(app, id)), 'motion', id, p.name));
+      for (const id of favFirst('motion', Object.entries(MOTION_PRESETS).filter(([, p]) => match(p.name) || match(p.group)).map(([id]) => id))) grid.append(make('motion', id));
     } else if (k === 'element') {
       note.textContent = 'Animated graphics. Click to add one at the playhead; change its words and colours in the inspector.';
       // social call-outs (like, subscribe, follow, end screen) first: the ones people look for
       const order = g => (g === 'Social' ? 0 : g === 'Call-outs' ? 1 : g === 'Lower thirds' ? 2 : 3);
-      for (const [id, p] of Object.entries(ELEMENTS).sort((a, b) => order(a[1].group) - order(b[1].group))) if (match(p.name) || match(p.group)) grid.append(draggable(tile('element', id, p.name, () => addElement(app, id)), 'element', id, p.name));
+      for (const id of favFirst('element', Object.entries(ELEMENTS).sort((a, b) => order(a[1].group) - order(b[1].group)).filter(([, p]) => match(p.name) || match(p.group)).map(([id]) => id))) grid.append(make('element', id));
     } else if (k === 'sound') {
       note.textContent = 'Sound effects made by Reel (free to use anywhere). ▶ to listen, click the name to add it at the playhead on the Sound FX track.';
-      for (const [id, s] of Object.entries(SFX)) if (match(s.name) || match(s.hint)) {
-        const play = el('button', { class: 'mini', text: '▶', title: 'Listen', onclick: e => { e.stopPropagation(); preview(id); } });
-        grid.append(draggable(el('div', { class: 'pl-sound', onclick: () => addSound(app, id) }, play, el('div', {}, el('b', { text: s.name }), el('small', { text: s.hint }))), 'sound', id, s.name));
-      }
+      for (const id of favFirst('sound', Object.entries(SFX).filter(([, s]) => match(s.name) || match(s.hint)).map(([id]) => id))) grid.append(make('sound', id));
     } else if (k === 'auto') {
       note.textContent = 'Put transitions on every cut in one go, in a style. “Find shot changes” first cuts long clips where the picture changes (a new scene, a new window), so those get transitions too. Smart Zoom and Time-lapse can do this as they scan.';
       const scan = el('input', { type: 'checkbox' });
