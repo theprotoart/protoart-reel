@@ -170,10 +170,13 @@ function addElement(app, kind, at = null, track = null) {
 export function dropPreset(app, { kind, id }, { at, track, clip }) {
   const doc = app.doc, c = clip && doc.clips.find(x => x.id === clip);
   let sound = true; try { sound = localStorage.getItem('reel.presetSound') !== '0'; } catch { /* default */ }
+  // a title or element dropped on a title, element or callout: swap it (after asking), keeping what was typed
+  if ((kind === 'title' || kind === 'element') && c && (c.type === 'text' || c.type === 'element')) {
+    const add = () => (kind === 'title' ? applyTitle(app, id, at, track) : addElement(app, id, at, track));
+    return askSwap(app, c, kind, id, add);
+  }
   switch (kind) {
-    case 'title':
-      if (c?.type === 'text') { const { content, ...style } = titleLook(id); app.commit(() => { c.text = { ...c.text, ...style }; }); app.select([c.id], null); return; }
-      return applyTitle(app, id, at, track);
+    case 'title': return applyTitle(app, id, at, track);
     case 'element': return addElement(app, id, at, track);
     case 'sound': return addSound(app, id, at);
     case 'motion':
@@ -189,6 +192,67 @@ export function dropPreset(app, { kind, id }, { at, track, clip }) {
     default: return undefined;
   }
 }
+// ------------------------------------------------------------------ swapping a title or callout for another
+/** The words in a title or element clip: [main, second line]. */
+function wordsOf(c) {
+  if (c.type === 'text') { const lines = String(c.text?.content ?? '').split('\n'); return [lines[0].replace(/\*/g, '') || '', lines.slice(1).join(' ').replace(/\*/g, '')]; }
+  const def = ELEMENTS[c.element?.kind], e = { ...(def?.defaults || {}), ...c.element };
+  return [String(e.text ?? ''), String(e.sub ?? '')];
+}
+const nameOfClip = c => (c.type === 'text' ? `“${String(c.text?.content || 'Title').replace(/[*\n]+/g, ' ').trim().slice(0, 40)}”` : ELEMENTS[c.element?.kind]?.name || 'Element');
+const presetName = (kind, id) => (kind === 'title' ? TITLE_LOOKS[id]?.name || TEXT_ANIMS.find(a => a[0] === id)?.[1] || id : ELEMENTS[id]?.name || id);
+
+/**
+ * Turns clip c into the preset, in place: same track, start, length, place and size, keyframes and transitions; the
+ * words typed into it carry over (a title's text becomes the element's words and the other way round), and so do
+ * its own colours where the new one has the same kind of setting.
+ */
+export function swapClip(doc, c, kind, id) {
+  const [main, sub] = wordsOf(c);
+  if (kind === 'title') {
+    const { content, ...style } = titleLook(id); void content;
+    if (c.type === 'text') { c.text = { ...c.text, ...style }; return c; }
+    const words = main && sub ? `${main}\n${sub}` : main || sub || 'Your title';
+    const fresh = newTextClip(c.track, c.start, words);
+    c.type = 'text'; c.text = { ...fresh.text, ...style, content: words };
+    if (c.element?.color && c.element.color !== ELEMENTS[c.element.kind]?.defaults?.color) c.text.color = c.element.color; // their own colour carries
+    delete c.element; c.name = words.replace(/\n/g, ' ').slice(0, 24);
+    return c;
+  }
+  const def = ELEMENTS[id]; if (!def) return c;
+  const was = c.type === 'element' ? { ...(ELEMENTS[c.element.kind]?.defaults || {}), ...c.element } : null;
+  const own = k => was && was[k] != null && was[k] !== ELEMENTS[c.element.kind]?.defaults?.[k]; // a colour they picked themselves
+  const el2 = { kind: id };
+  // the words go along even when the new one doesn't show them (a burst has none), so swapping back brings them back
+  if (main) el2.text = main;
+  if (sub) el2.sub = sub;
+  if (own('color')) el2.color = was.color;
+  if (own('accent')) el2.accent = was.accent;
+  if (c.type === 'text') { if (c.text?.color && c.text.color !== '#ffffff') el2.color = c.text.color; delete c.text; c.type = 'element'; }
+  c.element = el2; c.name = def.name;
+  return c;
+}
+
+const SWAP_PREF = 'reel.swapNoAsk';
+/** "Swap X for Y?" — Swap keeps the words, place and timing; Add as new puts it beside as before; ⌘Z undoes a swap. */
+function askSwap(app, c, kind, id, add) {
+  const from = nameOfClip(c), to = presetName(kind, id);
+  const go = () => { app.commit(d => { const x = d.clips.find(k => k.id === c.id); if (x) swapClip(d, x, kind, id); }); app.select([c.id], null); toast(`Swapped for ${to}: your words, place and timing kept. ⌘Z undoes it.`, 3500); };
+  let skip = false; try { skip = localStorage.getItem(SWAP_PREF) === '1'; } catch { /* ask */ }
+  if (skip) return go();
+  const [main, sub] = wordsOf(c);
+  const keep = [main, sub].filter(Boolean).join(' · ');
+  const noAsk = el('input', { type: 'checkbox' });
+  modal('Swap it?', el('div', { class: 'swap-ask' },
+    el('p', { text: `Change ${from} into ${to}?` }),
+    keep ? el('p', { class: 'note', text: `Your words stay: “${keep.slice(0, 120)}”. So do its place, size, timing and length. ⌘Z undoes it.` }) : el('p', { class: 'note', text: 'Its place, size, timing and length stay the same. ⌘Z undoes it.' }),
+    el('label', { class: 'row' }, noAsk, el('span', { text: 'Don’t ask again: always swap when I drop one on another' }))), [
+    { label: 'Cancel', onClick: x => x() },
+    { label: 'Add as new instead', onClick: x => { x(); add(); } },
+    { label: 'Swap', cls: 'hw amber', onClick: x => { if (noAsk.checked) { try { localStorage.setItem(SWAP_PREF, '1'); } catch { /* fine */ } } x(); go(); } },
+  ]);
+}
+
 /** A motion background: on its own track at the bottom, under everything, as long as the edit from the playhead. */
 function addBackground(app, kind) {
   const t = app.player.time, len = Math.max(10, docDuration(app.doc) - t);

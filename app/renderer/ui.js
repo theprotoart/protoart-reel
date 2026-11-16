@@ -54,7 +54,7 @@ export function hint(key, msg, ms = 7000, times = 3) {
 }
 /** Brings every how-to note back. */
 export function resetHints() {
-  try { for (const k of Object.keys(localStorage)) if (k.startsWith('reel.hint.')) localStorage.removeItem(k); } catch { /* fine */ }
+  try { for (const k of Object.keys(localStorage)) if (k.startsWith('reel.hint.') || k === 'reel.swapNoAsk') localStorage.removeItem(k); } catch { /* fine */ } // (and the “swap it?” question)
 }
 
 /** Opens a modal; returns { close, body, root }. buttons: [{ label, cls, onClick(close) }]. */

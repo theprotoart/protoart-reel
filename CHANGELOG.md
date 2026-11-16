@@ -1,6 +1,7 @@
 # Changelog
 
 ## Unreleased
+- Swap a title or callout for another: drag a title or element from Presets onto one already on the timeline. “Swap it?” asks first: SWAP keeps your words (both lines), its place, size, timing, length and your own colours; ADD AS NEW INSTEAD puts it beside as before. ⌘Z undoes a swap. Tick “Don’t ask again” to skip the question (Settings › SHOW TIPS AGAIN brings it back).
 - ★ Favorites: a ☆ in the corner of every title, element and callout, transition, motion and sound (point at a tile to see it). Click it and that preset is kept on the new ★ FAVS page of the left panel, for every project on this Mac, and comes first on its own page. Click ★ to take it off.
 - Number counter: type the number the way you'd say it — 2.84K, 1.2M, 3B, $1,500, 98%, +312%, 4.5 stars — and it counts up to that amount (852 → 1.42K → 2.84K) and lands on exactly what you typed. (It used to read 2.84K as 2.8.)
 - Elements: drag one longer and its animation takes longer (typing, counting, drawing, the pointer's clicks, confetti…): past its usual 4 s it plays that much slower. Loops, clocks, tickers, backgrounds and audio visualizers keep their real speed; lower thirds slow more gently.
