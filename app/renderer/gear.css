@@ -2151,6 +2151,17 @@ html[data-theme="light"] .umt-fill-title { color: #9e2618; }
 .hw.danger { background: linear-gradient(#c8463a, #8e231a); color: #fff; text-shadow: 0 -1px 0 rgba(0,0,0,.4); box-shadow: 0 0 0 1px rgba(60,8,4,.8), 0 2px 3px rgba(0,0,0,.35), inset 0 1px 0 rgba(255,255,255,.25); }
 .hw.danger:hover { background: linear-gradient(#d9574a, #a02a20); }
 .umt-chip { padding: 2px 9px; border-radius: 10px; background: rgba(95,211,90,.22); font-size: 12px; font-variant-numeric: tabular-nums; }
-.umt-chip.few { background: rgba(255,214,10,.28); }
+.umt-chip.few { background: rgba(60,130,240,.35); } /* started: 1 or 2 takes */
 .umt-chip.not { background: rgba(225,60,45,.22); }
 .modal-foot:has(.umt-known) { align-items: center; } /* FORGET MY UMS and CLOSE keep their size beside what Reel knows */
+/* the trainer's steps: learned = solid green (like the REC and EXPORT keys); still needed = yellow with a black zig-zag */
+.umt-step.known { background: linear-gradient(#6f9440, #557530); border-color: #3d5622; color: #fff; text-shadow: 0 1px 0 rgba(0,0,0,.35); }
+.umt-step.known .umt-n { background: rgba(255,255,255,.22); color: #fff; }
+.umt-step.needed { background: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='120' height='40' viewBox='0 0 120 40'%3E%3Cpath d='M0 34 L30 6 L60 34 L90 6 L120 34' fill='none' stroke='%23000' stroke-opacity='.85' stroke-width='4'/%3E%3C/svg%3E") repeat-x left center / 120px 100%, linear-gradient(#f9ee6c, #e9d84a); border-color: #8a7b14; color: #1d1a04; }
+.umt-step.needed .umt-say { background: rgba(249,238,108,.85); padding: 0 6px; border-radius: 4px; } /* the words stay readable over the zig-zag */
+.umt-step.needed .umt-n { background: #1d1a04; color: #f9ee6c; }
+.umt-step.on { outline: 3px solid #fff; outline-offset: 1px; }
+
+/* started (1 or 2 takes): blue */
+.umt-step.started { background: linear-gradient(#4f86d9, #3566b3); border-color: #234a87; color: #fff; text-shadow: 0 1px 0 rgba(0,0,0,.35); }
+.umt-step.started .umt-n { background: rgba(255,255,255,.22); color: #fff; }

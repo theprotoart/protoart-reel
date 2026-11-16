@@ -44,7 +44,14 @@ export function teachUms(app, { onDone } = {}) {
   const recB = el('button', { class: 'hw kit-rec-btn', text: '● RECORD' });
   const saveB = el('button', { class: 'hw amber', text: 'LEARN MY UMS', disabled: true });
   const draw = () => {
-    list.replaceChildren(...STEPS.map((s, i) => el('div', { class: 'umt-step' + (i === cur ? ' on' : '') + (takes[i] ? ' done' : ''), onclick: () => { if (!rec) { cur = i; draw(); } } },
+    // a step is learned when you recorded it now, or Reel already has 3 or more takes of that sound (the sentence:
+    // when it has heard your ordinary speech): solid green; still needed: yellow with a black zig-zag
+    const m = umModel();
+    // green: learned (3 or more takes, or recorded now); blue: started (1 or 2 takes); yellow zig-zag: not taught yet
+    const takesOf = i => (STEPS[i].word === 'speech' ? (m?.near ? 3 : 0) : (m?.words.find(w => w.word === STEPS[i].word)?.prints.length || 0));
+    const state = i => (takes[i] || takesOf(i) >= 3 ? 'known' : takesOf(i) > 0 ? 'started' : 'needed');
+    const tip = { known: 'Learned', started: 'Started: a few more takes make it better', needed: 'Not taught yet' };
+    list.replaceChildren(...STEPS.map((s, i) => el('div', { class: 'umt-step' + (i === cur ? ' on' : '') + (takes[i] ? ' done' : '') + ' ' + state(i), title: tip[state(i)], onclick: () => { if (!rec) { cur = i; draw(); } } },
       el('span', { class: 'umt-n', text: takes[i] ? '✓' : String(i + 1) }), el('span', { class: 'umt-say', text: s.say + (takes[i]?.from ? ' · from the timeline' : '') }),
       takes[i]?.blob ? el('button', { class: 'mini', text: '▶', title: 'Listen back', onclick: e => { e.stopPropagation(); new Audio(URL.createObjectURL(takes[i].blob)).play(); } }) : null,
       takes[i] ? el('button', { class: 'mini umt-redo', text: '↺', title: 'Record this one again', onclick: e => { e.stopPropagation(); if (rec) return; takes[i] = null; cur = i; draw(); start(); } }) : null)));
@@ -239,7 +246,15 @@ export async function soundAt(app, t0, t1, track = '') {
   return { samples: to16k(mono, a.rate), clip: c };
 }
 
-const wordOf = text => (/^u+h+$|^uh/i.test(String(text).replace(/[^a-z]/gi, '')) ? 'uh' : /^e+r/i.test(String(text)) ? 'er' : 'umm');
+// the name a sound is learned under: um / uh / er spelled any way, otherwise exactly the name you gave it (yawning, breath…)
+const wordOf = text => {
+  const t = String(text || '').toLowerCase().trim(), letters = t.replace(/[^a-z]/g, '');
+  if (!letters || /^u+m+$/.test(letters)) return 'umm';
+  if (/^u+h+$/.test(letters)) return 'uh';
+  if (/^e+r+$/.test(letters)) return 'er';
+  return t.replace(/[^a-z0-9 '-]/g, '').slice(0, 20) || 'umm';
+};
+export const _wordOf = wordOf; // for tests
 
 /**
  * Teach Reel that t0–t1 on the timeline is an um (yours or a guest's): it learns from that sound, with the

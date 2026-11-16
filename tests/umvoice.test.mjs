@@ -134,3 +134,8 @@ test('a taught breath that runs straight into the next word (no pause between) i
   const found = findInSamples(m, cat(parts));
   assert.ok(found.some(f => f.word === 'breath' && f.t <= at + 0.15 && f.end >= at + 0.3), JSON.stringify(found));
 });
+
+test('a sound taught from the timeline keeps the name you gave it (yawning stays yawning, not um)', async () => {
+  const { _wordOf } = await import('../app/renderer/umvoice.js');
+  assert.deepEqual(['um', 'Ummm', 'uh', 'uhhh', 'er', 'yawning', 'Breath', 'lip smack'].map(_wordOf), ['umm', 'umm', 'uh', 'uh', 'er', 'yawning', 'breath', 'lip smack']);
+});

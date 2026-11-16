@@ -9,6 +9,10 @@
   do-over). At the bottom, WHAT REEL KNOWS lists every sound taught and how many takes, which need more (3 or
   more is best) and common ones not taught yet, in the bottom row with ↻ at the far left to read it again. Particular words (curse words…) point to
   Find a word, which goes by spelling.
+- The trainer's steps show what's learned at a glance: **green** learned (3 or more takes), **blue** started (1 or 2),
+  **yellow with a black zig-zag** not taught yet. The chips in REEL KNOWS match.
+- **Fixed**: a sound taught from the timeline with a name of its own (yawning, breath…) was learned as an um. It now
+  keeps its name.
 - **FORGET MY UMS** is red and asks first (it erases everything Reel learned, for every project, and can't be undone).
 - **Fixed**: "5 found" with an empty list: when the filter, track or selected clip would hide everything found, the
   list now shows it all.
