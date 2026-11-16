@@ -636,7 +636,7 @@ export const ELEMENTS = {
   counter: { name: 'Number counter', group: 'Info', box: [600, 220], defaults: { text: '1000', sub: 'subscribers', color: '#ffffff', accent: '#ffb02a' },
     draw(ctx, e, t, d) {
       const [, ko] = io(t, d); ctx.globalAlpha *= easeInOut(ko);
-      const target = parseFloat(String(e.text).replace(/[^0-9.-]/g, '')) || 0, k = easeOut(clamp(t / Math.min(2, d * 0.6), 0, 1));
+      const target = parseFloat(String(e.text).replace(/[^0-9.-]/g, '')) || 0, k = easeOut(clamp(t / Math.max(0.3, d - Math.min(1.2, d * 0.2)), 0, 1)); // counts across the clip's length (drag it longer = slower), landing just before the end
       const v = target * k, dec = /\./.test(e.text) ? 1 : 0;
       ctx.textAlign = 'center'; ctx.fillStyle = e.color; ctx.font = font(900, 120); ctx.textBaseline = 'middle';
       ctx.fillText(v.toLocaleString(undefined, { minimumFractionDigits: dec, maximumFractionDigits: dec }), 0, -20);
