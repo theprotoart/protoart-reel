@@ -2323,10 +2323,16 @@ button.umt-chip { border: 0; cursor: pointer; color: inherit; font: inherit; fon
 .lib-strip { display: none; }
 #library.folded { width: 30px !important; min-width: 30px; max-width: 30px; padding: 0; overflow: hidden; }
 #library.folded > *:not(.lib-strip) { display: none !important; }
-#library.folded .lib-strip { display: flex; align-items: center; justify-content: center; width: 100%; height: 100%; border: 0; cursor: pointer; padding: 0;
-  background: linear-gradient(90deg, rgba(255,255,255,.04), rgba(0,0,0,.2)); color: #cfc6b2; }
-#library.folded .lib-strip:hover { color: var(--amber, #f5b942); background: rgba(245,185,66,.08); }
-#library.folded .lib-strip span { writing-mode: vertical-rl; transform: rotate(180deg); font: 700 10px/1 var(--font-engrave, system-ui); letter-spacing: .2em; white-space: nowrap; }
+#library.folded .lib-strip { display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 14px; width: 100%; height: 100%; padding: 0; cursor: pointer;
+  /* a lit amber key, so it stands out on the dark plate and on the light one alike; dark lettering on it */
+  border: 0; border-radius: 0 6px 6px 0; color: rgba(30,18,4,.92);
+  background: radial-gradient(ellipse at 50% 45%, var(--lit-hi, #ffe7a8) 0%, var(--lit-mid, #ffb02a) 45%, var(--lit-lo, #c76b00) 100%);
+  box-shadow: inset 0 1px 0 rgba(255,255,255,.55), inset -1px 0 0 rgba(0,0,0,.35), 0 0 12px rgba(255,176,42,.45); }
+#library.folded .lib-strip:hover { filter: brightness(1.12); box-shadow: inset 0 1px 0 rgba(255,255,255,.6), 0 0 18px rgba(255,176,42,.7); }
+#library.folded .lib-strip:focus-visible { outline: 2px solid #fff; outline-offset: -4px; }
+#library.folded .lib-strip span { writing-mode: vertical-rl; transform: rotate(180deg); font: 800 11px/1 var(--font-engrave, system-ui); letter-spacing: .22em; white-space: nowrap; }
+#library.folded .lib-strip-arrow { font-size: 15px; line-height: 1; }
+#library.folded { width: 32px !important; min-width: 32px; max-width: 32px; }
 .lib-fold-btn { margin-left: 6px; }
 .umt-fill-actions { justify-content: flex-start; }
 

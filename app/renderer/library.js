@@ -40,7 +40,7 @@ export class Library {
     lib.append(this.presetHost);
     // fold the whole panel away to a thin strip at the side (remembered); click the strip (or ◀ again) to open it
     const fold = el('button', { class: 'mini lib-fold-btn', text: '◀', title: 'Hide this panel (it folds to a strip at the side; click the strip to open it again)' });
-    const strip = el('button', { class: 'lib-strip', type: 'button', title: 'Show the media and presets panel' }, el('span', { text: '▶ MEDIA · PRESETS' }));
+    const strip = el('button', { class: 'lib-strip', type: 'button', title: 'Show the media and presets panel' }, el('b', { class: 'lib-strip-arrow', text: '▶' }), el('span', { text: 'MEDIA · PRESETS' }), el('b', { class: 'lib-strip-arrow', text: '▶' }));
     const setFolded = on => {
       lib.classList.toggle('folded', on);
       try { localStorage.setItem('reel.libFolded', on ? '1' : '0'); } catch { /* fine */ }
