@@ -144,6 +144,13 @@ async function mix(job, out, onProgress) {
     }
     u32(st.order.length); for (const k of st.order) u32(k);
   }
+  if (job.fx) { // track and mix-bus effects (reel-core 0.9; needs the stretch section first)
+    const chain = list => { u32(list.length); for (const [k, v] of list) { u8(k); u32(v.length); for (const x of v) f64(+x); } };
+    if (!job.stretch) throw new Error('Bad effects');
+    u32(job.fx.chains.length); job.fx.chains.forEach(chain);
+    if (job.fx.bus) { u8(1); chain(job.fx.bus); } else u8(0);
+    u32(job.fx.chainOf.length); for (const t of job.fx.chainOf) u32(t < 0 ? 0xffffffff : t);
+  }
   return run(Buffer.concat(parts), { timeout: 4 * 3600000, onProgress });
 }
 

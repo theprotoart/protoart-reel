@@ -321,6 +321,74 @@ test('reel-core plays sped-up clips that keep their pitch the same as the JavaSc
   } finally { fs.rmSync(dir, { recursive: true, force: true }); }
 });
 
+test('reel-core runs track and mix-bus effects the same as the JavaScript export, to the 24-bit sample', { skip }, async t => {
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'reel-fx-'));
+  try {
+    let s2 = 13; const r = () => ((s2 = (s2 * 16807) % 2147483647) / 2147483647);
+    // speech-like bursts with clicks in them (for the gate, de-esser, de-click and Auto Level to do something)
+    writeWav(path.join(dir, 'voice.wav'), { rate: 48000, channels: 2, bits: 16, frames: 48000 * 8, sample: (i, c) => {
+      const on = Math.sin(i * 0.00021) > -0.2 ? 1 : 0.02, click = i % 9001 < 3 ? 0.6 : 0;
+      return on * (0.3 * Math.sin(i * (c ? 0.031 : 0.027)) + 0.12 * Math.sin(i * 0.8) + 0.08 * (r() - 0.5)) + click; } });
+    writeWav(path.join(dir, 'music.wav'), { rate: 44100, channels: 1, bits: 24, frames: 44100 * 9, sample: i => 0.35 * Math.sin(i * 0.011) * Math.sin(i * 0.0002) });
+    const doc = mixDoc();
+    doc.clips[1].audio.keepPitch = true; // a stretched clip on a track with effects too
+    doc.tracks[0].fx = [{ id: 'f1', type: 'declick', params: { sensitivity: 7 } }, { id: 'f2', type: 'eq', params: { hpf: 90, lf: -2, lmf: -3, lmfF: 300, hmf: 2, hf: 3 } },
+      { id: 'f3', type: 'gate', params: { threshold: -40 } }, { id: 'f4', type: 'comp', params: { threshold: -24, ratio: 4, attack: 5, release: 100, makeup: 6 } },
+      { id: 'f5', type: 'deess', params: { threshold: -30 } }, { id: 'f6', type: 'level', params: {} }, { id: 'off', type: 'reverb', off: true }];
+    doc.tracks[1].fx = [{ id: 'g1', type: 'reverb', params: { size: 0.7, mix: 0.3 } }, { id: 'g2', type: 'delay', params: { time: 120, feedback: 0.3, mix: 0.2 } }, { id: 'g3', type: 'gain', params: { db: -2, mono: true } }, { id: 'g4', type: 'limiter', params: { ceiling: -2 } }];
+    doc.mixFx = [{ id: 'b1', type: 'eq', params: { lf: 2, hf: -1 } }, { id: 'b2', type: 'comp', params: { threshold: -16, ratio: 2 } }, { id: 'lim', type: 'limiter', params: { ceiling: -1, release: 60 } }];
+    const from = 0.3, to = 6.9;
+    const { job, why } = exportMixJob(doc, from, to, { codec: 'wav', bitrate: 192000 });
+    assert.ok(job && job.fx && job.fx.chains.length === 2 && job.fx.bus && job.limiters.length === 0, why);
+    // export-worker.js: clips on a track with effects go to that track's buffer; each chain runs (512 at a time) and
+    // is added in track order; then the mix gain, the bus chain, the soft limit
+    const { stretch } = await import('../app/renderer/lib/stretch.js');
+    const { gainAt, panAt, panGains, spanStart, spanEnd } = await import('../app/renderer/model.js');
+    const RATE = 48000, BLOCK = 1024;
+    const chains = new Map(doc.tracks.filter(tr => (tr.fx || []).some(f => !f.off)).map(tr => [tr.id, new FxChain(RATE).setup(tr.fx)]));
+    const bus = new FxChain(RATE).setup(doc.mixFx);
+    const srcs = await Promise.all(job.sources.map(f => jsAudio(path.join(dir, f))));
+    const b = doc.clips[1], bsrc = srcs[0], bLen = b.duration * b.speed, a0 = Math.floor(b.in * bsrc.rate), pcm = await bsrc.read(a0, Math.ceil(bLen * bsrc.rate) + 4), outN = Math.ceil(bLen * RATE);
+    const res = pcm.slice(0, 2).map(ch => { const o = new Float32Array(outN); for (let i = 0; i < outN; i++) { const p = i, k = Math.floor(p), f = p - k; o[i] = (ch[k] ?? 0) * (1 - f) + (ch[k + 1] ?? ch[k] ?? 0) * f; } return o; });
+    const st = stretch(res, b.speed, RATE), bv = { L: st[0], R: st[1] || st[0] };
+    const heard = ['a', 'b', 'c'].map(id => doc.clips.find(c => c.id === id));
+    const plainIdx = { a: 0, c: 1 };
+    const want = Buffer.alloc(job.total * 6);
+    for (let pos = 0, o = 0; pos < job.total; pos += BLOCK) {
+      const n = BLOCK, L = new Float32Array(n), R = new Float32Array(n), t0 = from + pos / RATE, t1 = t0 + n / RATE, tb = new Map();
+      const bufFor = c => { if (!chains.has(c.track)) return [L, R]; let x = tb.get(c.track); if (!x) { x = [new Float32Array(n), new Float32Array(n)]; tb.set(c.track, x); } return x; };
+      for (const c of heard) {
+        if (spanEnd(c) <= t0 || spanStart(c) >= t1) continue;
+        const [TL, TR] = bufFor(c);
+        if (c === b) {
+          const cs = spanStart(c), ce = spanEnd(c), firstOut = Math.max(0, Math.ceil((cs - t0) * RATE)), lastOut = Math.min(n, Math.floor((ce - t0) * RATE));
+          let g = 0, pg = [1, 1];
+          for (let i = firstOut; i < lastOut; i++) { const lt = t0 + i / RATE - c.start, idx = Math.round(lt * RATE); if ((i - firstOut) % 256 === 0) { g = gainAt(doc, c, lt); pg = panGains(panAt(doc, c, lt)); } TL[i] += (bv.L[idx] ?? 0) * g * pg[0]; TR[i] += (bv.R[idx] ?? 0) * g * pg[1]; }
+          continue;
+        }
+        const p = job.plans[plainIdx[c.id]], src = srcs[p.src], range = sourceRange(p, pos, n, RATE, src.rate);
+        if (range) mixClip(TL, TR, pos, n, p, await src.read(range[0], range[1] - range[0]), range[0], RATE, src.rate);
+      }
+      for (const [id, ch] of chains) { const [x, y] = tb.get(id) || [new Float32Array(n), new Float32Array(n)]; for (let q = 0; q < n; q += 512) ch.process(x.subarray(q, Math.min(n, q + 512)), y.subarray(q, Math.min(n, q + 512))); for (let i = 0; i < n; i++) { L[i] += x[i]; R[i] += y[i]; } }
+      for (let i = 0; i < n; i++) { L[i] *= job.mixGain; R[i] *= job.mixGain; }
+      for (let q = 0; q < n; q += 512) bus.process(L.subarray(q, Math.min(n, q + 512)), R.subarray(q, Math.min(n, q + 512)));
+      softClip(L, R);
+      const k = Math.min(n, job.total - pos);
+      for (let i = 0; i < k; i++) for (const v of [L[i], R[i]]) want.writeIntLE(pcm24(v), (o++) * 3, 3);
+    }
+    srcs.forEach(a => a.close());
+    const out = path.join(dir, 'out.wav');
+    await core.mix({ ...job, sources: job.sources.map(f => path.join(dir, f)) }, out, () => {});
+    const got = fs.readFileSync(out);
+    assert.equal(got.length, 44 + want.length);
+    let diff = 0, worst = 0;
+    for (let i = 0; i < job.total * 2; i++) { const x = got.readIntLE(44 + i * 3, 3), y = want.readIntLE(i * 3, 3); if (x !== y) { diff++; worst = Math.max(worst, Math.abs(x - y)); } }
+    // log10 and pow may differ in their last bit between JavaScript and Rust: at most a 24-bit step, rarely
+    assert.ok(worst <= 1 && diff < job.total * 2 * 1e-3, `${diff} samples differ, by up to ${worst}`);
+    t.diagnostic(`10 effect types on 2 tracks and the bus; ${diff} of ${job.total * 2} samples differ (by up to ${worst})`);
+  } finally { fs.rmSync(dir, { recursive: true, force: true }); }
+});
+
 test('reel-core exports to a loudness target the same as the JavaScript master path, to the 24-bit sample', { skip }, async t => {
   const { LoudnessMeter, TruePeakLimiter } = await import('../app/renderer/lib/master.js');
   const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'reel-loud-'));
@@ -372,8 +440,8 @@ test('reel-core exports to a loudness target the same as the JavaScript master p
 test('what the core can\'t mix yet goes to the JavaScript export, with the reason', () => {
   const doc = mixDoc();
   assert.ok(exportMixJob(doc, 0, 5, { codec: 'wav' }).job);
-  assert.equal(exportMixJob({ ...doc, mixFx: [...doc.mixFx, { type: 'reverb' }] }, 0, 5, { codec: 'wav' }).why, 'mix bus effects');
-  assert.equal(exportMixJob({ ...doc, tracks: [{ ...doc.tracks[0], fx: [{ type: 'eq' }] }, doc.tracks[1]] }, 0, 5, { codec: 'wav' }).why, 'track effects');
+  assert.ok(exportMixJob({ ...doc, mixFx: [...doc.mixFx, { type: 'reverb' }] }, 0, 5, { codec: 'wav' }).job.fx.bus, 'mix bus effects go to the core now');
+  assert.equal(exportMixJob({ ...doc, tracks: [{ ...doc.tracks[0], fx: [{ type: 'eq' }] }, doc.tracks[1]] }, 0, 5, { codec: 'wav' }).job.fx.chains.length, 1, 'track effects go to the core now');
   const pitched = mixDoc(); pitched.clips[1].retime = [{ t: 0, s: 0 }, { t: 2.5, s: 3 }];
   assert.equal(exportMixJob(pitched, 0, 7, { codec: 'wav' }).why, 'time maps');
   const clicks = mixDoc(); clicks.clips[0].cursor = { clickSound: 0.5 };

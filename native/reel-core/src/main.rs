@@ -27,6 +27,7 @@ mod analyze;
 mod media;
 mod mix;
 mod stretch;
+mod fx;
 mod umvoice;
 
 use std::io::{Read, Write};
@@ -212,7 +213,25 @@ fn mix_job(inp: &mut Input, loudness: bool) -> Result<String, String> {
         if !(win.len() >= 16 && win.len() <= 48000) || win.iter().any(|v| !v.is_finite()) || !(1..=48000).contains(&tol) { return Err("bad stretch settings".into()); }
         if !stretched.is_empty() && clicks.block == 0 { return Err("bad stretch settings".into()); }
     }
-    let mut job = mix::Job { rate, total, mix_gain, limiters, soft, sources, plans, clicks, stretched, order, win, tol };
+    // effects (0.9, after the stretch section): chains u32, each units u32 + (type u8 · numbers u32 + f64s) · the bus:
+    //   u8 (0 none, 1 a chain follows) · then for each clip in the order, its chain u32 (0xFFFFFFFF: none)
+    let (mut chains, mut bus, mut chain_of) = (Vec::new(), None, Vec::new());
+    if inp.at < inp.b.len() {
+        let read_chain = |inp: &mut Input| -> Result<Vec<(u8, Vec<f64>)>, String> {
+            let nu = inp.count(5)?;
+            if nu > 64 { return Err("too many effects".into()); }
+            (0..nu).map(|_| { let k = inp.u8()?; let nv = inp.count(8)?; let v = (0..nv).map(|_| inp.f64()).collect::<Result<Vec<_>, _>>()?; if v.iter().any(|x| !x.is_finite()) { return Err("bad effect settings".into()); } fx::Unit::new(k, &v)?; Ok((k, v)) }).collect()
+        };
+        let nc = inp.count(4)?;
+        if nc > 256 { return Err("too many tracks with effects".into()); }
+        for _ in 0..nc { chains.push(read_chain(inp)?); }
+        if inp.u8()? != 0 { bus = Some(read_chain(inp)?); }
+        let n_order = if order.is_empty() { plans.len() } else { order.len() };
+        let no = inp.count(4)?;
+        if no != n_order { return Err("bad effect routing".into()); }
+        for _ in 0..no { let t = inp.u32()?; chain_of.push(if t == u32::MAX as usize { None } else if (t as usize) < chains.len() { Some(t as usize) } else { return Err("bad effect routing".into()) }); }
+    }
+    let mut job = mix::Job { rate, total, mix_gain, limiters, soft, sources, plans, clicks, stretched, order, win, tol, chain_of, chains, bus };
     job.prepare()?;
     let mut sink: Box<dyn mix::Sink> = match codec {
         0 => Box::new(mix::WavSink::create(&out, rate as u32)?),

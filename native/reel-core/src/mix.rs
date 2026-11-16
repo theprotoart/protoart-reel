@@ -28,7 +28,19 @@ impl Limiter {
 pub struct Job { pub rate: f64, pub total: u64, pub mix_gain: f64, pub limiters: Vec<(f64, f64)>, pub soft: bool, pub sources: Vec<String>, pub plans: Vec<Plan>, pub clicks: Clicks,
     /// clips that keep their pitch (0.8), and the order the clips are added in: an index below plans.len() is a
     /// plan, at or above it a stretched clip (the JavaScript adds them in the project's order; so does this)
-    pub stretched: Vec<crate::stretch::Stretched>, pub order: Vec<usize>, pub win: Vec<f32>, pub tol: i64 }
+    pub stretched: Vec<crate::stretch::Stretched>, pub order: Vec<usize>, pub win: Vec<f32>, pub tol: i64,
+    /// track effects (0.9): which chain each clip in `order` goes through (None: straight into the mix), each chain's
+    /// effects, and the mix bus's own chain (when it has more than limiters)
+    pub chain_of: Vec<Option<usize>>, pub chains: Vec<Vec<(u8, Vec<f64>)>>, pub bus: Option<Vec<(u8, Vec<f64>)>> }
+
+/// The live effects of a mix: one chain per track with effects, and the mix bus's.
+pub struct Fx { pub tracks: Vec<crate::fx::Chain>, pub bus: Option<crate::fx::Chain> }
+impl Job {
+    pub fn fx(&self) -> Result<Fx, String> {
+        let mk = |list: &Vec<(u8, Vec<f64>)>| -> Result<crate::fx::Chain, String> { Ok(crate::fx::Chain { units: list.iter().map(|(k, v)| crate::fx::Unit::new(*k, v)).collect::<Result<_, _>>()? }) };
+        Ok(Fx { tracks: self.chains.iter().map(mk).collect::<Result<_, _>>()?, bus: self.bus.as_ref().map(mk).transpose()? })
+    }
+}
 
 impl Job {
     /// Reads and stretches every clip that keeps its pitch, once, before mixing.
@@ -182,11 +194,14 @@ fn add_stretched(job: &Job, s: &crate::stretch::Stretched, j0: u64, l: &mut [f32
     }
 }
 
-fn mix_block(job: &Job, live: &mut [Option<Live>], limiters: &mut [Limiter], j0: u64, l: &mut [f32], r: &mut [f32]) -> Result<(), String> {
+fn mix_block(job: &Job, live: &mut [Option<Live>], limiters: &mut [Limiter], fx: &mut Fx, j0: u64, l: &mut [f32], r: &mut [f32]) -> Result<(), String> {
     let n = l.len() as u64;
     let np = job.plans.len();
     let order: Vec<usize> = if job.order.is_empty() { (0..np).collect() } else { job.order.clone() };
-    for &oi in &order {
+    // a buffer per track with effects: its clips are mixed there, run through its chain, then added to the mix
+    let mut tb: Vec<(Vec<f32>, Vec<f32>)> = (0..fx.tracks.len()).map(|_| (vec![0f32; l.len()], vec![0f32; l.len()])).collect();
+    for (at, &oi) in order.iter().enumerate() {
+        let (l, r): (&mut [f32], &mut [f32]) = match job.chain_of.get(at).copied().flatten() { Some(t) => { let b = &mut tb[t]; (&mut b.0, &mut b.1) } None => (&mut *l, &mut *r) };
         if oi >= np { add_stretched(job, &job.stretched[oi - np], j0, l, r); continue; }
         let (ci, p) = (oi, &job.plans[oi]);
         let (a0, b0) = (j0.max(p.first), (j0 + n).min(p.last));
@@ -225,8 +240,14 @@ fn mix_block(job: &Job, live: &mut [Option<Live>], limiters: &mut [Limiter], j0:
             r[i] = (r[i] as f64 + rv * gr) as f32;
         }
     }
+    for (t, ch) in fx.tracks.iter_mut().enumerate() {
+        let (a, b) = &mut tb[t];
+        ch.process(a, b);
+        for i in 0..l.len() { l[i] = (l[i] as f64 + a[i] as f64) as f32; r[i] = (r[i] as f64 + b[i] as f64) as f32; }
+    }
     if job.mix_gain != 1.0 { for i in 0..l.len() { l[i] = (l[i] as f64 * job.mix_gain) as f32; r[i] = (r[i] as f64 * job.mix_gain) as f32; } }
     for lim in limiters.iter_mut() { lim.process(l, r); }
+    if let Some(b) = fx.bus.as_mut() { b.process(l, r); }
     job.clicks.add(job.rate, j0, l, r);
     if job.soft {
         let sc = |v: f32| -> f32 { let x = v as f64; if x.abs() > 0.9 { (x.signum() * (0.9 + 0.1 * ((x.abs() - 0.9) / 0.1).tanh())) as f32 } else { v } };
@@ -280,13 +301,14 @@ pub fn run(job: &Job, sink: &mut dyn Sink, mut progress: impl FnMut(f64)) -> Res
     const BLOCK: u64 = 8192;
     let mut live: Vec<Option<Live>> = (0..job.plans.len()).map(|_| None).collect();
     let mut limiters: Vec<Limiter> = job.limiters.iter().map(|&(ceil, rel)| Limiter { ceil, rel, g: 1.0 }).collect();
+    let mut fx = job.fx()?;
     let (mut l, mut r) = (vec![0f32; BLOCK as usize], vec![0f32; BLOCK as usize]);
     let mut j0 = 0;
     let mut last_report = 0;
     while j0 < job.total {
         let n = BLOCK.min(job.total - j0) as usize;
         l[..n].iter_mut().for_each(|v| *v = 0.0); r[..n].iter_mut().for_each(|v| *v = 0.0);
-        mix_block(job, &mut live, &mut limiters, j0, &mut l[..n], &mut r[..n])?;
+        mix_block(job, &mut live, &mut limiters, &mut fx, j0, &mut l[..n], &mut r[..n])?;
         sink.write(&l[..n], &r[..n])?;
         j0 += n as u64;
         if j0 - last_report >= job.rate as u64 * 30 || j0 >= job.total { progress(j0 as f64 / job.total as f64); last_report = j0; }
@@ -413,12 +435,13 @@ pub fn run_loud(job: &Job, loud: &Loud, sink: &mut dyn Sink, mut progress: impl 
     {
         let mut live: Vec<Option<Live>> = (0..job.plans.len()).map(|_| None).collect();
         let mut limiters: Vec<Limiter> = job.limiters.iter().map(|&(ceil, rel)| Limiter { ceil, rel, g: 1.0 }).collect();
+        let mut fx = job.fx()?;
         let (mut j0, mut last) = (0u64, 0u64);
         let measure = loud.measure.max(job.total);
         while j0 < measure {
             let n = BLOCK.min(measure - j0) as usize;
             l[..n].iter_mut().for_each(|v| *v = 0.0); r[..n].iter_mut().for_each(|v| *v = 0.0);
-            mix_block(job, &mut live, &mut limiters, j0, &mut l[..n], &mut r[..n])?;
+            mix_block(job, &mut live, &mut limiters, &mut fx, j0, &mut l[..n], &mut r[..n])?;
             meter.push(&l[..n], &r[..n]);
             j0 += n as u64;
             if j0 - last >= job.rate as u64 * 30 { progress(0.5 * j0 as f64 / measure as f64); last = j0; }
@@ -429,12 +452,13 @@ pub fn run_loud(job: &Job, loud: &Loud, sink: &mut dyn Sink, mut progress: impl 
     // pass 2: mix again, turn it to the target, limit, write
     let mut live: Vec<Option<Live>> = (0..job.plans.len()).map(|_| None).collect();
     let mut limiters: Vec<Limiter> = job.limiters.iter().map(|&(ceil, rel)| Limiter { ceil, rel, g: 1.0 }).collect();
+    let mut fx = job.fx()?;
     let mut tp = TruePeak::new(loud.ceil, loud.rel, loud.look);
     let (mut j0, mut last) = (0u64, 0u64);
     while j0 < job.total {
         let n = BLOCK.min(job.total - j0) as usize;
         l[..n].iter_mut().for_each(|v| *v = 0.0); r[..n].iter_mut().for_each(|v| *v = 0.0);
-        mix_block(job, &mut live, &mut limiters, j0, &mut l[..n], &mut r[..n])?;
+        mix_block(job, &mut live, &mut limiters, &mut fx, j0, &mut l[..n], &mut r[..n])?;
         for i in 0..n { l[i] = (l[i] as f64 * gain) as f32; r[i] = (r[i] as f64 * gain) as f32; }
         tp.process(&mut l[..n], &mut r[..n]);
         sink.write(&l[..n], &r[..n])?;
@@ -539,7 +563,7 @@ mod tests {
         write_wav(&src, 48000, 48000, |i, c| if c == 0 { (i as f64 * 0.01).sin() * 0.5 } else { 0.25 });
         let n = 48000u64;
         let segs = n.div_ceil(256) as usize;
-        let job = Job { rate: 48000.0, total: n, mix_gain: 1.0, limiters: vec![], soft: true, clicks: Clicks::default(), stretched: vec![], order: vec![], win: vec![], tol: 0, sources: vec![src.to_str().unwrap().into()],
+        let job = Job { rate: 48000.0, total: n, mix_gain: 1.0, limiters: vec![], soft: true, clicks: Clicks::default(), stretched: vec![], order: vec![], win: vec![], tol: 0, chain_of: vec![], chains: vec![], bus: None, sources: vec![src.to_str().unwrap().into()],
             plans: vec![Plan { src: 0, first: 0, last: n, s0: 0.0, speed: 1.0, env: vec![1.0; (segs + 2) * 2] }] };
         let mut sink: Box<dyn Sink> = Box::new(WavSink::create(out.to_str().unwrap(), 48000).unwrap());
         run(&job, sink.as_mut(), |_| {}).unwrap();
@@ -564,7 +588,7 @@ mod tests {
         for f in [&wav, &m4a] { std::fs::remove_file(f).ok(); }
         write_wav(&src, 48000, 48000 * 5, |i, c| { let t = i as f64 / 48000.0; 0.4 * (2.0 * std::f64::consts::PI * (330.0 + 110.0 * c as f64) * t).sin() * if t < 2.5 { 1.0 } else { 0.2 } });
         let n = 48000u64 * 5;
-        let job = Job { rate: 48000.0, total: n, mix_gain: 1.0, limiters: vec![(0.891, 0.9997)], soft: true, clicks: Clicks::default(), stretched: vec![], order: vec![], win: vec![], tol: 0, sources: vec![src.to_str().unwrap().into()],
+        let job = Job { rate: 48000.0, total: n, mix_gain: 1.0, limiters: vec![(0.891, 0.9997)], soft: true, clicks: Clicks::default(), stretched: vec![], order: vec![], win: vec![], tol: 0, chain_of: vec![], chains: vec![], bus: None, sources: vec![src.to_str().unwrap().into()],
             plans: vec![Plan { src: 0, first: 0, last: n, s0: 0.0, speed: 1.0, env: vec![0.9; ((n.div_ceil(256) + 2) * 2) as usize] }] };
         let mut a: Box<dyn Sink> = Box::new(WavSink::create(wav.to_str().unwrap(), 48000).unwrap());
         run(&job, a.as_mut(), |_| {}).unwrap(); a.finish().unwrap();

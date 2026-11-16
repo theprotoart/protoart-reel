@@ -4,7 +4,7 @@
 // from model.js). The export worker mixes from it, and so does the Rust core (native/reel-core/src/mix.rs), so
 // the two give the same sound. Pure functions.
 import { sourceTime, gainAt, panAt, panGains, spanStart, spanEnd, mediaById, duration as docDuration } from '../model.js';
-import { FX_TYPES } from './trackfx.js';
+import { FX_TYPES, FxChain } from './trackfx.js';
 import { clickSample } from './click.js';
 
 export const SEG = 256;
@@ -25,6 +25,29 @@ export function clipPlan(doc, c, start, total, rate) {
     env[m * 2] = g * pl; env[m * 2 + 1] = g * pr;
   }
   return { first, last, s0: sourceTime(c, start + first / rate), speed: c.speed || 1, env };
+}
+
+/**
+ * One effect of a chain as the numbers reel-core takes (src/fx.rs Unit::new): its type number, then what its update()
+ * worked out (coefficients, smoothing constants, sizes), read from the very object the JavaScript export runs.
+ */
+const FX_KIND = { eq: 0, comp: 1, deess: 2, gate: 3, reverb: 4, delay: 5, limiter: 6, level: 7, gain: 8, declick: 9 };
+const bqNumbers = b => [b.flat ? 1 : 0, b.b[0], b.b[1], b.b[2], b.a[0], b.a[1]];
+export function fxUnitNumbers(u) {
+  const f = u.fx, p = f.p || {};
+  switch (u.type) {
+    case 'eq': return [FX_KIND.eq, [f.hpOn ? 1 : 0, ...f.f.flatMap(bqNumbers)]];
+    case 'comp': return [FX_KIND.comp, [p.threshold, p.ratio, f.at, f.rel, f.mk]];
+    case 'deess': return [FX_KIND.deess, [...bqNumbers(f.bp), f.at, f.rel, p.threshold, p.amount]];
+    case 'gate': return [FX_KIND.gate, [f.at, f.rel, f.floor, f.lvc, f.thr]];
+    case 'reverb': return [FX_KIND.reverb, [...f.c[0].map(c => c.buf.length), ...f.c[1].map(c => c.buf.length), ...f.a[0].map(a => a.buf.length), ...f.a[1].map(a => a.buf.length), f.fb, f.damp, p.mix, p.width ?? 1]];
+    case 'delay': return [FX_KIND.delay, [f.buf[0].length, f.n, p.feedback, p.mix]];
+    case 'limiter': return [FX_KIND.limiter, [f.ceil, f.rel]];
+    case 'level': return [FX_KIND.level, [f.ms, f.target, f.boost, f.cut, f.gate, f.k]];
+    case 'gain': return [FX_KIND.gain, [f.g, f.mono ? 1 : 0]];
+    case 'declick': return [FX_KIND.declick, [f.thr, f.len]];
+    default: throw new Error(`no core version of ${u.type}`);
+  }
 }
 
 /** lib/stretch.js's window (the same numbers, so the core uses exactly them). */
@@ -110,12 +133,14 @@ export function exportMixJob(doc, from, to, { codec, bitrate, rate = 48000, loud
   if (!(end > start)) return { why: 'nothing to export' };
   const used = doc.clips.filter(c => c.type === 'media' && !c.disabled && spanStart(c) < end && spanEnd(c) > start);
   const heard = used.filter(c => { const m = mediaById(doc, c.media); return m && (m.hasAudio || m.kind === 'audio') && !(c.audio && c.audio.mute); });
-  if (doc.tracks.some(t => (t.fx || []).some(f => !f.off) && heard.some(c => c.track === t.id))) return { why: 'track effects' };
-  // the mix bus: its limiter (every project has one) the core does too; anything else, not yet
+  // track effects (EQ, compressor, reverb…): each track with any on gets its own chain, as in export-worker.js
+  const fxTracks = doc.tracks.filter(t => (t.fx || []).some(f => !f.off) && heard.some(c => c.track === t.id)).map(t => t.id);
+  const chainNumbers = list => new FxChain(rate).setup(list).units.filter(u => !u.off).map(fxUnitNumbers);
+  // the mix bus: just limiters (every project has one) go the simple way; anything more as a full chain
   const bus = (doc.mixFx || []).filter(f => f && !f.off);
-  if (bus.some(f => f.type !== 'limiter')) return { why: 'mix bus effects' };
+  const busChain = bus.some(f => f.type !== 'limiter') ? chainNumbers(doc.mixFx || []) : null;
   // the limiter's numbers worked out here exactly as trackfx.js does, so both sides use the very same values
-  const limiters = bus.map(f => { const p = { ...FX_TYPES.limiter.defaults, ...(f.params || {}) }; return { ceil: 10 ** (p.ceiling / 20), rel: Math.exp(-1 / Math.max(1, (p.release / 1000) * rate)) }; });
+  const limiters = busChain ? [] : bus.map(f => { const p = { ...FX_TYPES.limiter.defaults, ...(f.params || {}) }; return { ceil: 10 ** (p.ceiling / 20), rel: Math.exp(-1 / Math.max(1, (p.release / 1000) * rate)) }; });
   if (heard.some(c => c.retime)) return { why: 'time maps' };
   // sped-up or slowed clips that keep their pitch (as export-worker.js: only up to stretchMax seconds long; longer
   // ones play like tape there, so here too)
@@ -124,20 +149,20 @@ export function exportMixJob(doc, from, to, { codec, bitrate, rate = 48000, loud
   const clickers = used.filter(c => c.cursor?.clickSound > 0 && !c.audio?.mute);
   if (clickers.some(c => c.retime)) return { why: 'click sounds on a clip with a time map' };
   if (clickers.some(c => !cursors?.get(c.media)?.clicks)) return { why: 'click sounds' };
-  const total = Math.floor((end - start) * rate), sources = [], index = new Map(), plans = [], stretched = [], order = [];
+  const total = Math.floor((end - start) * rate), sources = [], index = new Map(), plans = [], stretched = [], order = [], plannedClips = [], stretchedClips = [];
   const block = loudness == null ? 1024 : 8192; // export-worker.js's block (its mix pass for loudness: 8192)
   const srcOf = file => { if (!index.has(file)) { index.set(file, sources.length); sources.push(file); } return index.get(file); };
   for (const c of heard) {
     const m = mediaById(doc, c.media), file = c.fx && c.fx.file && !c.fx.bypass ? c.fx.file : m.file;
     if (keepsPitch(c)) {
       const s = stretchPlan(doc, c, start, total, rate, block);
-      if (s) { order.push(['s', stretched.length]); stretched.push({ src: srcOf(file), ...s }); }
+      if (s) { order.push(['s', stretched.length]); stretched.push({ src: srcOf(file), ...s }); stretchedClips.push(c); }
       continue;
     }
     const p = clipPlan(doc, c, start, total, rate);
     if (!p) continue;
     order.push(['p', plans.length]);
-    plans.push({ src: srcOf(file), ...p });
+    plans.push({ src: srcOf(file), ...p }); plannedClips.push(c);
   }
   // a loudness target: the core measures the mix and turns it to the target, then the true-peak limiter (instead of
   // the soft limit), with the very numbers the JavaScript master path uses (lib/master.js, export-worker.js)
@@ -148,7 +173,9 @@ export function exportMixJob(doc, from, to, { codec, bitrate, rate = 48000, loud
     return { start: c.start, in: c.in || 0, speed: c.speed || 1, end: c.start + c.duration, offset: m?.cursorOffset || 0, gain: c.cursor.clickSound,
       ms: Float64Array.from(data.clicks.filter(k => k[1] !== 'u').map(k => k[0])) };
   }) } : null;
-  const stretch = stretched.length ? { win: stretchWindow(rate), tol: Math.round(0.008 * rate), clips: stretched, order: order.map(([k, i]) => (k === 'p' ? i : plans.length + i)) } : null;
+  const fx = fxTracks.length || busChain ? { chains: fxTracks.map(id => chainNumbers(doc.tracks.find(t => t.id === id).fx)), bus: busChain,
+    chainOf: order.map(([k, i]) => fxTracks.indexOf((k === 'p' ? plannedClips : stretchedClips)[i].track)) } : null;
+  const stretch = stretched.length || fx ? { win: stretchWindow(rate), tol: Math.round(0.008 * rate), clips: stretched, order: order.map(([k, i]) => (k === 'p' ? i : plans.length + i)) } : null;
   return { job: { rate, total, mixGain: doc.mixGain ? 10 ** (doc.mixGain / 20) : 1, limiters, soft: !loud, codec, bitrate, sources, plans, ...(loud ? { loud } : {}),
-    ...(clicks || stretch ? { clicks: clicks || { start, block, wave: new Float32Array(0), clips: [] } } : {}), ...(stretch ? { stretch } : {}) } };
+    ...(clicks || stretch ? { clicks: clicks || { start, block, wave: new Float32Array(0), clips: [] } } : {}), ...(stretch ? { stretch } : {}), ...(fx ? { fx } : {}) } };
 }
