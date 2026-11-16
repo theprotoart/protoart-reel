@@ -2,8 +2,8 @@
 // what your fillers sound like (lib/umvoice.js) and then finds them in your recordings for 💬 UMS and AUTO EDIT,
 // including the ones speech recognition doesn't write down. Everything stays on this Mac (the model is kept in
 // Reel's own storage here, never uploaded).
-import { el, modal, drawer, toast, ask } from './ui.js';
-import { train, findInSamples, packModel, unpackModel, to16k, RATE, addTake, addNot } from './lib/umvoice.js';
+import { el, modal, drawer, toast, ask, popMenu } from './ui.js';
+import { train, findInSamples, packModel, unpackModel, to16k, RATE, addTake, addNot, dropTakes } from './lib/umvoice.js';
 import { openAudio } from './lib/sources.js';
 import { soundOf, speechClips } from './transcript.js';
 import { fmtTime as fmt } from './model.js';
@@ -158,6 +158,24 @@ export function teachUms(app, { onDone } = {}) {
   // what Reel knows, at the bottom: kept up to date after every send (and ↻ to read it again)
   const known = el('p', { class: 'note umt-known' });
   const SUGGEST = ['umm', 'uh', 'breath', 'lip smack', 'cough', 'sneeze'];
+  // take back what was learned by mistake (a yawn sent as an um): the newest takes first, or the whole sound
+  const chipMenu = (e, word, n) => {
+    const label = word === 'not' ? '“not an um” sound' : `${word === 'umm' ? 'um' : word} take`;
+    const drop = async (k, sure) => {
+      if (sure && !(await ask(sure[0], sure[1], sure[2]))) return;
+      saveModel(dropTakes(umModel(), word, k));
+      toast(k >= n ? (word === 'not' ? 'Reel forgot the sounds you said aren’t ums.' : `Reel forgot ${word === 'umm' ? 'your ums' : `“${word}”`}.`) : `Took back the last ${k === 1 ? label : `${k} ${label}s`}.`, 4000);
+      drawKnown(); draw(); onDone?.();
+    };
+    const r = e.currentTarget.getBoundingClientRect();
+    popMenu(r.left, r.bottom + 4, [
+      [`Take back the last ${label} (the newest)`, () => drop(1)],
+      n > 3 ? [`Take back the last 3 ${label}s`, () => drop(3)] : null,
+      n > 5 ? [`Take back the last 5 ${label}s`, () => drop(5)] : null,
+      null,
+      [`Forget all ${n} ${label}${n === 1 ? '' : 's'}…`, () => drop(n, ['Forget them?', `Reel will forget all ${n} ${label}${n === 1 ? '' : 's'} (for every project). The rest it learned stays. This can’t be undone: you’d have to teach ${n === 1 ? 'it' : 'them'} again.`, 'FORGET THEM'])],
+    ].filter(Boolean));
+  };
   const drawKnown = (reread = false) => {
     const m = reread ? reloadModel() : umModel(), name = w => (w === 'umm' ? 'um' : w);
     const words = m ? m.words : [];
@@ -168,8 +186,8 @@ export function teachUms(app, { onDone } = {}) {
       el('button', { class: 'hw umt-refresh', text: '↻', title: 'Show what Reel knows now', onclick: () => drawKnown(true) }),
       el('div', { class: 'umt-known-text' },
       el('b', { text: m ? 'REEL KNOWS' : 'Reel doesn’t know your ums yet.' }),
-      words.length ? el('div', { class: 'umt-chips' }, ...words.map(w => el('span', { class: 'umt-chip' + (w.prints.length < 3 ? ' few' : ''), title: `${w.prints.length} take${w.prints.length === 1 ? '' : 's'} learned`, text: `${name(w.word)} · ${w.prints.length}` })),
-        m.nots?.length ? el('span', { class: 'umt-chip not', title: 'Sounds you told Reel aren’t ums', text: `not an um · ${m.nots.length}` }) : null) : null,
+      words.length ? el('div', { class: 'umt-chips' }, ...words.map(w => el('button', { class: 'umt-chip' + (w.prints.length < 3 ? ' few' : ''), type: 'button', title: `${w.prints.length} take${w.prints.length === 1 ? '' : 's'} learned. Click to take some back (a sound taught by mistake).`, text: `${name(w.word)} · ${w.prints.length} ▾`, onclick: e => chipMenu(e, w.word, w.prints.length) })),
+        m.nots?.length ? el('button', { class: 'umt-chip not', type: 'button', title: 'Sounds you told Reel aren’t ums. Click to take some back.', text: `not an um · ${m.nots.length} ▾`, onclick: e => chipMenu(e, 'not', m.nots.length) }) : null) : null,
       few.length ? el('div', { text: `Needs more takes (3 or more find them best): ${few.map(w => `${name(w.word)} (${3 - w.prints.length} more)`).join(', ')}.` }) : null,
       missing.length ? el('div', { text: `Not taught yet: ${missing.map(name).join(', ')}.` }) : null));
   };

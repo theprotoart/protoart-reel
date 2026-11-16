@@ -2298,3 +2298,5 @@ html[data-theme="light"] .umt-fill-title { color: #9e2618; }
 .rp-files { opacity: .85; }
 .rp-tag { margin-left: auto; padding: 1px 6px; border-radius: 3px; font: 800 9px/1.4 var(--font-engrave, system-ui); letter-spacing: .08em; color: #1e1204; background: var(--amber, #f5b942); }
 .lib-repair { color: #fff; }
+button.umt-chip { border: 0; cursor: pointer; color: inherit; font: inherit; font-size: 12px; } button.umt-chip:hover { filter: brightness(1.25); box-shadow: 0 0 0 1px rgba(255,255,255,.35); }
+.tool.callouts-key { color: #fff; background: linear-gradient(#e0603f, #b23c22); box-shadow: 0 1px 0 #000, inset 0 1px 0 rgba(255,255,255,.35); }

@@ -139,3 +139,16 @@ test('a sound taught from the timeline keeps the name you gave it (yawning stays
   const { _wordOf } = await import('../app/renderer/umvoice.js');
   assert.deepEqual(['um', 'Ummm', 'uh', 'uhhh', 'er', 'yawning', 'Breath', 'lip smack'].map(_wordOf), ['umm', 'umm', 'uh', 'uh', 'er', 'yawning', 'breath', 'lip smack']);
 });
+
+test('takes taught by mistake can be taken back, newest first, or the sound forgotten', async () => {
+  const { dropTakes } = await import('../app/renderer/lib/umvoice.js');
+  const fp = k => Array.from({ length: 10 }, (_, i) => Array(12).fill(k + i * 0.01));
+  const m = { version: 1, words: [{ word: 'umm', prints: [fp(1), fp(2), fp(3), fp(4)] }, { word: 'yawning', prints: [fp(9)] }], nots: [fp(5), fp(6)], near: 2 };
+  const a = dropTakes(m, 'umm', 1);
+  assert.equal(a.words[0].prints.length, 3);
+  assert.equal(a.words[0].prints[2][0][0], 3); // the newest (4) went
+  assert.equal(m.words[0].prints.length, 4, 'the model passed in is left alone');
+  assert.equal(dropTakes(m, 'yawning', Infinity).words.length, 1);
+  assert.equal(dropTakes(m, 'not', 1).nots.length, 1);
+  assert.equal(dropTakes({ ...m, words: [m.words[1]] }, 'yawning', 1), null, 'nothing left: null');
+});

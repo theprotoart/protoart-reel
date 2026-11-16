@@ -1,5 +1,9 @@
 # Changelog
 
+## Unreleased
+- Teach Reel your ums: click a sound under REEL KNOWS to take back what was taught by mistake: the newest take, the last 3 or 5, or forget that sound altogether (the rest stays).
+- 📣 CALLOUTS on the timeline tool bar (beside FILLER): opens the call-outs and graphics in the left panel, ready to drag onto the timeline.
+
 ## 1.10.0 — 2026-11-16
 - Rust, step 3 continued (reel-core 0.6): a sound-only export with a loudness target (YouTube −14, Apple −16, broadcast −23…) is now measured, matched and true-peak limited by the Rust core, with no temporary mix file in between. It writes exactly the same file as before (tested to the 24-bit sample). With the built-in master or master plug-ins on, the JavaScript does it as before; if the core can’t, the JavaScript masters it, so the target is never skipped.
 - More variety in Auto Edit: a Variety row for transitions (Same few / Mixed / Surprise me; Mixed by default, so it no longer repeats the same two or three), a new “Mix it up” transition style with fourteen punchy ones (whips, glitches, flashes, shutter, warp zoom, light leaks…), and a Mixed graphics look (the default) that rotates every kinetic title, accent and graphic.

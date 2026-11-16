@@ -192,6 +192,22 @@ export function addTake(model, word, samples, context) {
   return retune(m);
 }
 
+/**
+ * Takes back what was learned: the last `n` takes of one sound (Infinity: all of it, so the sound is forgotten), or
+ * with word 'not' the last `n` "not an um" sounds. Returns the model (retuned), or null when nothing is left.
+ */
+export function dropTakes(model, word, n = 1) {
+  if (!model) return null;
+  const m = { ...model, words: model.words.map(w => ({ ...w, prints: w.prints.slice() })), nots: (model.nots || []).slice() };
+  if (word === 'not') m.nots.splice(Math.max(0, m.nots.length - n));
+  else {
+    const w = m.words.find(x => x.word === word);
+    if (w) { w.prints.splice(Math.max(0, w.prints.length - n)); if (!w.prints.length) m.words = m.words.filter(x => x !== w); }
+  }
+  if (!m.words.length) return null;
+  return retune(m);
+}
+
 /** Something it took for an um that isn't one: it won't be matched again (nor anything closer to it than to an um). */
 export function addNot(model, samples) {
   const fp = fingerprint(burstOf(samples));
