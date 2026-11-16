@@ -40,3 +40,15 @@ test('4 s or shorter plays as made; loops, clocks and visualizers stay real-time
   for (const k of ['bgHorizon', 'bgWaveGrid', 'vizBars', 'sparkle', 'bubbles', 'vhs', 'scoreBug', 'newsTicker']) assert.equal(elementPace(k, 16), 1, k);
   assert.equal(elementPace('ltBar', 16), 2);
 });
+
+test('number counter: counts to the number as typed (2.84K, 1.2M, $1,500, 98%…) and ends on exactly that', async () => {
+  const { counterText } = await import('../app/renderer/lib/elements.js');
+  const run = x => [0, 0.3, 0.5, 1].map(k => counterText(x, k));
+  assert.deepEqual(run('2.84K'), ['0', '852', '1.42K', '2.84K']);
+  assert.deepEqual(run('1.2M'), ['0', '360K', '600K', '1.2M']);
+  assert.deepEqual(run('$1,500'), ['$0', '$450', '$750', '$1,500']);
+  assert.deepEqual(run('98%'), ['0%', '29%', '49%', '98%']);
+  assert.deepEqual(run('4.5 stars'), ['0.0 stars', '1.3 stars', '2.3 stars', '4.5 stars']);
+  assert.deepEqual(run('10k+'), ['0+', '3k+', '5k+', '10k+']);
+  assert.equal(counterText('no number', 0.5), 'no number');
+});

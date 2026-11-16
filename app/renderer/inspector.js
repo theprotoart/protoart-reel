@@ -670,7 +670,7 @@ function elementPanel(insp, c) {
   kind.addEventListener('change', () => insp.edit(() => { c.element = { kind: kind.value }; c.name = ELEMENTS[kind.value].name; }));
   const txt = (key, label) => {
     const multi = key === 'text' && def.multiline; // a list: one item per line
-    const i = multi ? el('textarea', { class: 'big', rows: 5, value: d[key] ?? '', title: 'One item per line' }) : el('input', { type: 'text', value: d[key] ?? '' });
+    const i = multi ? el('textarea', { class: 'big', rows: 5, value: d[key] ?? '', title: 'One item per line' }) : el('input', { type: 'text', value: d[key] ?? '', ...(key === 'text' && e.kind === 'counter' ? { placeholder: 'e.g. 2.84K, 1.2M, $1,500, 98%', title: 'Type the number as you want it to end: 2.84K, 1.2M, $1,500, 98%, +312… It counts up to it.' } : {}) });
     // live: the picture follows each key you type (one undo step for the whole edit)
     let typing = false;
     i.addEventListener('input', () => {

@@ -49,6 +49,32 @@ function pill(ctx, x, y, w, h, fill, ink, text, emoji = '', size = 44) {
   } else { ctx.fillStyle = ink; ctx.font = font(800, size); ctx.fillText(text, x, y + 2); }
 }
 
+/**
+ * The number counter's figure at progress k (0…1), read the way people type numbers: 2.84K, 1.2M, 3B, $1,500, 98%,
+ * +312, 4.5 stars. It counts the real amount up (0 … 999, then 1.00K … 2.84K) and lands on exactly what was typed.
+ */
+export function counterText(text, k) {
+  const typed = String(text ?? '').trim();
+  const m = /^(\D*?)(-?(?:\d[\d,]*(?:\.\d+)?|\.\d+))(\s*)([kmb](?![a-z]))?(.*)$/i.exec(typed);
+  if (!m || k >= 1) return typed;
+  const [, pre, num, gap, unit = '', post] = m;
+  const dec = (num.split('.')[1] || '').length, upper = unit === unit.toUpperCase();
+  const mul = { k: 1e3, m: 1e6, b: 1e9 }[unit.toLowerCase()] || 1;
+  const v = parseFloat(num.replace(/,/g, '')) * mul * k, a = Math.abs(v);
+  const tail = unit ? post : gap + post;
+  if (mul > 1) {
+    // on the way up it says it the short way, in the biggest unit it has reached: 852 → 1.42K, 360K → 1.1M
+    for (const [u, um] of [['b', 1e9], ['m', 1e6], ['k', 1e3]]) {
+      if (um > mul || a < um) continue;
+      const s = um === mul ? (v / um).toFixed(dec) : String(Math.round(v / um));
+      return `${pre}${s}${gap}${upper ? u.toUpperCase() : u}${post}`;
+    }
+    return `${pre}${Math.round(v)}${tail}`;
+  }
+  const shown = /,/.test(num) ? v.toLocaleString('en-US', { minimumFractionDigits: dec, maximumFractionDigits: dec }) : v.toFixed(dec);
+  return `${pre}${shown}${tail}`;
+}
+
 export const ELEMENTS = {
   // ---------------------------------------------------------------- lower thirds
   ltBar: { name: 'Lower third — bar', group: 'Lower thirds', box: [760, 150], defaults: { text: 'Your Name', sub: 'Title or role', color: '#ffb02a', accent: '#111111' },
@@ -636,11 +662,10 @@ export const ELEMENTS = {
   counter: { name: 'Number counter', group: 'Info', box: [600, 220], defaults: { text: '1000', sub: 'subscribers', color: '#ffffff', accent: '#ffb02a' },
     draw(ctx, e, t, d) {
       const [, ko] = io(t, d); ctx.globalAlpha *= easeInOut(ko);
-      const target = parseFloat(String(e.text).replace(/[^0-9.-]/g, '')) || 0, k = easeOut(clamp(t / Math.max(0.3, d - Math.min(1.2, d * 0.2)), 0, 1)); // counts across the clip's length (drag it longer = slower), landing just before the end
-      const v = target * k, dec = /\./.test(e.text) ? 1 : 0;
+      const k = easeOut(clamp(t / Math.max(0.3, d - Math.min(1.2, d * 0.2)), 0, 1)); // counts across the clip's length (drag it longer = slower), landing just before the end
       ctx.textAlign = 'center'; ctx.fillStyle = e.color; ctx.font = font(900, 120); ctx.textBaseline = 'middle';
-      ctx.fillText(v.toLocaleString(undefined, { minimumFractionDigits: dec, maximumFractionDigits: dec }), 0, -20);
-      ctx.fillStyle = e.accent; ctx.font = font(700, 40); ctx.fillText(e.sub, 0, 70);
+      ctx.fillText(counterText(e.text, k), 0, -20, 560);
+      ctx.fillStyle = e.accent; ctx.font = font(700, 40); ctx.fillText(e.sub, 0, 70, 580);
     } },
   progressBar: { name: 'Progress bar', group: 'Info', box: [900, 120], defaults: { text: 'Loading', sub: '', color: '#ffb02a', accent: '#222222' },
     draw(ctx, e, t, d) {

@@ -1,6 +1,7 @@
 # Changelog
 
 ## Unreleased
+- Number counter: type the number the way you'd say it — 2.84K, 1.2M, 3B, $1,500, 98%, +312%, 4.5 stars — and it counts up to that amount (852 → 1.42K → 2.84K) and lands on exactly what you typed. (It used to read 2.84K as 2.8.)
 - Elements: drag one longer and its animation takes longer (typing, counting, drawing, the pointer's clicks, confetti…): past its usual 4 s it plays that much slower. Loops, clocks, tickers, backgrounds and audio visualizers keep their real speed; lower thirds slow more gently.
 - 14 new title looks in Presets › TITLES, after the styles of the most-watched channels: Big bold pop, Spoken words (green, yellow, boxed: each word lights up as it's said), One word at a time, Sticker label, Highlighter pen, Underline swipe, Crossed out, Split reveal, Clean slide up, Big question, Tip in a box, Big number. Six new animations (Spoken words, One word at a time, Punch in, Sticker, Split reveal, Clean slide up) and three new accent looks for *starred* words (Highlighter pen, Underline swipe, Crossed out).
 - 💬 Talking text (TEXT ▾, or Text › Talking Text…): for videos where people hear you but don't see you. What you say runs along the bottom, a few words at a time, each word lighting up as you say it (timed to your voice); the key words (a question, a number, a tip, a "never") pop up big in the middle, now and then with an emoji. On their own tracks; run it again to make them fresh.
