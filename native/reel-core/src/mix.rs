@@ -25,7 +25,52 @@ impl Limiter {
     }
 }
 
-pub struct Job { pub rate: f64, pub total: u64, pub mix_gain: f64, pub limiters: Vec<(f64, f64)>, pub soft: bool, pub sources: Vec<String>, pub plans: Vec<Plan> }
+pub struct Job { pub rate: f64, pub total: u64, pub mix_gain: f64, pub limiters: Vec<(f64, f64)>, pub soft: bool, pub sources: Vec<String>, pub plans: Vec<Plan>, pub clicks: Clicks }
+
+/// Mouse-click sounds from the recorded clicks (export-worker.js mixBlock, "click sounds"): added after the mix bus,
+/// before the soft limit. The JavaScript adds them block by block (`block` frames from the export's `start`, in
+/// seconds), each block finding its clicks and placing them by its own rounding; this does the very same.
+#[derive(Default)]
+pub struct Clicks { pub start: f64, pub block: u64, pub wave: Vec<f32>, pub clips: Vec<ClickClip> }
+/// One clip's clicks: its place (start, in, speed, end in seconds), the cursor file's offset, the loudness, and the
+/// time of each press in the cursor file (milliseconds, in order).
+pub struct ClickClip { pub start: f64, pub inn: f64, pub speed: f64, pub end: f64, pub offset: f64, pub gain: f64, pub ms: Vec<f64> }
+
+impl Clicks {
+    /// Adds the clicks that fall in frames [j0, j0 + l.len()).
+    fn add(&self, rate: f64, j0: u64, l: &mut [f32], r: &mut [f32]) {
+        if self.clips.is_empty() || self.wave.is_empty() || self.block == 0 { return; }
+        let n = l.len() as u64;
+        let mut p = j0 / self.block * self.block;
+        while p < j0 + n {
+            let t0 = self.start + p as f64 / rate;
+            let t1 = t0 + self.block as f64 / rate;
+            for c in &self.clips {
+                if c.end <= t0 || c.start >= t1 { continue; }
+                let s0 = c.inn + ((t0 - 0.05).max(c.start) - c.start) * c.speed;
+                let s1 = c.inn + (t1.min(c.end) - c.start) * c.speed;
+                let (a, b) = ((s0 + c.offset) * 1000.0, (s1 + c.offset) * 1000.0);
+                for &ms in &c.ms {
+                    if ms >= b { break; }
+                    if ms < a { continue; }
+                    let st = ms / 1000.0 - c.offset;
+                    let at = ((c.start + (st - c.inn) / c.speed - t0) * rate + 0.5).floor() as i64; // Math.round
+                    for (i, &w) in self.wave.iter().enumerate() {
+                        let k = at + i as i64;
+                        if k < 0 { continue; }
+                        if k >= self.block as i64 { break; }
+                        let g = p + k as u64;
+                        if g < j0 || g >= j0 + n { continue; }
+                        let x = (g - j0) as usize;
+                        l[x] = (l[x] as f64 + w as f64 * c.gain) as f32;
+                        r[x] = (r[x] as f64 + w as f64 * c.gain) as f32;
+                    }
+                }
+            }
+            p += self.block;
+        }
+    }
+}
 
 /// A clip being played: its own reader of the source and a window of source samples.
 struct Live { src: Box<dyn Source>, rate: f64, stereo: bool, from: i64, a: Vec<f32>, b: Vec<f32>, eof: bool }
@@ -117,6 +162,7 @@ fn mix_block(job: &Job, live: &mut [Option<Live>], limiters: &mut [Limiter], j0:
     }
     if job.mix_gain != 1.0 { for i in 0..l.len() { l[i] = (l[i] as f64 * job.mix_gain) as f32; r[i] = (r[i] as f64 * job.mix_gain) as f32; } }
     for lim in limiters.iter_mut() { lim.process(l, r); }
+    job.clicks.add(job.rate, j0, l, r);
     if job.soft {
         let sc = |v: f32| -> f32 { let x = v as f64; if x.abs() > 0.9 { (x.signum() * (0.9 + 0.1 * ((x.abs() - 0.9) / 0.1).tanh())) as f32 } else { v } };
         for i in 0..l.len() { l[i] = sc(l[i]); r[i] = sc(r[i]); }
@@ -428,7 +474,7 @@ mod tests {
         write_wav(&src, 48000, 48000, |i, c| if c == 0 { (i as f64 * 0.01).sin() * 0.5 } else { 0.25 });
         let n = 48000u64;
         let segs = n.div_ceil(256) as usize;
-        let job = Job { rate: 48000.0, total: n, mix_gain: 1.0, limiters: vec![], soft: true, sources: vec![src.to_str().unwrap().into()],
+        let job = Job { rate: 48000.0, total: n, mix_gain: 1.0, limiters: vec![], soft: true, clicks: Clicks::default(), sources: vec![src.to_str().unwrap().into()],
             plans: vec![Plan { src: 0, first: 0, last: n, s0: 0.0, speed: 1.0, env: vec![1.0; (segs + 2) * 2] }] };
         let mut sink: Box<dyn Sink> = Box::new(WavSink::create(out.to_str().unwrap(), 48000).unwrap());
         run(&job, sink.as_mut(), |_| {}).unwrap();
@@ -453,7 +499,7 @@ mod tests {
         for f in [&wav, &m4a] { std::fs::remove_file(f).ok(); }
         write_wav(&src, 48000, 48000 * 5, |i, c| { let t = i as f64 / 48000.0; 0.4 * (2.0 * std::f64::consts::PI * (330.0 + 110.0 * c as f64) * t).sin() * if t < 2.5 { 1.0 } else { 0.2 } });
         let n = 48000u64 * 5;
-        let job = Job { rate: 48000.0, total: n, mix_gain: 1.0, limiters: vec![(0.891, 0.9997)], soft: true, sources: vec![src.to_str().unwrap().into()],
+        let job = Job { rate: 48000.0, total: n, mix_gain: 1.0, limiters: vec![(0.891, 0.9997)], soft: true, clicks: Clicks::default(), sources: vec![src.to_str().unwrap().into()],
             plans: vec![Plan { src: 0, first: 0, last: n, s0: 0.0, speed: 1.0, env: vec![0.9; ((n.div_ceil(256) + 2) * 2) as usize] }] };
         let mut a: Box<dyn Sink> = Box::new(WavSink::create(wav.to_str().unwrap(), 48000).unwrap());
         run(&job, a.as_mut(), |_| {}).unwrap(); a.finish().unwrap();

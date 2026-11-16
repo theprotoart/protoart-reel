@@ -5,7 +5,7 @@ import { renderPending } from './trackplugins.js';
 import { can } from './capability.js';
 import { pref } from './prefs.js';
 import { el, modal, toast, selectRow, promptText } from './ui.js';
-import { duration, fmtTime, clipEnd, toSRT } from './model.js';
+import { duration, fmtTime, clipEnd, toSRT, mediaById } from './model.js';
 import { masterOf, openMaster, LOUDNESS, mixToFile, addMasterPlugin } from './master-ui.js';
 import { LOUDNESS_TARGETS } from './lib/master.js';
 import { builtInPresets, GROUPS, QUALITY, SIZE_LIMITS, presetFps, videoBitrate, fromHandBrake } from './lib/exportpresets.js';
@@ -204,8 +204,17 @@ export function openExport(app) {
     let masterFile = null; const temps = [];
     const cleanup = () => { for (const t of temps) app.api.fxRemoveTemp(app.token, t); };
     // sound only with just a loudness target (no built-in master, no plug-ins): the Rust core measures and writes it
+    // the recorded clicks of clips that play click sounds, for the core to add them (read from the cursor files)
+    const cursors = new Map();
+    if (SOUND.has(s.codec) && app.api.coreMixExport) {
+      for (const c of doc.clips.filter(x => x.cursor?.clickSound > 0 && !x.audio?.mute)) {
+        const cm = mediaById(doc, c.media);
+        if (!cm?.cursor || cursors.has(cm.id)) continue;
+        try { cursors.set(cm.id, await (await fetch(`app://reel/m/${app.token}/${encodeURIComponent(cm.cursor)}`)).json()); } catch { /* the JavaScript export then */ }
+      }
+    }
     const rustLoud = SOUND.has(s.codec) && loud != null && !m.on && !plugChain.length && !!app.api.coreMixExport
-      && !!exportMixJob(doc, from, to, { codec: 'wav', loudness: loud, ceiling: m.ceiling }).job;
+      && !!exportMixJob(doc, from, to, { codec: 'wav', loudness: loud, ceiling: m.ceiling, cursors }).job;
     if (!anim && !rustLoud && (m.on || plugChain.length || loud != null)) {
       try {
         status.textContent = 'Mixing and mastering the sound…';
@@ -225,7 +234,7 @@ export function openExport(app) {
     if (SOUND.has(s.codec) && masterFile) usual = loud != null && !m.on && !plugChain.length ? 'what this project uses (see below)' : 'the built-in master or master plug-ins';
     if (SOUND.has(s.codec) && !masterFile && !app.api.coreMixExport) usual = 'this build has no Rust core';
     if (SOUND.has(s.codec) && !masterFile && app.api.coreMixExport) {
-      const plan = exportMixJob(doc, from, to, { codec: s.codec === 'wav' ? 'wav' : 'aac', bitrate: s.abr ? s.abr * 1000 : Number(pref('audioBitrate')) || 192000, loudness: rustLoud ? loud : null, ceiling: m.ceiling });
+      const plan = exportMixJob(doc, from, to, { codec: s.codec === 'wav' ? 'wav' : 'aac', bitrate: s.abr ? s.abr * 1000 : Number(pref('audioBitrate')) || 192000, loudness: rustLoud ? loud : null, ceiling: m.ceiling, cursors });
       if (!plan.job) usual = plan.why;
       if (plan.job) {
         status.textContent = 'Mixing the sound…';

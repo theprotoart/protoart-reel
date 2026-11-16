@@ -5,6 +5,7 @@
 // the two give the same sound. Pure functions.
 import { sourceTime, gainAt, panAt, panGains, spanStart, spanEnd, mediaById, duration as docDuration } from '../model.js';
 import { FX_TYPES } from './trackfx.js';
+import { clickSample } from './click.js';
 
 export const SEG = 256;
 
@@ -75,7 +76,7 @@ export const pcm24 = v => Math.max(-8388608, Math.min(8388607, Math.round(Math.m
  * file names), plans }, or { why } when the project uses something only the JavaScript export does so far (track
  * or mix-bus effects other than the limiter, sped-up clips that keep their pitch, time maps, click sounds).
  */
-export function exportMixJob(doc, from, to, { codec, bitrate, rate = 48000, loudness = null, ceiling = -1 }) {
+export function exportMixJob(doc, from, to, { codec, bitrate, rate = 48000, loudness = null, ceiling = -1, cursors = null }) {
   const start = Math.max(0, from || 0), end = Math.min(docDuration(doc), to || Infinity);
   if (!(end > start)) return { why: 'nothing to export' };
   const used = doc.clips.filter(c => c.type === 'media' && !c.disabled && spanStart(c) < end && spanEnd(c) > start);
@@ -87,7 +88,10 @@ export function exportMixJob(doc, from, to, { codec, bitrate, rate = 48000, loud
   // the limiter's numbers worked out here exactly as trackfx.js does, so both sides use the very same values
   const limiters = bus.map(f => { const p = { ...FX_TYPES.limiter.defaults, ...(f.params || {}) }; return { ceil: 10 ** (p.ceiling / 20), rel: Math.exp(-1 / Math.max(1, (p.release / 1000) * rate)) }; });
   if (heard.some(c => c.retime || ((c.speed || 1) !== 1 && c.audio?.keepPitch !== false))) return { why: 'speed changes that keep pitch' };
-  if (used.some(c => c.cursor?.clickSound > 0 && !c.audio?.mute)) return { why: 'click sounds' };
+  // click sounds: the presses recorded with the screen (cursors: media id → its cursor file, loaded by the caller)
+  const clickers = used.filter(c => c.cursor?.clickSound > 0 && !c.audio?.mute);
+  if (clickers.some(c => c.retime)) return { why: 'click sounds on a clip with a time map' };
+  if (clickers.some(c => !cursors?.get(c.media)?.clicks)) return { why: 'click sounds' };
   const total = Math.floor((end - start) * rate), sources = [], index = new Map(), plans = [];
   for (const c of heard) {
     const m = mediaById(doc, c.media), file = c.fx && c.fx.file && !c.fx.bypass ? c.fx.file : m.file;
@@ -99,5 +103,11 @@ export function exportMixJob(doc, from, to, { codec, bitrate, rate = 48000, loud
   // a loudness target: the core measures the mix and turns it to the target, then the true-peak limiter (instead of
   // the soft limit), with the very numbers the JavaScript master path uses (lib/master.js, export-worker.js)
   const loud = loudness == null ? null : { target: loudness, ceil: Math.pow(10, (ceiling ?? -1) / 20), rel: Math.exp(-1 / (0.08 * rate)), look: Math.round(rate * 0.0015), measure: Math.round((end - start) * rate) };
-  return { job: { rate, total, mixGain: doc.mixGain ? 10 ** (doc.mixGain / 20) : 1, limiters, soft: !loud, codec, bitrate, sources, plans, ...(loud ? { loud } : {}) } };
+  // export-worker.js adds them block by block (1024 frames; 8192 in the mix pass that's measured for loudness)
+  const clicks = clickers.length ? { start, block: loud ? 8192 : 1024, wave: clickSample(rate), clips: clickers.map(c => {
+    const m = mediaById(doc, c.media), data = cursors.get(c.media);
+    return { start: c.start, in: c.in || 0, speed: c.speed || 1, end: c.start + c.duration, offset: m?.cursorOffset || 0, gain: c.cursor.clickSound,
+      ms: Float64Array.from(data.clicks.filter(k => k[1] !== 'u').map(k => k[0])) };
+  }) } : null;
+  return { job: { rate, total, mixGain: doc.mixGain ? 10 ** (doc.mixGain / 20) : 1, limiters, soft: !loud, codec, bitrate, sources, plans, ...(loud ? { loud } : {}), ...(clicks ? { clicks } : {}) } };
 }

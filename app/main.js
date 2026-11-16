@@ -1413,13 +1413,21 @@ handle('core:mixExport', async (id, token, job) => {
   if (!codec || ![44100, 48000].includes(job.rate) || !(job.total > 0) || !Number.isFinite(job.mixGain)) throw new Error('Bad mix');
   if (!Array.isArray(job.limiters) || job.limiters.length > 16 || job.limiters.some(l => !(l && l.ceil > 0 && l.ceil <= 4 && l.rel >= 0 && l.rel < 1))) throw new Error('Bad limiter');
   for (const pl of job.plans) if (!(pl && Number.isInteger(pl.src) && pl.src >= 0 && pl.src < sources.length && pl.env instanceof Float32Array)) throw new Error('Bad clip plan');
+  // what each newer part of the core needs: a loudness target 0.6, click sounds 0.7; an older core isn't asked
+  const needs = job.clicks != null ? 7 : job.loud != null ? 6 : 0;
+  if (job.clicks != null) {
+    const k = job.clicks;
+    if (!(k && Number.isFinite(k.start) && Number.isInteger(k.block) && k.block >= 1 && k.block <= 65536 && k.wave instanceof Float32Array && k.wave.length <= 48000 && Array.isArray(k.clips) && k.clips.length <= 2000
+      && k.clips.every(c => c && [c.start, c.in, c.end, c.offset, c.gain].every(Number.isFinite) && c.speed > 0 && c.speed < 100 && (c.ms instanceof Float64Array || Array.isArray(c.ms)) && c.ms.length <= 1e6))) throw new Error('Bad clicks');
+  }
+  if (needs) {
+    coreVersion ??= core.version();
+    const v = String((await coreVersion) || '0').split('.').map(Number);
+    if (v[0] === 0 && (v[1] || 0) < needs) return null;
+  }
   if (job.loud != null) {
     const L = job.loud;
     if (!(L && L.target > -70 && L.target < 0 && L.ceil > 0 && L.ceil <= 1 && L.rel >= 0 && L.rel < 1 && Number.isInteger(L.look) && L.look >= 1 && L.look <= 4800 && L.measure > 0)) throw new Error('Bad loudness target');
-    // a loudness target needs reel-core 0.6 or newer; an older one isn't asked (the JavaScript export does it)
-    coreVersion ??= core.version();
-    const v = String((await coreVersion) || '0').split('.').map(Number);
-    if (v[0] === 0 && (v[1] || 0) < 6) return null;
   }
   const tmp = `${h.dst}.${process.pid}.core.tmp`;
   await fs.promises.rm(tmp, { force: true });

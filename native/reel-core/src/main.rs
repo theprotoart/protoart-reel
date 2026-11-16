@@ -14,7 +14,8 @@
 //! Every count is checked against what's left of the input, so a bad job is refused, never trusted.
 //! mix body: rate f64 · total u64 · mix gain f64 · limiters u32 + (ceiling f64, release f64) each · soft limit u8 · codec u8 (0 WAV, 1 AAC) · bitrate u32 · output
 //!   path · sources u32 + paths · plans u32, each: source u32 · first u64 · last u64 · s0 f64 · speed f64 ·
-//!   envelope u32 + that many f32. Writes the export's sound to the output path (a new file) and prints
+//!   envelope u32 + that many f32; then (0.7, optional) click sounds: export start f64 · block u32 · click sound u32 +
+//!   f32s · clips u32, each start, in, speed, end, offset, gain (f64) · presses u32 + ms f64s. Writes the export's sound to the output path (a new file) and prints
 //!   {"progress":…} lines on the way. Paths are u32 length + UTF-8.
 //! mixloud body: target LUFS f64 · ceiling gain f64 · release f64 · look-ahead u32 · frames to measure u64, then a mix
 //!   body. Measures the mix, turns it to the target and true-peak limits it (lib/master.js); answers the loudness.
@@ -169,7 +170,24 @@ fn mix_job(inp: &mut Input, loudness: bool) -> Result<String, String> {
         if env.len() < ((last - first).div_ceil(256) as usize + 2) * 2 || env.iter().any(|v| !v.is_finite()) { return Err("a clip's volume plan is too short".into()); }
         plans.push(mix::Plan { src, first, last, s0, speed, env });
     }
-    let job = mix::Job { rate, total, mix_gain, limiters, soft, sources, plans };
+    // click sounds (0.7): the export's start, the JavaScript's block size, the click sound, then each clip's clicks
+    let mut clicks = mix::Clicks::default();
+    if inp.at < inp.b.len() {
+        clicks.start = inp.f64()?;
+        clicks.block = inp.u32()? as u64;
+        let nw = inp.count(4)?;
+        clicks.wave = inp.f32s(nw)?;
+        let nc = inp.count(56)?;
+        for _ in 0..nc {
+            let (start, inn, speed, end, offset, gain) = (inp.f64()?, inp.f64()?, inp.f64()?, inp.f64()?, inp.f64()?, inp.f64()?);
+            let nm = inp.count(8)?;
+            let ms = (0..nm).map(|_| inp.f64()).collect::<Result<Vec<_>, _>>()?;
+            if !(speed > 0.0 && speed < 100.0) || ![start, inn, end, offset, gain].iter().all(|v| v.is_finite()) || ms.iter().any(|v| !v.is_finite()) { return Err("bad click plan".into()); }
+            clicks.clips.push(mix::ClickClip { start, inn, speed, end, offset, gain, ms });
+        }
+        if !(1..=65536).contains(&clicks.block) || clicks.wave.len() > 48000 || clicks.wave.iter().any(|v| !v.is_finite()) || !clicks.start.is_finite() { return Err("bad click plan".into()); }
+    }
+    let job = mix::Job { rate, total, mix_gain, limiters, soft, sources, plans, clicks };
     let mut sink: Box<dyn mix::Sink> = match codec {
         0 => Box::new(mix::WavSink::create(&out, rate as u32)?),
         #[cfg(target_os = "macos")]

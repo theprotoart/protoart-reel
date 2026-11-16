@@ -199,6 +199,61 @@ test('reel-core mixes a sound-only export the same as the JavaScript export, to 
   } finally { fs.rmSync(dir, { recursive: true, force: true }); }
 });
 
+test('reel-core adds click sounds the same as the JavaScript export, to the 24-bit sample', { skip }, async t => {
+  const { clicksBetween } = await import('../app/renderer/cursor.js');
+  const { clickSample } = await import('../app/renderer/lib/click.js');
+  const { sourceTime } = await import('../app/renderer/model.js');
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'reel-clicks-'));
+  try {
+    writeWav(path.join(dir, 'voice.wav'), { rate: 48000, channels: 2, bits: 16, frames: 48000 * 8, sample: (i, c) => 0.2 * Math.sin(i * (c ? 0.031 : 0.027)) });
+    writeWav(path.join(dir, 'music.wav'), { rate: 44100, channels: 1, bits: 24, frames: 44100 * 9, sample: i => 0.2 * Math.sin(i * 0.011) });
+    const doc = mixDoc();
+    // a screen clip (no sound of its own) with recorded clicks, cut, sped up a little and quieter
+    doc.media.push({ id: 'scr', kind: 'video', file: 'screen.mov', cursor: 'cur.json', cursorOffset: 0.37 });
+    doc.clips.push({ id: 's1', type: 'media', media: 'scr', track: 't3', start: 0.1, in: 1.2, duration: 3.1, speed: 1, cursor: { clickSound: 0.8 } },
+      { id: 's2', type: 'media', media: 'scr', track: 't3', start: 3.2, in: 6, duration: 3.5, speed: 1.5, cursor: { clickSound: 0.5 } });
+    const clicks = []; for (let ms = 300; ms < 13000; ms += 137 + (ms % 7) * 31) { clicks.push([ms, 'd']); clicks.push([ms + 60, 'u']); }
+    const cursors = new Map([['scr', { clicks }]]);
+    const from = 0.3, to = 6.9;
+    const { job, why } = exportMixJob(doc, from, to, { codec: 'wav', bitrate: 192000, cursors });
+    assert.ok(job && job.clicks && job.clicks.clips.length === 2, why);
+    // export-worker.js: per 1024-frame block, mixBlock → gain → mix bus → click sounds → softClip → 24-bit
+    const RATE = 48000, BLOCK = 1024, chain = new FxChain(RATE).setup(doc.mixFx), CLICK = clickSample(RATE);
+    const srcs = await Promise.all(job.sources.map(f => jsAudio(path.join(dir, f))));
+    const want = Buffer.alloc(job.total * 6);
+    const clickClips = doc.clips.filter(c => c.cursor?.clickSound > 0);
+    let heard = 0;
+    for (let pos = 0, o = 0; pos < job.total; pos += BLOCK) {
+      const n = BLOCK, L = new Float32Array(n), R = new Float32Array(n), t0 = from + pos / RATE, t1 = t0 + n / RATE;
+      for (const p of job.plans) { const src = srcs[p.src], range = sourceRange(p, pos, n, RATE, src.rate); if (range) mixClip(L, R, pos, n, p, await src.read(range[0], range[1] - range[0]), range[0], RATE, src.rate); }
+      for (let i = 0; i < n; i++) { L[i] *= job.mixGain; R[i] *= job.mixGain; }
+      for (let q = 0; q < n; q += 512) chain.process(L.subarray(q, Math.min(n, q + 512)), R.subarray(q, Math.min(n, q + 512)));
+      for (const c of clickClips) {
+        if (c.start + c.duration <= t0 || c.start >= t1) continue;
+        const s0 = sourceTime(c, Math.max(t0 - 0.05, c.start)), s1 = sourceTime(c, Math.min(t1, c.start + c.duration));
+        for (const st of clicksBetween(cursors.get(c.media), 0.37, s0, s1)) {
+          const at = Math.round((c.start + (st - (c.in || 0)) / (c.speed || 1) - t0) * RATE), g = c.cursor.clickSound;
+          heard++;
+          for (let i = Math.max(0, -at); i < CLICK.length && at + i < n; i++) { L[at + i] += CLICK[i] * g; R[at + i] += CLICK[i] * g; }
+        }
+      }
+      softClip(L, R);
+      const k = Math.min(n, job.total - pos);
+      for (let i = 0; i < k; i++) for (const v of [L[i], R[i]]) want.writeIntLE(pcm24(v), (o++) * 3, 3);
+    }
+    srcs.forEach(a => a.close());
+    assert.ok(heard > 20, `enough clicks to test (${heard})`);
+    const out = path.join(dir, 'out.wav');
+    await core.mix({ ...job, sources: job.sources.map(f => path.join(dir, f)) }, out, () => {});
+    const got = fs.readFileSync(out);
+    assert.equal(got.length, 44 + want.length);
+    let diff = 0, worst = 0;
+    for (let i = 0; i < job.total * 2; i++) { const a = got.readIntLE(44 + i * 3, 3), b = want.readIntLE(i * 3, 3); if (a !== b) { diff++; worst = Math.max(worst, Math.abs(a - b)); } }
+    assert.ok(worst <= 1 && diff < job.total * 2 * 1e-4, `${diff} samples differ, by up to ${worst}`);
+    t.diagnostic(`${heard} clicks; ${diff} of ${job.total * 2} samples differ (by up to ${worst})`);
+  } finally { fs.rmSync(dir, { recursive: true, force: true }); }
+});
+
 test('reel-core exports to a loudness target the same as the JavaScript master path, to the 24-bit sample', { skip }, async t => {
   const { LoudnessMeter, TruePeakLimiter } = await import('../app/renderer/lib/master.js');
   const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'reel-loud-'));

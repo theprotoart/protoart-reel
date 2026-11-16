@@ -122,6 +122,17 @@ async function mix(job, out, onProgress) {
     u32(p.src); u64(p.first); u64(p.last); f64(p.s0); f64(p.speed); u32(p.env.length);
     parts.push(Buffer.from(p.env.buffer, p.env.byteOffset, p.env.byteLength));
   }
+  if (job.clicks) { // click sounds (reel-core 0.7)
+    const k = job.clicks;
+    if (!(k.wave instanceof Float32Array)) throw new Error('Bad clicks');
+    f64(k.start); u32(k.block); u32(k.wave.length); parts.push(Buffer.from(k.wave.buffer, k.wave.byteOffset, k.wave.byteLength));
+    u32(k.clips.length);
+    for (const c of k.clips) {
+      for (const v of [c.start, c.in, c.speed, c.end, c.offset, c.gain]) f64(+v);
+      const ms = c.ms instanceof Float64Array ? c.ms : Float64Array.from(c.ms || []);
+      u32(ms.length); parts.push(Buffer.from(ms.buffer, ms.byteOffset, ms.byteLength));
+    }
+  }
   return run(Buffer.concat(parts), { timeout: 4 * 3600000, onProgress });
 }
 
