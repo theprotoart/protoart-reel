@@ -6,7 +6,7 @@ import { uid, removeRange } from './model.js';
 import { teachFromTimeline, notAnUm } from './umvoice.js';
 
 export const WORDS = [['umm', 'um'], ['uh', 'uh']];
-const FILLERS = new Set(['umm', 'uh']); // what's cut by default; your own sounds (breath, sneeze…) are kept unless you cut them
+const FILLERS = new Set(['umm', 'uh']); // the built-in ones (your own sounds are added after them)
 
 /** The sounds Reel can learn: um, uh and the ones you named (kept on this Mac). [[word, label]] */
 export function soundWords() {

@@ -19,7 +19,8 @@
 - **No more clicks at cuts**: every clip's sound starts and ends with a tiny 6 ms fade (in playback and export), and
   in playback a clip leaving the playhead fades out in a few ms instead of stopping dead.
 - **Teach Reel other sounds**: besides um and uh, name your own (breath, sneeze, cough, lip smack…) in the
-  trainer's list or a filler's right-click menu. They're listed in 💬 UMS as KEEP; Auto Edit still only cuts ums.
+  trainer's list or a filler's right-click menu. Like ums, they're marked CUT in 💬 UMS (REMOVE cuts them) and Auto
+  Edit cuts them; set any one to KEEP to leave it in.
 - **Long recordings come back faster**: STOP brings the editor back at once with "Saving your N-minute
   recording…", and the recording is rewritten in large reads (a few hundred, not one per frame).
 - The tape reels turn counterclockwise, as on a real deck.
