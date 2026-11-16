@@ -607,7 +607,12 @@ function drawText(ctx, c, p, local, W, H, sx) {
     case 'fade': alpha *= Math.min(kin, kout); break;
     case 'slide': alpha *= Math.min(kin, kout); dy = (1 - Math.min(kin, kout)) * 40 * sx; break;
     case 'pop': { const k = Math.min(kin, kout); scale *= k < 1 ? 0.6 + 0.4 * (1 - (1 - k) ** 3) + Math.sin(k * Math.PI) * 0.08 : 1; alpha *= Math.min(1, k * 2); break; }
-    case 'typewriter': { const n = Math.floor(clamp(local / Math.max(0.3, Math.min(c.duration * 0.6, content.length * 0.05)), 0, 1) * content.length); content = content.slice(0, n); alpha *= kout; break; }
+    case 'typewriter': {
+      const vis = content.replace(/\*/g, '').length, n = Math.floor(clamp(local / Math.max(0.3, Math.min(c.duration * 0.6, vis * 0.05)), 0, 1) * vis);
+      let seen = 0, out = ''; for (const ch of content) { if (ch !== '*') { if (seen >= n) break; seen++; } out += ch; }
+      content = (out.split('*').length % 2 === 0) ? out + '*' : out; // close an accent that's half typed
+      alpha *= kout; break;
+    }
     default: break;
   }
   if (alpha <= 0.001) return;
@@ -619,7 +624,7 @@ function drawText(ctx, c, p, local, W, H, sx) {
   ctx.font = textFont(tx, sx);
   ctx.textBaseline = 'middle';
   const maxW = Math.max(40, (tx.width || 0.8) * W);
-  const lines = wrap(ctx, content, maxW);
+  const lines = wrap(ctx, content.replace(/\*/g, ''), maxW);
   const lh = (tx.size || 72) * sx * (tx.lineHeight || 1.15);
   const widths = lines.map(l => ctx.measureText(l).width);
   const boxW = Math.max(...widths, 1), boxH = lh * lines.length;
@@ -646,7 +651,9 @@ function drawText(ctx, c, p, local, W, H, sx) {
     ctx.fillText(str, x, y);
     ctx.shadowColor = 'transparent';
   };
-  if (CHAR_ANIMS[tx.anim]) {
+  if (RICH_ANIMS[tx.anim] || hasAccent(content)) {
+    drawRich(ctx, tx, content, maxW, local, c.duration, ad, alpha, sx, paint, H * 0.82);
+  } else if (CHAR_ANIMS[tx.anim]) {
     drawCharAnim(ctx, tx, lines, widths, boxW, boxH, lh, align, local, c.duration, ad, alpha, sx, paint);
   } else {
     lines.forEach((l, i) => paint(l, ax, -boxH / 2 + lh * (i + 0.5)));
@@ -669,7 +676,32 @@ const CHAR_ANIMS = {
 export const TEXT_ANIMS = [['none', 'None'], ['fade', 'Fade'], ['slide', 'Slide up'], ['pop', 'Pop'], ['typewriter', 'Typewriter'],
   ['build', 'Build (word by word)'], ['buildScale', 'Build scale'], ['fadeChars', 'Fade letters'], ['flip', 'Character flip'],
   ['gravity', 'Gravity'], ['moveIntoPlace', 'Move into place'], ['breakApart', 'Break apart'], ['bounce', 'Bounce'],
-  ['wave', 'Wave'], ['blurIn', 'Blur in (letters)'], ['scramble', 'Scramble / decode'], ['tracking', 'Tracking in'], ['swing', 'Swing'], ['rollUp', 'Roll up (words)'], ['stampWords', 'Stamp (words)']];
+  ['wave', 'Wave'], ['blurIn', 'Blur in (letters)'], ['scramble', 'Scramble / decode'], ['tracking', 'Tracking in'], ['swing', 'Swing'], ['rollUp', 'Roll up (words)'], ['stampWords', 'Stamp (words)'],
+  ['slam', 'Slam stack'], ['smear', 'Speed smear'], ['slice', 'Slice glitch'], ['shatter', 'Shatter out'], ['neon', 'Neon flicker']];
+
+/** How one letter (or word) of a per-letter animation sits at progress k (0 hidden … 1 in place). */
+function unitMotion(anim, k, i, u, local, dur, size, alpha) {
+  let a = alpha, dx = 0, dy = 0, sc = 1, scY = 1, rot = 0, blur = 0, str = u.str;
+  switch (anim) {
+      case 'build': a *= k; dy = (1 - easeOut(k)) * size * 0.5; break;
+      case 'buildScale': a *= Math.min(1, k * 2); sc = easeOut(k); break;
+      case 'fadeChars': a *= k; break;
+      case 'flip': scY = Math.max(0.02, Math.sin(easeOut(k) * Math.PI / 2)); a *= Math.min(1, k * 3); break;
+      case 'gravity': dy = -(1 - easeBounce(k)) * size * 6; a *= Math.min(1, k * 4); break;
+      case 'moveIntoPlace': { const e = easeOut(k); dx = (rnd(i, 1) - 0.5) * size * 8 * (1 - e); dy = (rnd(i, 2) - 0.5) * size * 5 * (1 - e); a *= Math.min(1, k * 2); break; }
+      case 'breakApart': { const e = easeOut(k); dx = (rnd(i, 3) - 0.5) * size * 10 * (1 - e); dy = (rnd(i, 4) - 0.2) * size * 7 * (1 - e); rot = (rnd(i, 5) - 0.5) * Math.PI * 2 * (1 - e); a *= k; break; }
+      case 'bounce': sc = easeElastic(k); a *= Math.min(1, k * 3); break;
+      case 'wave': dy = Math.sin(local * 6 - i * 0.55) * size * 0.12 * (1 - Math.min(1, local / Math.max(0.6, dur * 0.6))) - (1 - easeOut(k)) * size * 0.4; a *= Math.min(1, k * 2); break;
+      case 'blurIn': a *= k; blur = (1 - k) * size * 0.25; sc = 1 + (1 - k) * 0.3; break;
+      case 'scramble': a *= Math.min(1, k * 3); if (k < 1) { const pool = 'ABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789#%&*'; str = [...u.str].map((ch, j) => (/\s/.test(ch) ? ch : pool[Math.floor(rnd(i * 31 + j, Math.floor(local * 24)) * pool.length)])).join(''); } break;
+      case 'tracking': dx = (u.x + u.w / 2) * (1 - easeOut(k)) * 0.8; a *= k; break;
+      case 'swing': rot = (1 - easeElastic(k)) * 0.9; a *= Math.min(1, k * 3); break;
+      case 'rollUp': scY = Math.max(0.02, easeOut(k)); dy = (1 - easeOut(k)) * size * 0.6; a *= k; break;
+      case 'stampWords': sc = 1 + (1 - easeOut(k)) * 1.6; a *= Math.min(1, k * 2.5); break;
+      default: break;
+    }
+  return { a, dx, dy, sc, scY, rot, blur, str };
+}
 
 function drawCharAnim(ctx, tx, lines, widths, boxW, boxH, lh, align, local, dur, ad, alpha, sx, paint) {
   const anim = tx.anim, words = CHAR_ANIMS[anim].words;
@@ -695,25 +727,7 @@ function drawCharAnim(ctx, tx, lines, widths, boxW, boxH, lh, align, local, dur,
     const kin = clamp((local - i * stagger) / ad, 0, 1), kout = clamp((dur - local - (n - 1 - i) * stagger) / ad, 0, 1);
     const k = Math.min(kin, kout);
     if (k <= 0) return;
-    let a = alpha, dx = 0, dy = 0, sc = 1, scY = 1, rot = 0, blur = 0, str = u.str;
-    switch (anim) {
-      case 'build': a *= k; dy = (1 - easeOut(k)) * size * 0.5; break;
-      case 'buildScale': a *= Math.min(1, k * 2); sc = easeOut(k); break;
-      case 'fadeChars': a *= k; break;
-      case 'flip': scY = Math.max(0.02, Math.sin(easeOut(k) * Math.PI / 2)); a *= Math.min(1, k * 3); break;
-      case 'gravity': dy = -(1 - easeBounce(k)) * size * 6; a *= Math.min(1, k * 4); break;
-      case 'moveIntoPlace': { const e = easeOut(k); dx = (rnd(i, 1) - 0.5) * size * 8 * (1 - e); dy = (rnd(i, 2) - 0.5) * size * 5 * (1 - e); a *= Math.min(1, k * 2); break; }
-      case 'breakApart': { const e = easeOut(k); dx = (rnd(i, 3) - 0.5) * size * 10 * (1 - e); dy = (rnd(i, 4) - 0.2) * size * 7 * (1 - e); rot = (rnd(i, 5) - 0.5) * Math.PI * 2 * (1 - e); a *= k; break; }
-      case 'bounce': sc = easeElastic(k); a *= Math.min(1, k * 3); break;
-      case 'wave': dy = Math.sin(local * 6 - i * 0.55) * size * 0.12 * (1 - Math.min(1, local / Math.max(0.6, dur * 0.6))) - (1 - easeOut(k)) * size * 0.4; a *= Math.min(1, k * 2); break;
-      case 'blurIn': a *= k; blur = (1 - k) * size * 0.25; sc = 1 + (1 - k) * 0.3; break;
-      case 'scramble': a *= Math.min(1, k * 3); if (k < 1) { const pool = 'ABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789#%&*'; str = /\s/.test(u.str) ? u.str : pool[Math.floor(rnd(i, Math.floor(local * 24)) * pool.length)]; } break;
-      case 'tracking': dx = (u.x + u.w / 2) * (1 - easeOut(k)) * 0.8; a *= k; break;
-      case 'swing': rot = (1 - easeElastic(k)) * 0.9; a *= Math.min(1, k * 3); break;
-      case 'rollUp': scY = Math.max(0.02, easeOut(k)); dy = (1 - easeOut(k)) * size * 0.6; a *= k; break;
-      case 'stampWords': sc = 1 + (1 - easeOut(k)) * 1.6; a *= Math.min(1, k * 2.5); break;
-      default: break;
-    }
+    const { a, dx, dy, sc, scY, rot, blur, str } = unitMotion(anim, k, i, u, local, dur, size, alpha);
     if (a <= 0.001) return;
     ctx.save();
     ctx.globalAlpha = a;
@@ -725,6 +739,187 @@ function drawCharAnim(ctx, tx, lines, widths, boxW, boxH, lh, align, local, dur,
     paint(str, -u.w / 2, 0);
     ctx.restore();
   });
+}
+
+// ------------------------------------------------------------------ rich titles: accent words and the bold kinetic looks
+// Write a word between stars (*open.*) and it's the accent: in the accent colour, an italic serif, a highlight box or
+// a pill (tx.accent: 'color' | 'serif' | 'box' | 'pill'; tx.accentColor). The kinetic looks lay the title out word by
+// word: Slam stack (each line sized to fill the width, slamming in one by one), Speed smear (words shoot in with
+// motion streaks and a glowing line under them) and Slice glitch (the title cut into strips that slide and snap).
+const RICH_ANIMS = { slam: 1, smear: 1, slice: 1, shatter: 1, neon: 1 };
+export const hasAccent = s => /\*[^*\n]+\*/.test(String(s || ''));
+const expoOut = k => (k >= 1 ? 1 : 1 - 2 ** (-10 * k));
+
+/** Lays out "words with *accents*" into lines: [{ words: [{ str, accent, w, x }], w, s }] (s: the line's scale). */
+function richLayout(ctx, tx, content, maxW, sx, fit) {
+  const size = (tx.size || 72) * sx, base = textFont(tx, sx);
+  const accentFont = tx.accent === 'serif' ? `italic 500 ${size * 1.04}px "Didot", "Bodoni 72", "Playfair Display", Georgia, serif` : base;
+  const out = [];
+  for (const para of content.split('\n')) {
+    // tokens: words, each marked accent when inside *…*
+    const toks = []; let acc = false;
+    for (const part of para.split(/(\*)/)) {
+      if (part === '*') { acc = !acc; continue; }
+      for (const w of part.split(/\s+/)) if (w) toks.push({ str: w, accent: acc });
+    }
+    ctx.font = base; const space = ctx.measureText(' ').width;
+    let line = { words: [], w: 0 };
+    const push = () => { if (line.words.length) out.push(line); line = { words: [], w: 0 }; };
+    for (const t of toks) {
+      ctx.font = t.accent ? accentFont : base;
+      const w = ctx.measureText(t.str).width + (t.accent && (tx.accent === 'pill' || tx.accent === 'box') ? size * 0.5 : 0);
+      if (!fit && line.words.length && line.w + space + w > maxW) push();
+      line.words.push({ ...t, w, font: t.accent ? accentFont : base, x: line.w + (line.words.length ? space : 0) });
+      line.w = line.words[line.words.length - 1].x + w;
+    }
+    push();
+  }
+  // Slam stack: every line scaled to fill the width (short lines get big), never smaller than the text size
+  for (const l of out) l.s = fit ? clamp(maxW / Math.max(1, l.w), 1, 3.2) : 1;
+  return { lines: out, size };
+}
+
+function drawRich(ctx, tx, content, maxW, local, dur, ad, alpha, sx, paint, maxH = Infinity) {
+  const anim = tx.anim, fit = anim === 'slam' && tx.fit !== false;
+  const { lines, size } = richLayout(ctx, tx, content, maxW, sx, fit);
+  if (!lines.length) return;
+  const lhK = tx.lineHeight || 1.15, accentCol = tx.accentColor || '#ff2d3c', align = tx.align || 'center';
+  // a stack taller than the frame shrinks as a whole (short words would otherwise grow off the bottom)
+  if (fit) { const h = lines.reduce((a, l) => a + size * lhK * l.s * 0.98, 0); if (h > maxH) for (const l of lines) l.s *= maxH / h; }
+  const heights = lines.map(l => size * lhK * l.s * (fit ? 0.98 : 1)), total = heights.reduce((a, b) => a + b, 0);
+  // where each line sits (its centre), and each word's centre within the title
+  let y = -total / 2;
+  const units = [];
+  lines.forEach((l, li) => {
+    const lw = l.w * l.s, x0 = align === 'left' ? -maxW / 2 : align === 'right' ? maxW / 2 - lw : -lw / 2, cy = y + heights[li] / 2;
+    l.words.forEach(w => units.push({ ...w, li, s: l.s, cx: x0 + (w.x + w.w / 2) * l.s, cy }));
+    y += heights[li];
+  });
+  const n = units.length, nl = lines.length;
+  const word = (u, extra = {}) => {
+    ctx.save();
+    ctx.translate(u.cx + (extra.dx || 0), u.cy + (extra.dy || 0));
+    if (extra.rot) ctx.rotate(extra.rot);
+    ctx.scale(u.s * (extra.sc || 1) * (extra.scX || 1), u.s * (extra.sc || 1) * (extra.scY || 1));
+    if (extra.blur > 0.3) ctx.filter = `blur(${extra.blur.toFixed(1)}px)`;
+    ctx.globalAlpha = clamp(extra.a ?? alpha, 0, 1);
+    ctx.font = u.font; ctx.textAlign = 'center'; ctx.textBaseline = 'middle';
+    const str = extra.str ?? u.str;
+    if (u.accent && (tx.accent === 'pill' || tx.accent === 'box')) {
+      const h = size * 1.12, w = u.w;
+      ctx.save();
+      if (tx.accent === 'pill') { ctx.fillStyle = 'rgba(255,255,255,0.14)'; ctx.strokeStyle = 'rgba(255,255,255,0.55)'; ctx.lineWidth = Math.max(1, size * 0.04); roundRectPath(ctx, -w / 2, -h / 2, w, h, h / 2); ctx.fill(); ctx.stroke(); }
+      else { ctx.fillStyle = accentCol; ctx.shadowColor = hexA(accentCol, 0.6); ctx.shadowBlur = size * 0.4; roundRectPath(ctx, -w / 2, -h / 2, w, h, size * 0.12); ctx.fill(); }
+      ctx.restore();
+      ctx.fillStyle = tx.accent === 'box' ? '#fff' : tx.color || '#fff';
+      ctx.fillText(str, 0, size * 0.03);
+    } else if (u.accent) {
+      const keep = tx.color; tx.color = accentCol; paint(str, 0, 0); tx.color = keep;
+    } else paint(str, 0, 0);
+    ctx.restore();
+  };
+  ctx.textAlign = 'center';
+
+  if (anim === 'slam') {
+    // one line after another; each comes down from big and lands with a little shake; leaves all together
+    const stagger = Math.min(0.32, (dur * 0.45) / Math.max(1, nl)), kout = clamp((dur - local) / Math.min(0.3, ad), 0, 1);
+    for (const u of units) {
+      const k = clamp((local - u.li * stagger) / Math.min(0.28, ad), 0, 1);
+      if (k <= 0) continue;
+      const land = local - u.li * stagger - Math.min(0.28, ad), shake = land > 0 && land < 0.18 ? Math.sin(land * 90) * size * 0.05 * (1 - land / 0.18) : 0;
+      word(u, { sc: 1 + (1 - expoOut(k)) * 1.6, a: alpha * Math.min(1, k * 4) * kout, dx: shake, dy: -shake * 0.5 });
+    }
+    return;
+  }
+  if (anim === 'smear') {
+    // each word shoots in from the left with streaks; a glowing line runs under each line once it has landed
+    const stagger = Math.min(0.14, (dur * 0.4) / Math.max(1, n)), dist = maxW * 0.9;
+    units.forEach((u, i) => {
+      const kin = clamp((local - i * stagger) / ad, 0, 1), kout = clamp((dur - local - (n - 1 - i) * stagger * 0.4) / ad, 0, 1);
+      if (kin <= 0 || kout <= 0) return;
+      const e = expoOut(kin), off = kout < 1 ? (1 - expoOut(kout)) * dist : -(1 - e) * dist, speed = 1 - Math.min(e, expoOut(kout));
+      for (let g = 4; g >= 1 && speed > 0.04; g--) word(u, { dx: off - Math.sign(off || -1) * g * size * 0.35 * speed, scX: 1 + speed * 1.2, a: alpha * 0.18 * speed * (5 - g) / 4, blur: size * 0.06 * g });
+      word(u, { dx: off, scX: 1 + speed * 0.8, a: alpha * Math.min(1, kin * 3), blur: speed * size * 0.12 });
+    });
+    lines.forEach((l, li) => {
+      const lastI = units.findLastIndex(u => u.li === li), t0 = lastI * stagger + ad * 0.6, k = clamp((local - t0) / 0.5, 0, 1), kout = clamp((dur - local) / ad, 0, 1);
+      if (k <= 0 || kout <= 0) return;
+      const lw = l.w * l.s, x0 = align === 'left' ? -maxW / 2 : align === 'right' ? maxW / 2 - lw : -lw / 2;
+      const yy = units[lastI].cy + size * lhK * l.s * 0.52;
+      ctx.save(); ctx.globalAlpha = alpha * kout * (1 - 0.5 * clamp((local - t0 - 0.5) / 1.5, 0, 1));
+      ctx.shadowColor = accentCol; ctx.shadowBlur = size * 0.5;
+      const g = ctx.createLinearGradient(x0, 0, x0 + lw, 0); g.addColorStop(0, hexA(accentCol, 0)); g.addColorStop(0.5, accentCol); g.addColorStop(1, hexA(accentCol, 0));
+      ctx.fillStyle = g; ctx.fillRect(x0 - lw * 0.1, yy - size * 0.03, (lw * 1.2) * expoOut(k), size * 0.06);
+      ctx.restore();
+    });
+    return;
+  }
+  if (anim === 'slice') {
+    // the whole title in horizontal strips that slide apart and snap together, with a red/cyan split while moving
+    const kin = clamp(local / (ad * 1.4), 0, 1), kout = clamp((dur - local) / ad, 0, 1), k = Math.min(kin, kout);
+    if (k <= 0) return;
+    const glitch = 1 - expoOut(k), strips = 9, top = -total / 2, sh = total / strips, frame = Math.floor(local * 20);
+    const all = (a, dx, tint) => { for (const u of units) { if (tint) { const keep = tx.color; tx.color = tint; word(u, { a, dx }); tx.color = keep; } else word(u, { a, dx }); } };
+    for (let si = 0; si < strips; si++) {
+      const off = (rnd(si, frame) - 0.5) * maxW * 0.5 * glitch;
+      ctx.save(); ctx.beginPath(); ctx.rect(-maxW, top + si * sh, maxW * 2, sh + 0.5); ctx.clip();
+      if (glitch > 0.04) {
+        ctx.globalCompositeOperation = 'lighter';
+        all(alpha * 0.7 * glitch, off + size * 0.08 * glitch, '#ff2040');
+        all(alpha * 0.7 * glitch, off - size * 0.08 * glitch, '#20e0ff');
+        ctx.globalCompositeOperation = 'source-over';
+      }
+      all(alpha * Math.min(1, k * 2.5), off);
+      ctx.restore();
+    }
+    return;
+  }
+  if (anim === 'shatter') {
+    // comes in with a hard pop; leaves by breaking: each word cut into shards that fly apart, spin and fade
+    const kin = clamp(local / Math.min(0.25, ad), 0, 1), kout = clamp((dur - local) / (ad * 1.6), 0, 1);
+    if (kin <= 0) return;
+    const COLS = 4, ROWS = 3, brk = 1 - easeOut(kout);
+    units.forEach((u, i) => {
+      if (brk <= 0.001) { word(u, { sc: 1 + (1 - expoOut(kin)) * 0.5, a: alpha * Math.min(1, kin * 3) }); return; }
+      const w = u.w * u.s, h = size * 1.2 * u.s;
+      for (let r = 0; r < ROWS; r++) for (let q = 0; q < COLS; q++) {
+        const j = i * 97 + r * COLS + q, fx = (q + 0.5) / COLS - 0.5, fy = (r + 0.5) / ROWS - 0.5;
+        const dx = (fx * 2 + (rnd(j, 11) - 0.5)) * size * 4 * brk, dy = (fy * 2 + (rnd(j, 12) - 0.3)) * size * 3 * brk + brk * brk * size * 3;
+        ctx.save();
+        ctx.translate(u.cx + fx * w + dx, u.cy + fy * h + dy); ctx.rotate((rnd(j, 13) - 0.5) * 3 * brk); ctx.translate(-(u.cx + fx * w), -(u.cy + fy * h));
+        ctx.beginPath(); ctx.rect(u.cx - w / 2 + q * w / COLS, u.cy - h / 2 + r * h / ROWS, w / COLS + 0.5, h / ROWS + 0.5); ctx.clip();
+        word(u, { a: alpha * (1 - brk) });
+        ctx.restore();
+      }
+    });
+    return;
+  }
+  if (anim === 'neon') {
+    // glowing tube letters that stutter on, then hum; the glow is the accent colour
+    const glow = tx.accentColor || '#ff6a1a', frame = Math.floor(local * 30), kout = clamp((dur - local) / ad, 0, 1);
+    const on = local > ad * 1.5 ? 1 : rnd(frame, 21) < clamp(local / (ad * 1.5), 0, 1) ? 1 : 0.08;
+    const hum = 0.92 + 0.08 * Math.sin(local * 13) * Math.sin(local * 3.1);
+    const a = alpha * kout * (on > 0.5 ? hum : on);
+    if (a <= 0.001) return;
+    const keep = { c: tx.color, sh: tx.shadow };
+    tx.shadow = 0;
+    for (const [blur, aa] of [[size * 0.9, 0.55], [size * 0.35, 0.8]]) { ctx.save(); ctx.shadowColor = glow; ctx.shadowBlur = blur; tx.color = glow; for (const u of units) word(u, { a: a * aa }); ctx.restore(); }
+    tx.color = keep.c || '#fff8ee'; for (const u of units) word(u, { a });
+    tx.color = keep.c; tx.shadow = keep.sh;
+    return;
+  }
+  // any other look, with accents: the letters' motion applied word by word
+  if (CHAR_ANIMS[anim]) {
+    const stagger = Math.min(0.12, (dur * 0.4) / Math.max(1, n));
+    units.forEach((u, i) => {
+      const kin = clamp((local - i * stagger) / ad, 0, 1), kout = clamp((dur - local - (n - 1 - i) * stagger) / ad, 0, 1), k = Math.min(kin, kout);
+      if (k <= 0) return;
+      const m = unitMotion(anim, k, i, { str: u.str, x: u.cx - u.w / 2, w: u.w }, local, dur, size, alpha);
+      if (m.a > 0.001) word(u, { dx: m.dx, dy: m.dy, sc: m.sc, scY: m.scY, rot: m.rot, blur: m.blur, a: m.a, str: m.str });
+    });
+    return;
+  }
+  for (const u of units) word(u);
 }
 
 // ------------------------------------------------------------------ callouts (spotlight / magnify)

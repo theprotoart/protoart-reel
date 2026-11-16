@@ -170,6 +170,57 @@ export const ELEMENTS = {
       }
       ctx.globalAlpha *= 1 - k; ctx.fillStyle = e.accent; ctx.beginPath(); ctx.arc(0, 0, 70 * back(clamp(k * 3, 0, 1)), 0, Math.PI * 2); ctx.fill();
     } },
+  // the spiky comic burst that pops behind a big word ("ARE YOU KIDDING ME", a giant ?): jagged, wobbling
+  starburst: { name: 'Starburst', group: 'Shapes', box: [620, 620], defaults: { text: '', sub: '', color: '#ff2d3c', accent: '#ffffff' },
+    draw(ctx, e, t, d) {
+      const [ki, ko] = io(t, d, 0.45, 0.3), k = Math.min(back(ki), easeInOut(ko));
+      if (k <= 0.001) return;
+      const n = 18, R = 300 * k;
+      ctx.rotate(-0.35 * (1 - ki) + Math.sin(t * 2.2) * 0.03);
+      ctx.beginPath();
+      for (let i = 0; i < n * 2; i++) {
+        const a = (i / (n * 2)) * Math.PI * 2, out = i % 2 === 0, j = rnd(i, 7);
+        const r = out ? R * (0.82 + j * 0.3) : R * (0.5 + j * 0.12);
+        const w = 1 + Math.sin(t * 9 + i) * 0.015; // a slight shiver
+        if (i) ctx.lineTo(Math.cos(a) * r * w, Math.sin(a) * r * w); else ctx.moveTo(Math.cos(a) * r * w, Math.sin(a) * r * w);
+      }
+      ctx.closePath(); ctx.fillStyle = e.color; ctx.fill();
+      if (e.text) {
+        ctx.fillStyle = e.accent; ctx.font = font(900, Math.min(360, 520 / Math.max(1, String(e.text).length * 0.6))); ctx.textAlign = 'center'; ctx.textBaseline = 'middle';
+        ctx.fillText(e.text, 0, 8);
+      }
+    } },
+  // a glowing laser line that sweeps across the frame, bright head and a fading tail
+  lightStreak: { name: 'Light streak', group: 'Shapes', box: [1920, 220], defaults: { text: '', sub: '', color: '#ff3b2f', accent: '#ffffff' },
+    draw(ctx, e, t, d, _img, FW = 1920) {
+      const L = FW / 2, sweep = Math.min(1.1, d * 0.6), k = easeInOut(clamp(t / sweep, 0, 1)), fade = clamp((d - t) / 0.5, 0, 1);
+      const head = -L + k * FW * 1.1, tail = Math.max(-L, head - FW * 0.55);
+      ctx.save(); ctx.globalCompositeOperation = 'lighter'; ctx.globalAlpha *= fade;
+      for (const [y, w, a] of [[0, 18, 1], [26, 5, 0.6]]) {
+        const g = ctx.createLinearGradient(tail, 0, head, 0); g.addColorStop(0, hexAlpha(e.color, 0)); g.addColorStop(0.85, hexAlpha(e.color, a)); g.addColorStop(1, e.accent);
+        ctx.shadowColor = e.color; ctx.shadowBlur = 40; ctx.fillStyle = g; roundRect(ctx, tail, y - w / 2, Math.max(1, head - tail), w, w / 2); ctx.fill();
+      }
+      if (k < 1) { const r = ctx.createRadialGradient(head, 0, 0, head, 0, 70); r.addColorStop(0, hexAlpha(e.accent, 0.95)); r.addColorStop(0.3, hexAlpha(e.color, 0.7)); r.addColorStop(1, hexAlpha(e.color, 0)); ctx.fillStyle = r; ctx.fillRect(head - 70, -70, 140, 140); }
+      ctx.restore();
+    } },
+  // a ring of glowing dots that gathers out of nowhere, turns in 3D and bursts outward as it leaves
+  particleRing: { name: 'Particle ring', group: 'Particles', box: [800, 800], defaults: { text: '', sub: '', color: '#ffffff', accent: '#ff6a3d' },
+    draw(ctx, e, t, d) {
+      const gather = easeOut(clamp(t / 1, 0, 1)), burst = 1 - clamp((d - t) / 0.7, 0, 1), N = 240, spin = t * 0.8;
+      ctx.save(); ctx.globalCompositeOperation = 'lighter';
+      for (let i = 0; i < N; i++) {
+        const ring = i % 3, a = (i / N) * Math.PI * 2 * 3 + spin * (ring % 2 ? -1 : 1), r = 230 + ring * 60;
+        const z = Math.sin(a + ring) * 0.35;
+        let x = Math.cos(a) * r, y = Math.sin(a) * r * (0.55 + 0.1 * ring) + z * 90;
+        const sx = (rnd(i, 1) - 0.5) * 2200, sy = (rnd(i, 2) - 0.5) * 1400;
+        x = sx + (x - sx) * gather; y = sy + (y - sy) * gather;
+        const out = 1 + burst * (1.5 + rnd(i, 3) * 2.5); x *= out; y *= out;
+        const sz = (2.5 + 2 * (z + 0.35)) * (1 + burst);
+        ctx.fillStyle = hexAlpha(i % 7 ? e.color : e.accent, clamp((0.4 + z) * gather * (1 - burst), 0, 1));
+        ctx.beginPath(); ctx.arc(x, y, sz, 0, Math.PI * 2); ctx.fill();
+      }
+      ctx.restore();
+    } },
   ringPop: { name: 'Ring pop', group: 'Shapes', box: [460, 460], defaults: { text: '', sub: '', color: '#ffb02a', accent: '#ffffff' },
     draw(ctx, e, t, d) {
       const k = clamp(t / 0.8, 0, 1), [, ko] = io(t, d);
@@ -250,6 +301,40 @@ export const ELEMENTS = {
       }
     } },
   // ---------------------------------------------------------------- motion backgrounds (full frame, looping)
+  // a dark sky over the glowing edge of a planet (for "and right now you're thinking…" moments); rises in slowly
+  bgHorizon: { name: 'Glowing horizon', group: 'Backgrounds', box: [1920, 1080], defaults: { text: '', sub: '', color: '#3d6bff', accent: '#05060c' },
+    draw(ctx, e, t) {
+      ctx.fillStyle = e.accent; ctx.fillRect(-960, -540, 1920, 1080);
+      const rise = easeOut(clamp(t / 2.5, 0, 1)), R = 2200, cy = 540 + R - 260 * rise;
+      // the atmosphere: a wide soft glow above the rim
+      const g = ctx.createRadialGradient(0, cy, R * 0.94, 0, cy, R * 1.18);
+      g.addColorStop(0, hexAlpha(e.color, 0)); g.addColorStop(0.24, hexAlpha(e.color, 0.55 + 0.08 * Math.sin(t * 1.3))); g.addColorStop(1, hexAlpha(e.color, 0));
+      ctx.fillStyle = g; ctx.fillRect(-960, -540, 1920, 1080);
+      ctx.fillStyle = '#020308'; ctx.beginPath(); ctx.arc(0, cy, R, 0, Math.PI * 2); ctx.fill();
+      ctx.save(); ctx.shadowColor = e.color; ctx.shadowBlur = 60; ctx.strokeStyle = hexAlpha('#ffffff', 0.85); ctx.lineWidth = 3;
+      ctx.beginPath(); ctx.arc(0, cy, R, Math.PI * 1.25, Math.PI * 1.75); ctx.stroke(); ctx.restore();
+      for (let i = 0; i < 70; i++) { const x = (rnd(i, 1) - 0.5) * 1920, y = -540 + rnd(i, 2) * 700; ctx.fillStyle = hexAlpha('#ffffff', 0.2 + 0.5 * rnd(i, 3) * (0.6 + 0.4 * Math.sin(t * 2 + i))); ctx.fillRect(x, y, 2, 2); }
+    } },
+  // a rippling surface of tiles in perspective, the colours running from the main colour to the accent
+  bgWaveGrid: { name: '3D wave grid', group: 'Backgrounds', box: [1920, 1080], defaults: { text: '', sub: '', color: '#2d2a7a', accent: '#ff7a3d' },
+    draw(ctx, e, t) {
+      ctx.fillStyle = '#07070d'; ctx.fillRect(-960, -540, 1920, 1080);
+      const N = 26, S = 70, cam = 900, tilt = 0.95;
+      const pt = (gx, gz) => {
+        const x = (gx - N / 2) * S, z = (gz - N / 2) * S, d = Math.hypot(x, z) / S;
+        const h = Math.sin(d * 0.55 - t * 2.4) * 60 * Math.exp(-d * 0.05);
+        const yy = h * Math.cos(tilt) - z * Math.sin(tilt), zz = h * Math.sin(tilt) + z * Math.cos(tilt) + 1400;
+        return [x * cam / zz, (yy + 120) * cam / zz + 80, h];
+      };
+      const n0 = parseInt(e.color.slice(1), 16), n1 = parseInt(e.accent.slice(1), 16);
+      const mix = k => `rgb(${Math.round(((n0 >> 16) & 255) * (1 - k) + ((n1 >> 16) & 255) * k)},${Math.round(((n0 >> 8) & 255) * (1 - k) + ((n1 >> 8) & 255) * k)},${Math.round((n0 & 255) * (1 - k) + (n1 & 255) * k)})`;
+      for (let gz = N - 1; gz >= 0; gz--) for (let gx = 0; gx < N; gx++) {
+        const a = pt(gx, gz), b = pt(gx + 1, gz), c = pt(gx + 1, gz + 1), d = pt(gx, gz + 1);
+        const k = clamp((a[2] + 60) / 120, 0, 1);
+        ctx.fillStyle = mix(k); ctx.strokeStyle = 'rgba(0,0,0,0.35)'; ctx.lineWidth = 1.5;
+        ctx.beginPath(); ctx.moveTo(a[0], a[1]); ctx.lineTo(b[0], b[1]); ctx.lineTo(c[0], c[1]); ctx.lineTo(d[0], d[1]); ctx.closePath(); ctx.fill(); ctx.stroke();
+      }
+    } },
   bgFlow: { name: 'Gradient flow', group: 'Backgrounds', box: [1920, 1080], defaults: { text: '', sub: '', color: '#2a1a6e', accent: '#ff6a3d' },
     draw(ctx, e, t) {
       ctx.fillStyle = e.color; ctx.fillRect(-960, -540, 1920, 1080);
@@ -451,6 +536,101 @@ export const ELEMENTS = {
       box(-380, 0); box(380, 1);
       const kc = back(clamp((t - 0.9) / 0.6, 0, 1));
       ctx.save(); ctx.translate(0, 330); ctx.scale(kc, kc); pill(ctx, 0, 0, 440, 100, e.color, '#fff', 'SUBSCRIBE', '', 42); ctx.restore();
+      ctx.restore();
+    } },
+  // tech HUD: corner brackets, small mono labels, a typed headline, a running clock and a filling bar
+  hudFrame: { name: 'HUD frame', group: 'Info', box: [1500, 760], defaults: { text: 'THIS EDIT USED TO TAKE ME THREE HOURS', sub: 'REEL / MOTION LAB', color: '#e8f1ff', accent: '#4aa8ff' },
+    draw(ctx, e, t, d) {
+      const [ki, ko] = io(t, d, 0.7, 0.4), k = easeOut(ki), out = easeInOut(ko), W = 720, H = 360, c = 70;
+      ctx.globalAlpha *= out;
+      ctx.strokeStyle = e.color; ctx.lineWidth = 7; ctx.lineCap = 'square';
+      for (const [sx, sy] of [[-1, -1], [1, -1], [-1, 1], [1, 1]]) {
+        const x = sx * (W + 120 * (1 - k)), y = sy * (H + 80 * (1 - k));
+        ctx.beginPath(); ctx.moveTo(x, y - sy * c); ctx.lineTo(x, y); ctx.lineTo(x - sx * c, y); ctx.stroke();
+      }
+      const mono = size => `600 ${size}px "SF Mono", Menlo, ui-monospace, monospace`;
+      ctx.fillStyle = hexAlpha(e.color, 0.7); ctx.font = mono(28); ctx.textBaseline = 'top'; ctx.textAlign = 'left';
+      ctx.fillText(e.sub, -W + 30, -H + 24);
+      ctx.textAlign = 'right'; const clock = Math.max(0, t) * 1000; ctx.fillText(`REC ${String(Math.floor(clock / 60000)).padStart(2, '0')}:${String(Math.floor(clock / 1000) % 60).padStart(2, '0')}.${String(Math.floor(clock / 10) % 100).padStart(2, '0')}`, W - 30, -H + 24);
+      // the headline types itself, two lines at most
+      const txt = String(e.text), n = Math.floor(clamp((t - 0.4) / Math.max(0.6, Math.min(d * 0.45, txt.length * 0.045)), 0, 1) * txt.length);
+      ctx.font = mono(62); ctx.textAlign = 'left'; ctx.textBaseline = 'middle'; ctx.fillStyle = e.color;
+      const words = txt.slice(0, n).split(' '), lines = ['']; for (const w of words) { const tl = (lines[lines.length - 1] + ' ' + w).trim(); if (ctx.measureText(tl).width > W * 1.75 && lines[lines.length - 1]) lines.push(w); else lines[lines.length - 1] = tl; }
+      lines.slice(0, 2).forEach((l, i) => ctx.fillText(l + (i === lines.length - 1 && Math.floor(t * 2.5) % 2 ? '▍' : ''), -W + 60, -110 + i * 84));
+      // a big clock counting up beside a bar that fills
+      const kb = easeInOut(clamp((t - 0.6) / Math.max(0.8, d - 1.2), 0, 1)), secs = Math.floor(kb * 10630);
+      ctx.font = mono(84); ctx.textAlign = 'right'; ctx.fillStyle = e.color;
+      ctx.fillText(`${Math.floor(secs / 3600)}:${String(Math.floor(secs / 60) % 60).padStart(2, '0')}:${String(secs % 60).padStart(2, '0')}`, W - 60, 60);
+      ctx.fillStyle = hexAlpha(e.color, 0.15); ctx.fillRect(-W + 60, 130, 2 * W - 120, 26);
+      ctx.fillStyle = e.accent; ctx.shadowColor = e.accent; ctx.shadowBlur = 18; ctx.fillRect(-W + 60, 130, (2 * W - 120) * kb, 26);
+    } },
+  // a growing bar chart with a big counting figure and a ring filling to a percentage (type them in)
+  chart: { name: 'Growth chart', group: 'Info', box: [1150, 680], defaults: { text: '+312%', sub: '78%', color: '#161616', accent: '#ff3b1f' },
+    draw(ctx, e, t, d) {
+      const [ki, ko] = io(t, d, 0.5, 0.4), out = easeInOut(ko);
+      ctx.globalAlpha *= out;
+      ctx.save(); ctx.scale(0.9 + 0.1 * easeOut(ki), 0.9 + 0.1 * easeOut(ki));
+      ctx.fillStyle = '#f3f1ec'; ctx.shadowColor = 'rgba(0,0,0,0.35)'; ctx.shadowBlur = 40; roundRect(ctx, -560, -320, 1120, 640, 36); ctx.fill(); ctx.shadowBlur = 0;
+      const grow = easeOut(clamp((t - 0.3) / Math.max(0.8, Math.min(2.2, d * 0.6)), 0, 1));
+      // the big figure counts up (keeps the + and %)
+      const m = String(e.text).match(/^([^0-9-]*)(-?[0-9.,]+)(.*)$/), target = m ? parseFloat(m[2].replace(/,/g, '')) : 0;
+      ctx.fillStyle = e.color; ctx.font = font(900, 120); ctx.textBaseline = 'alphabetic'; ctx.textAlign = 'left';
+      ctx.fillText(m ? `${m[1]}${Math.round(target * grow).toLocaleString()}` : e.text, -500, -150);
+      if (m && m[3]) { const w = ctx.measureText(`${m[1]}${Math.round(target * grow).toLocaleString()}`).width; ctx.fillStyle = e.accent; ctx.fillText(m[3], -500 + w, -150); }
+      // bars, the last one in the accent colour
+      const n = 12;
+      for (let i = 0; i < n; i++) {
+        const h = (60 + 300 * ((i + 1) / n) ** 1.6 * (0.8 + 0.2 * rnd(i, 3))) * easeOut(clamp(grow * 1.6 - i * 0.05, 0, 1));
+        ctx.fillStyle = i === n - 1 ? e.accent : e.color; ctx.fillRect(40 + i * 40, 250 - h, 24, h);
+      }
+      // the ring
+      const pct = clamp((parseFloat(e.sub) || 0) / 100, 0, 1) * grow;
+      ctx.lineWidth = 22; ctx.strokeStyle = hexAlpha(e.color, 0.12); ctx.beginPath(); ctx.arc(-370, 110, 110, 0, Math.PI * 2); ctx.stroke();
+      ctx.strokeStyle = e.accent; ctx.lineCap = 'round'; ctx.beginPath(); ctx.arc(-370, 110, 110, -Math.PI / 2, -Math.PI / 2 + Math.PI * 2 * pct); ctx.stroke();
+      ctx.fillStyle = e.color; ctx.font = font(800, 54); ctx.textAlign = 'center'; ctx.textBaseline = 'middle'; ctx.fillText(`${Math.round(pct * 100)}%`, -370, 112);
+      ctx.restore();
+    } },
+  // a list that rolls through, one line at a time to the bright middle (Not an editor → Not a team. → Not a budget)
+  wordSwitch: { name: 'Word switcher', group: 'Info', box: [1300, 520], defaults: { text: 'Not an editor | Not a team. | Not a budget.', sub: '→', color: '#ffffff', accent: '#ffb02a' },
+    draw(ctx, e, t, d) {
+      const items = String(e.text).split(/\s*[|\n]\s*/).filter(Boolean);
+      if (!items.length) return;
+      const [ki, ko] = io(t, d, 0.4, 0.4); ctx.globalAlpha *= Math.min(ki, easeInOut(ko));
+      const per = Math.max(0.6, (d - 0.6) / items.length), f = clamp(t / per, 0, items.length - 1);
+      const idx = Math.floor(f), frac = f - idx, move = easeInOut(clamp((frac - 0.6) / 0.4, 0, 1)), pos = idx + (idx < items.length - 1 ? move : 0);
+      ctx.textBaseline = 'middle'; ctx.textAlign = 'left';
+      for (let i = 0; i < items.length; i++) {
+        const y = (i - pos) * 120, dist = Math.abs(i - pos);
+        if (dist > 2.2) continue;
+        const near = clamp(1 - dist, 0, 1);
+        ctx.globalAlpha = clamp(0.95 - dist * 0.42, 0, 1) * Math.min(ki, easeInOut(ko));
+        ctx.fillStyle = near > 0.5 ? e.color : hexAlpha(e.color, 0.7); ctx.font = font(near > 0.5 ? 800 : 500, 72 + 16 * near);
+        ctx.fillText(items[i], -420, y);
+      }
+      ctx.globalAlpha = Math.min(ki, easeInOut(ko)); ctx.fillStyle = e.accent; ctx.font = font(800, 80); ctx.textAlign = 'right'; ctx.fillText(e.sub || '→', -450, 0);
+    } },
+  // little browser tabs and cards flying in to scatter round a headline ("14 TABS open.")
+  cardScatter: { name: 'Scattered cards', group: 'Info', box: [1500, 800], defaults: { text: '14 TABS', sub: 'open.', color: '#ffffff', accent: '#ff6a3d' },
+    draw(ctx, e, t, d) {
+      const [ki, ko] = io(t, d, 0.9, 0.4), out = easeInOut(ko);
+      ctx.globalAlpha *= out;
+      const n = 14;
+      for (let i = 0; i < n; i++) {
+        const k = easeOut(clamp(ki * 1.6 - i * 0.04, 0, 1)), a = rnd(i, 1) * Math.PI * 2, r = 360 + rnd(i, 2) * 300;
+        const x = Math.cos(a) * r * 1.4 * k + (1 - k) * (rnd(i, 3) - 0.5) * 3000, y = Math.sin(a) * r * 0.7 * k + (1 - k) * 900 + Math.sin(t * 1.5 + i) * 6;
+        ctx.save(); ctx.translate(x, y); ctx.rotate((rnd(i, 4) - 0.5) * 0.5 * k + (1 - k) * 1.5); ctx.globalAlpha *= Math.min(1, k * 2) * 0.92;
+        ctx.fillStyle = '#1d1f26'; ctx.shadowColor = 'rgba(0,0,0,0.5)'; ctx.shadowBlur = 20; roundRect(ctx, -110, -34, 220, 68, 12); ctx.fill(); ctx.shadowBlur = 0;
+        ctx.fillStyle = [e.accent, '#4aa8ff', '#5ad17a', '#ffd60a'][i % 4]; ctx.beginPath(); ctx.arc(-80, 0, 11, 0, Math.PI * 2); ctx.fill();
+        ctx.fillStyle = 'rgba(255,255,255,0.75)'; roundRect(ctx, -58, -10, 120 * (0.5 + rnd(i, 5) * 0.5), 9, 4); ctx.fill(); ctx.fillStyle = 'rgba(255,255,255,0.35)'; roundRect(ctx, -58, 6, 80, 7, 3); ctx.fill();
+        ctx.restore();
+      }
+      const kt = back(clamp((t - 0.35) / 0.5, 0, 1));
+      ctx.save(); ctx.scale(Math.max(0.01, kt), Math.max(0.01, kt)); ctx.textBaseline = 'middle';
+      ctx.font = font(900, 120); const w1 = ctx.measureText(e.text + ' ').width;
+      ctx.font = 'italic 500 128px Didot, "Bodoni 72", Georgia, serif'; const w2 = ctx.measureText(e.sub).width;
+      let x = -(w1 + w2) / 2; ctx.textAlign = 'left';
+      ctx.font = font(900, 120); ctx.fillStyle = e.color; ctx.fillText(e.text + ' ', x, 0); x += w1;
+      ctx.font = 'italic 500 128px Didot, "Bodoni 72", Georgia, serif'; ctx.fillStyle = e.accent; ctx.fillText(e.sub, x, 4);
       ctx.restore();
     } },
   counter: { name: 'Number counter', group: 'Info', box: [600, 220], defaults: { text: '1000', sub: 'subscribers', color: '#ffffff', accent: '#ffb02a' },

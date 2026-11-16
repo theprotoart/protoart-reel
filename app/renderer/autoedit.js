@@ -5,7 +5,9 @@
 // ordinary clips, actions, transitions and captions, so any of it can be changed afterwards, and UNDO AUTO EDIT
 // puts the project back exactly as it was.
 import { el, modal, toast } from './ui.js';
-import { mediaById, removeRange, insertTime, uid, duration as docDuration, split, clipEnd, withGroups } from './model.js';
+import { mediaById, removeRange, insertTime, uid, duration as docDuration, split, clipEnd, withGroups, newTextClip, newElementClip, addTrack } from './model.js';
+import { planGraphics, GFX_LEVELS, GFX_LOOKS } from './lib/kinetic.js';
+import { ELEMENTS, elementHome } from './lib/elements.js';
 import { buildCaptions, fillerRanges, pauseRanges, cutRanges, withoutSpans } from './lib/words.js';
 import { pickHighlights, chapters, sentences } from './lib/highlight.js';
 import { FORMATS } from './lib/reframe.js';
@@ -85,6 +87,7 @@ const recipeDefaults = r => ({
   zoom: zoomLevelOf(r), trans: r.pack ? (r.highlights ? 'some' : 'few') : 'off', pack: r.pack || 'clean', sfx: r.sounds ? 'normal' : 'off', volume: 'even',
   captions: r.captions === 'big' ? 'big' : 'file', clean: r.clean || 'gentle', fit: r.fit || 'follow',
   cta: r.highlights ? 'remind' : 'end',
+  gfx: r.highlights || r.format ? 'lots' : 'few', gfxLook: r.gfxLook || 'bold',
   keepSped: true,
   motion: r.zoom[0] in MOTION_STYLES ? r.zoom[0] : 'follow',
   claps: r.claps || 'off', voice: r.voice || 'none', noteSpeech: 'keep',
@@ -203,6 +206,7 @@ export function openAutoEdit(app) {
       o.captions !== 'off' ? { file: 'Captions as a subtitle file (.srt) beside the export', burned: 'Captions in the video', big: 'Big, bold captions in the video' }[o.captions] : null,
       chainById(o.voice) ? `Voice: ${chainById(o.voice).name} (${chainById(o.voice).chain.map(f => f.type === 'au' ? f.name : ({ declick: 'De-click', deess: 'De-ess', level: 'Auto Level', eq: 'EQ', comp: 'Compressor', gate: 'Noise gate', limiter: 'Limiter', reverb: 'Reverb', delay: 'Delay', gain: 'Gain' })[f.type] || f.type).join(' → ')}) on the speech tracks` : null,
       o.volume === 'even' ? 'Even out the volume: an Auto Level on each track with sound (quiet parts up, loud parts down)' : null,
+      (o.gfx || 'off') !== 'off' ? `Put the punchy lines on screen as ${{ bold: 'bold kinetic titles (slam, smear, slice), with starbursts and light streaks', clean: 'clean titles with pill, serif and highlighted words', tech: 'tech titles (neon, glitch) with light streaks' }[o.gfxLook || 'bold']}, ${o.gfx === 'lots' ? 'often' : 'now and then'}; a chart for a percentage` : null,
       (o.cta || 'off') !== 'off' ? (r.format ? 'A Follow call-out near the end' : `Like · Subscribe · Bell and comment call-outs between sentences${o.cta === 'end' ? ', and an end screen' : ''}`) : null,
       r.chapters ? 'Chapters as markers (they go in the export notes)' : null,
       `Loudness set for ${r.loud === 'spotify' ? 'TikTok / Reels' : r.loud === 'podcast' ? 'podcasts' : 'YouTube'}`,
@@ -235,6 +239,8 @@ export function openAutoEdit(app) {
         noteRow,
         row('Voice', voiceSel),
         row('Volume', seg('volume', VOLUME_LEVELS)),
+        row('Graphics', seg('gfx', GFX_LEVELS)),
+        row('Graphics look', seg('gfxLook', GFX_LOOKS)),
         row('Call-outs', seg('cta', CTA_LEVELS)),
         row('Language', lang),
         el('button', { class: 'mini ae-reset', text: 'Back to this recipe’s settings', onclick: () => { o = recipeDefaults(RECIPES[id]); draw(); } })),
@@ -500,6 +506,15 @@ export async function runAutoEdit(app, recipeId, o) {
       report.push(`${caps.length} captions`);
     }
 
+    // 7 · motion graphics: the punchy lines as kinetic titles (and a graphic with some), on their own tracks
+    if ((o.gfx || 'off') !== 'off' && words.length && !only) {
+      step('Adding motion graphics');
+      const total = docDuration(app.doc), tall = app.doc.canvas.height > app.doc.canvas.width;
+      const plan = planGraphics(words, total, { amount: o.gfx, look: o.gfxLook || 'bold', tall });
+      const n = placeGraphics(app, plan, { tall });
+      if (n) report.push(`${n} motion graphic${n === 1 ? '' : 's'}`);
+    }
+
     // 7 · chapters
     // 7¼ · call-outs: reminders between sentences (and an end screen), on their own track
     if ((o.cta || 'off') !== 'off' && !only) {
@@ -674,4 +689,37 @@ export function openClipAutoEdit(app, clipId) {
       c(); runAutoEdit(app, 'youtube', { ...o, locale: lang.value, length: null, regions: null, only: { t0, t1 } });
     } },
   ]);
+}
+
+/**
+ * Puts a motion-graphics plan on the timeline: the titles on a Graphics track at the top, their graphics (starburst,
+ * chart, light streak) on a track just under it so they sit behind the words. Replaces graphics placed before.
+ */
+export function placeGraphics(app, plan, { tall = false } = {}) {
+  let n = 0;
+  app.commit(d => {
+    d.clips = d.clips.filter(c => !c.autoGfx);
+    d.tracks = d.tracks.filter(t => !t.gfxTrack || d.clips.some(c => c.track === t.id));
+    if (!plan.length) return;
+    let fxTr = d.tracks.find(t => t.gfxTrack === 'fx'), tTr = d.tracks.find(t => t.gfxTrack === 'titles');
+    if (!fxTr) { fxTr = addTrack(d, 0); fxTr.name = 'Graphics FX'; fxTr.gfxTrack = 'fx'; }
+    if (!tTr) { tTr = addTrack(d, 0); tTr.name = 'Graphics'; tTr.gfxTrack = 'titles'; }
+    for (const g of plan) {
+      const c = newTextClip(tTr.id, g.t, g.text);
+      c.duration = g.dur; c.autoGfx = true; c.name = g.text.replace(/[*\n]/g, ' ').trim();
+      c.text = { ...c.text, anim: g.anim, accent: g.accent, accentColor: g.anim === 'neon' ? '#ff6a1a' : '#ff2d3c', weight: g.accent === 'serif' || g.accent === 'pill' ? 700 : 900,
+        size: tall ? 96 : 110, width: tall ? 0.86 : 0.7, animDur: 0.4, shadow: 18 };
+      c.props.y = g.y;
+      d.clips.push(c); n++;
+      if (g.element && ELEMENTS[g.element]) {
+        const home = g.element === 'chart' ? { x: 0.5, y: tall ? 0.62 : 0.6, scale: tall ? 0.7 : 0.55 } : g.element === 'lightStreak' ? { x: 0.5, y: g.y + (tall ? 0.09 : 0.12) } : { ...elementHome(g.element), y: g.y, scale: tall ? 1.1 : 1 };
+        const e = newElementClip(fxTr.id, g.t, g.element, home, g.dur);
+        e.autoGfx = true; e.name = ELEMENTS[g.element].name;
+        if (g.elementText != null) e.element = { ...(e.element || {}), text: g.elementText };
+        d.clips.push(e);
+      }
+    }
+    if (!d.clips.some(c => c.track === fxTr.id)) d.tracks = d.tracks.filter(t => t !== fxTr);
+  });
+  return n;
 }

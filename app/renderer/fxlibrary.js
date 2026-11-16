@@ -103,11 +103,28 @@ export async function addSounds(app, list, tag = null) {
   catch (e) { toast(e.message, 5000); return; }
   app.commit(d => placeSfx(d, list, medias, tag));
 }
+/** Ready-made title looks: an animation with accent words (*between stars*) and sample words to type over. */
+export const TITLE_LOOKS = {
+  lookPill: { name: 'Pill words', anim: 'build', accent: 'pill', content: 'The film is *yours.*' },
+  lookSerif: { name: 'Serif accent', anim: 'fade', accent: 'serif', accentColor: '#ff6a3d', content: '14 TABS *open.*' },
+  lookBox: { name: 'Highlighted word', anim: 'pop', accent: 'box', accentColor: '#ff2d3c', content: 'Just *one* file' },
+  lookSlam: { name: 'Slam stack · red word', anim: 'slam', accent: 'color', accentColor: '#ff2d3c', weight: 900, content: 'AND BEFORE\nYOU\n*ASK*' },
+};
+/** The text settings a title tile stands for (a look, or just an animation with words that suit it). */
+const BIG_TITLES = new Set(['slam', 'smear', 'slice', 'shatter', 'neon']);
+export function titleLook(id) {
+  const L = TITLE_LOOKS[id];
+  if (L) { const { name, ...t } = L; return t; }
+  const sample = { slam: { content: 'AND BEFORE\nYOU *ASK*', weight: 900, accentColor: '#ff2d3c' }, smear: { content: 'THIS *ISN’T*', weight: 900 }, slice: { content: 'LAYERS.', weight: 900 }, shatter: { content: 'LYING.', weight: 900 }, neon: { content: 'MOTION GRAPHICS', weight: 800, accentColor: '#ff6a1a' } }[id];
+  return { anim: id, ...(sample || {}) };
+}
 function applyTitle(app, anim, at = null, track = null) {
   const list = at == null ? selected(app).filter(c => c.type === 'text') : [];
-  if (list.length) { app.commit(() => { for (const c of list) c.text = { ...c.text, anim }; }); return; }
-  const c = newTextClip(null, at ?? app.player.time, 'Your title');
-  c.text = { ...c.text, anim };
+  const look = titleLook(anim), { content, ...style } = look;
+  if (list.length) { app.commit(() => { for (const c of list) c.text = { ...c.text, ...style }; }); return; } // their own words stay
+  const c = newTextClip(null, at ?? app.player.time, content || 'Your title');
+  c.text = { ...c.text, ...look };
+  if (BIG_TITLES.has(look.anim) || TITLE_LOOKS[anim]) c.props.y = 0.5; // the big kinetic ones sit in the middle
   place(app, c, track);
 }
 /** A new overlay at its start: on the track it was dropped on when that's free there, else the top track as usual. */
@@ -139,7 +156,7 @@ export function dropPreset(app, { kind, id }, { at, track, clip }) {
   let sound = true; try { sound = localStorage.getItem('reel.presetSound') !== '0'; } catch { /* default */ }
   switch (kind) {
     case 'title':
-      if (c?.type === 'text') { app.commit(() => { c.text = { ...c.text, anim: id }; }); app.select([c.id], null); return; }
+      if (c?.type === 'text') { const { content, ...style } = titleLook(id); app.commit(() => { c.text = { ...c.text, ...style }; }); app.select([c.id], null); return; }
       return applyTitle(app, id, at, track);
     case 'element': return addElement(app, id, at, track);
     case 'sound': return addSound(app, id, at);
@@ -246,7 +263,7 @@ function miniDoc(kind, id) {
   let len = 2.4;
   if (kind === 'cut') { const a = clip('A', 't2', 0, 1.2), b = clip('B', 't2', 1.2, 1.2); applyCut(a, b, id, 0.8); doc.clips.push(a, b); }
   else if (kind === 'trans') { doc.clips.push(clip('B', 't2', 0, 2.4), clip('A', 't1', 0.2, 2, { transIn: { type: id, dur: 0.7 }, transOut: { type: id, dur: 0.7 } })); }
-  else if (kind === 'title') { const c = newTextClip('t1', 0, 'Your title'); c.text = { ...c.text, anim: id, size: 46, animDur: 0.6 }; c.duration = 2.4; doc.clips.push(clip('A', 't2', 0, 2.4), c); }
+  else if (kind === 'title') { const c = newTextClip('t1', 0, 'Your title'); c.text = { ...c.text, ...titleLook(id), size: 46, animDur: 0.6 }; if (BIG_TITLES.has(c.text.anim) || TITLE_LOOKS[id]) c.props.y = 0.5; c.duration = 2.4; doc.clips.push(clip('A', 't2', 0, 2.4), c); }
   else if (kind === 'motion') { const c = clip('A', 't1', 0, 2.4); applyMotion(c, id); doc.clips.push(c); }
   else if (kind === 'element') { const L = ELEMENTS[id]?.group === 'Social' ? 3.6 : 2.6; const c = newElementClip('t1', 0, id, elementHome(id), L); c.props.scale = 1; doc.clips.push(clip('B', 't2', 0, L), c); len = L; } // social ones click through a sequence: a little longer
   else if (kind === 'style') {
@@ -333,7 +350,8 @@ export function openPresetBrowser(app, page = 'cut', host = null) {
         grid.append(draggable(tile('trans', id, n, () => applyTransition(app, id, 'both', sound), side), 'trans', id, n));
       }
     } else if (k === 'title') {
-      note.textContent = 'Text animations. Click to use it on the selected titles, or to add a new title at the playhead.';
+      note.textContent = 'Text animations. Click to use it on the selected titles, or to add a new title at the playhead; drag one onto the timeline. Put a word between stars (*like this*) to make it the accent.';
+      for (const [id, L] of Object.entries(TITLE_LOOKS)) if (match(L.name)) grid.append(draggable(tile('title', id, L.name, () => applyTitle(app, id)), 'title', id, L.name));
       for (const [id, n] of TEXT_ANIMS) if (id !== 'none' && match(n)) grid.append(draggable(tile('title', id, n, () => applyTitle(app, id)), 'title', id, n));
     } else if (k === 'motion') {
       note.textContent = 'Moves made of keyframes you can adjust afterwards. Click to put it on the selected clips.';
