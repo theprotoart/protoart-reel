@@ -124,3 +124,13 @@ test('a breath you taught is found even though it is far quieter than speech; um
   assert.ok(found.some(f => f.word === 'breath' && f.t <= at + 0.1 && f.end >= at + 0.25), JSON.stringify(found));
   assert.ok(!found.some(f => f.word === 'umm'), 'no ums in a recording without any');
 });
+
+test('a taught breath that runs straight into the next word (no pause between) is still found', () => {
+  const breath = sec => { const n = Math.round(sec * RATE), o = new Float32Array(n); let y1 = 0; for (let i = 0; i < n; i++) { y1 = 0.6 * y1 + (rnd() * 2 - 1); o[i] = y1 * 0.012 * Math.min(1, i / (0.08 * RATE)); } return o; };
+  let m = train({ takes: [0.6, 0.45, 0.3].map(d => ({ word: 'umm', samples: cat([quiet(0.2), voice(d, UMM), quiet(0.2)]) })), speech: sentence(5) });
+  for (const d of [0.5, 0.4, 0.6]) m = addTake(m, 'breath', cat([quiet(0.15), breath(d), quiet(0.15)]), null);
+  const parts = [quiet(0.4), sentence(2), quiet(0.4), breath(0.45), sentence(2), quiet(0.4)]; // the breath, then speech at once
+  const at = parts.slice(0, 3).reduce((s, p) => s + p.length, 0) / RATE;
+  const found = findInSamples(m, cat(parts));
+  assert.ok(found.some(f => f.word === 'breath' && f.t <= at + 0.15 && f.end >= at + 0.3), JSON.stringify(found));
+});

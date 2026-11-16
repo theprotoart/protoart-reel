@@ -150,12 +150,15 @@ pub fn bursts(x: &[f32], min: f64, max: f64, gap: f64, soft: bool) -> Vec<(usize
     let at = |q: f64| sorted.get((n as f64 * q).floor() as usize).copied().unwrap_or(0.0) as f64;
     let (floor, loud) = (at(0.1), at(0.9));
     // soft: a much lower bar, for soft sounds you taught (breaths) that never reach the bar for words
-    let on = if soft { (floor * 1.6).max(floor + (loud - floor) * 0.03).max(3e-5) } else { (floor * 3.0).max(floor + (loud - floor) * 0.12).max(1e-4) };
+    let word = (floor * 3.0).max(floor + (loud - floor) * 0.12).max(1e-4);
+    let on = if soft { (floor * 1.6).max(floor + (loud - floor) * 0.03).max(3e-5) } else { word };
     let hold = ((gap * rate) / win as f64).round() as usize;
     let mut runs = Vec::new();
     let (mut s, mut quiet): (i64, usize) = (-1, 0);
     for i in 0..=n {
         let v = if i < n { env[i] as f64 } else { 0.0 };
+        // soft: where speech starts, a soft sound ends (a breath usually runs straight into the next word)
+        if soft && v >= word { if s >= 0 { runs.push((s as usize, i - quiet)); } s = -1; quiet = 0; continue; }
         if v >= on { if s < 0 { s = i as i64; } quiet = 0; }
         else if s >= 0 { quiet += 1; if quiet >= hold { runs.push((s as usize, i + 1 - quiet)); s = -1; quiet = 0; } }
     }

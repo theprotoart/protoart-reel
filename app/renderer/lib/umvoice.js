@@ -107,12 +107,15 @@ export function bursts(x, { rate = RATE, min = 0.12, max = 1.6, gap = 0.12, soft
   const sorted = Float32Array.from(env).sort();
   const floor = sorted[Math.floor(n * 0.1)] || 0, loud = sorted[Math.floor(n * 0.9)] || 0;
   // soft: a much lower bar, for soft sounds you taught (breaths) that never reach the bar for words
-  const on = soft ? Math.max(floor * 1.6, floor + (loud - floor) * 0.03, 3e-5) : Math.max(floor * 3, floor + (loud - floor) * 0.12, 1e-4);
+  const word = Math.max(floor * 3, floor + (loud - floor) * 0.12, 1e-4);
+  const on = soft ? Math.max(floor * 1.6, floor + (loud - floor) * 0.03, 3e-5) : word;
   const runs = [];
   let s = -1, quiet = 0;
   const hold = Math.round((gap * rate) / win); // a run ends after this much quiet
   for (let i = 0; i <= n; i++) {
     const v = i < n ? env[i] : 0;
+    // soft: where speech starts, a soft sound ends (a breath usually runs straight into the next word)
+    if (soft && v >= word) { if (s >= 0) runs.push([s, i - quiet]); s = -1; quiet = 0; continue; }
     if (v >= on) { if (s < 0) s = i; quiet = 0; } else if (s >= 0 && ++quiet >= hold) { runs.push([s, i - quiet + 1]); s = -1; quiet = 0; }
   }
   if (s >= 0) runs.push([s, n - Math.max(0, quiet - 1)]); // a burst running to the very end (a short piece cut from a recording)
