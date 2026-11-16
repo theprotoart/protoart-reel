@@ -2328,3 +2328,4 @@ button.umt-chip { border: 0; cursor: pointer; color: inherit; font: inherit; fon
 #library.folded .lib-strip:hover { color: var(--amber, #f5b942); background: rgba(245,185,66,.08); }
 #library.folded .lib-strip span { writing-mode: vertical-rl; transform: rotate(180deg); font: 700 10px/1 var(--font-engrave, system-ui); letter-spacing: .2em; white-space: nowrap; }
 .lib-fold-btn { margin-left: 6px; }
+.umt-fill-actions { justify-content: flex-start; }

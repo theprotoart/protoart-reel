@@ -138,7 +138,7 @@ export function teachUms(app, { onDone } = {}) {
     fillBox.replaceChildren(el('div', { class: 'umt-fill-head' },
       el('span', { class: 'umt-fill-title', text: `〰 FROM YOUR RECORDING (${fs.length})` }),
       el('button', { class: 'hw role-filler', text: '〰 MARK MORE', title: 'Close this and mark more on the timeline', onclick: () => { if (!dlg?.inline) dlg?.close(); if (!app.timeline.filling) app.cmd('filler'); } })),
-      el('div', { class: 'umt-fill-list' }, ...rows), el('div', { class: 'btn-row umt-fill-actions' }, cutB, sendB));
+      el('div', { class: 'umt-fill-list' }, ...rows), el('div', { class: 'btn-row umt-fill-actions' }, sendB, cutB));
     syncSend();
   };
   // ✂ cut the ticked ones out of the recording, right here (no need to go to the timeline)
@@ -160,8 +160,8 @@ export function teachUms(app, { onDone } = {}) {
     sendB.disabled = true;
     try {
       const n = await teachFillers(app, fs, msg => { status.textContent = msg; });
-      for (const f of fs) picked.delete(f.id);
-      status.textContent = n ? `Learned ${n} from your recording. 💬 FILLER WORDS › LISTEN AGAIN uses them.` : 'Nothing was learned.';
+      // they stay ticked: the next step is usually to cut them out of the recording (✂ CUT, right beside)
+      status.textContent = n ? `Learned ${n} from your recording. Now ✂ CUT ${n === 1 ? 'it' : 'them'} out of the recording if you like; 💬 FILLER WORDS › LISTEN AGAIN finds more.` : 'Nothing was learned.';
       onDone?.();
     } catch (e) { status.textContent = e.message; }
     drawFillers(); draw(); drawKnown();

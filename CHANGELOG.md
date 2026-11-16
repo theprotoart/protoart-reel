@@ -1,7 +1,7 @@
 # Changelog
 
 ## Unreleased
-- Teach Reel your ums: cut fillers right from its list: ✂ on each one, or ✂ CUT … FROM THE RECORDING for the ticked ones (everything after closes up, picture and sound together; ⌘Z undoes). The list is one tidy line per filler, also in the narrow panel.
+- Teach Reel your ums: cut fillers right from its list: SEND TO TRAINING first, then ✂ CUT … FROM THE RECORDING beside it (what you sent stays ticked, so it’s one more click), or ✂ on each one (everything after closes up, picture and sound together; ⌘Z undoes). The list is one tidy line per filler, also in the narrow panel.
 - How-to notes (FILLER, CLIPS) show the first three times only, with DON’T SHOW AGAIN; click any note to close it; Settings › General › SHOW TIPS AGAIN brings them back. After the first two fillers, marking one just says “Filler 3 marked”.
 - The media / presets panel folds away: ◀ in its top bar hides it to a thin strip at the side (remembered); click the strip to open it. Asking for presets (CALLOUTS, STYLE PACKS…) opens it again.
 - Rust (reel-core 1.0): the built-in master (input, tape EQ, tone, filters, compressor, spread, fader) is run by the Rust core too, with or without a loudness target, then the true-peak limiter. A sound-only export now goes through the Rust core for everything except master plug-ins (Audio Units) and time maps. Identical to the JavaScript, tested to the 24-bit sample.
