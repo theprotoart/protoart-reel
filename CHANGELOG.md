@@ -1,6 +1,7 @@
 # Changelog
 
 ## Unreleased
+- ABC✓ Check spelling for the whole video (File › Check Spelling…, or ABC✓ SPELLING in the media panel): every title, element and callout, caption, reveal word and chapter marker, read with the Mac’s own dictionary. Each word it doesn’t know is listed once with every place it’s used; click the right spelling and it’s fixed everywhere at once (⌘Z undoes), or “✓ It’s right” to keep it. Click a place to go to it. Check & Repair now says how many words may be misspelt too.
 - The folded media / presets strip is a lit amber key with dark lettering and ▶ arrows, so it’s easy to spot on the dark and the light look alike.
 - TT and ABC✓ beside every box you type words into (titles, elements and callouts, captions, reveal text, thumbnail text). TT makes the words ALL CAPS in one click; click it again (Tt) to get back what you typed. ABC✓ checks the spelling with the Mac’s own dictionary (nothing leaves your Mac): it lists each word it doesn’t know, shown as you spelt it, with the likely right spellings to click, one after the other, or “is right: keep it”. Right-clicking a red-underlined word shows the same fixes, plus Cut, Copy and Paste.
 - Number counter: it counts across the clip’s whole length and lands on the number just before the end, so dragging the clip longer makes it count slower (it used to finish in 2 seconds whatever the length).

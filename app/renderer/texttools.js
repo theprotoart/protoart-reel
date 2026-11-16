@@ -29,16 +29,25 @@ export function toggleCaps(box) {
   return 'typed';
 }
 
+/** Whether the Mac's dictionary is answering: one that finds nothing wrong with these isn't loaded. (Several, in case
+ *  someone has kept one of them as "right".) */
+export async function dictionaryWorks(sp) {
+  for (const w of ['recieve', 'definately', 'seperately', 'qzxvbwk']) if (await sp.check(w)) return true;
+  return false;
+}
+
+/** The words of a text worth checking (letters, 2 or more, apostrophes inside kept). */
+export const wordsOf = text => (String(text).match(WORD) || []).map(w => w.replace(/['’]+$/, '')).filter(w => w.length >= 2);
+
 /** The words the Mac's dictionary doesn't know: [{ word, fixes }]. null when the dictionary can't be reached. */
 export async function misspelt(text) {
-  const sp = window.reel?.spell;
+  const sp = globalThis.window?.reel?.spell;
   if (!sp) return null;
   try {
-    if (!(await sp.check('recieve'))) return null; // a dictionary that knows no wrong words isn't loaded
+    if (!(await dictionaryWorks(sp))) return null;
     const seen = new Set(), out = [];
-    for (const w of String(text).match(WORD) || []) {
-      const word = w.replace(/['’]+$/, '');
-      if (word.length < 2 || seen.has(word.toLowerCase())) continue;
+    for (const word of wordsOf(text)) {
+      if (seen.has(word.toLowerCase())) continue;
       seen.add(word.toLowerCase());
       if (await sp.check(word)) out.push({ word, fixes: ((await sp.suggest(word)) || []).slice(0, 5) });
     }
@@ -49,11 +58,13 @@ export async function misspelt(text) {
 /** Keeps the case of the word it replaces (ALL CAPS stays caps, a capital stays a capital). */
 const matchCase = (fix, word) => (word.length > 1 && word === word.toUpperCase() ? fix.toUpperCase() : /^\p{Lu}/u.test(word) ? fix[0].toUpperCase() + fix.slice(1) : fix);
 
-/** Swaps every `word` in the box for `fix`. */
-export function replaceWord(box, word, fix) {
+/** Every `word` in the text swapped for `fix` (whole words only, keeping each one's capitals). */
+export function replaceWordIn(text, word, fix) {
   const re = new RegExp(`(^|[^\\p{L}'’])(${esc(word)})(?![\\p{L}])`, 'giu');
-  setValue(box, box.value.replace(re, (m, a, w) => a + matchCase(fix, w)));
+  return String(text).replace(re, (m, a, w) => a + matchCase(fix, w));
 }
+/** Swaps every `word` in the box for `fix`. */
+export function replaceWord(box, word, fix) { setValue(box, replaceWordIn(box.value, word, fix)); }
 
 export async function spellCheck(box, anchor) {
   const list = await misspelt(box.value);

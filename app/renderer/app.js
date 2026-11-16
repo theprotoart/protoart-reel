@@ -2,6 +2,7 @@
 import { followFillers } from './model.js';
 import { resync, recordingOffsets } from './lib/sync.js';
 import { openRepair } from './repair.js';
+import { openSpelling } from './spelling.js';
 import { Explain } from './explain.js';
 import { Deck, makeReel } from './deck.js';
 import { el, $, toast, modal, ask, promptText, popMenu, hint } from './ui.js';
@@ -1289,6 +1290,7 @@ class App {
       case 'takes': closeUms(); return openTakes(this);
       case 'ums': closeTakes(); return openUms(this);
       case 'repair': return openRepair(this);
+      case 'spelling': return openSpelling(this);
       case 'resync': { // ⇆ sound back in sync with its picture (arg: clip ids, or every clip)
         let r = { moved: 0, blocked: 0 };
         this.commit(d => { r = resync(d, Array.isArray(arg) ? arg : null, isFree); });

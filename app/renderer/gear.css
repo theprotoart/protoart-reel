@@ -2347,3 +2347,19 @@ button.umt-chip { border: 0; cursor: pointer; color: inherit; font: inherit; fon
 .spell-menu button:disabled { opacity: 1; cursor: default; }
 .spell-menu button:disabled span { font-weight: 700; letter-spacing: 0.02em; }
 .spell-menu button:not(:disabled) span { font-size: 14px; }
+
+/* ABC✓ Check spelling (the whole project) */
+.sp-list { display: flex; flex-direction: column; gap: 6px; margin-top: 10px; max-height: 56vh; overflow-y: auto; }
+.sp-word { padding: 8px 10px; border-radius: 6px; background: rgba(0,0,0,.25); }
+.sp-top { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; }
+.sp-bad { font: 700 17px/1.2 "Avenir Next", "Helvetica Neue", sans-serif; letter-spacing: .02em; color: #ff8a7a; text-decoration: underline wavy rgba(255,90,70,.8); text-underline-offset: 4px; }
+.sp-arrow { opacity: .6; }
+.sp-fixes { display: flex; flex-wrap: wrap; gap: 6px; align-items: center; }
+.sp-fixes .sp-fix { font: 600 15px/1 "Avenir Next", "Helvetica Neue", sans-serif; text-transform: none; letter-spacing: .02em; padding: 6px 12px; }
+.sp-fixes .sp-keep { text-transform: none; letter-spacing: .02em; opacity: .85; }
+.sp-places { display: flex; flex-wrap: wrap; gap: 4px; margin-top: 6px; }
+.sp-place { border: 0; border-radius: 4px; padding: 3px 8px; background: rgba(255,255,255,.06); color: inherit; font-size: 12px; cursor: pointer; text-transform: none; }
+.sp-place:hover { background: rgba(245,185,66,.18); }
+html[data-theme="light"] .sp-word { background: rgba(0,0,0,.06); }
+html[data-theme="light"] .sp-bad { color: #c0261a; }
+html[data-theme="light"] .sp-place { background: rgba(0,0,0,.07); }

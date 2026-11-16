@@ -4,6 +4,7 @@
 // its picture and fills in the missing halves from the same recording, as one ⌘Z.
 import { el, modal, toast } from './ui.js';
 import { outOfSync, resync, missingHalves } from './lib/sync.js';
+import { scanSpelling } from './spelling.js';
 import { isFree, addTrack, newMediaClip, fmtTime, mediaById } from './model.js';
 
 const fmtLen = s => (s >= 60 ? `${Math.floor(s / 60)} min ${Math.round(s % 60)} s` : `${s.toFixed(1)} s`);
@@ -26,7 +27,8 @@ export async function checkProject(app) {
   const slipped = outOfSync(doc);
   const holes = missingHalves(doc);
   const missingOnTimeline = media.filter(m => gone.has(m.file) && uses.get(m.id));
-  return { recordings, others, slipped, holes, missing: media.filter(m => gone.has(m.file)), missingOnTimeline };
+  let spelling = null; try { spelling = await scanSpelling(doc); } catch { /* can't tell */ }
+  return { recordings, others, slipped, holes, missing: media.filter(m => gone.has(m.file)), missingOnTimeline, spelling };
 }
 
 /** Puts it right: sound back under its picture, then the missing halves filled from the same recording. */
@@ -66,7 +68,10 @@ export async function openRepair(app) {
       el('div', { class: 'rp-sum' },
         row(!r.missing.length, r.missing.length ? `${r.missing.length} file${r.missing.length === 1 ? ' is' : 's are'} missing from the project folder` : 'Every file is in the project folder', r.missing.length ? r.missing.map(m => m.name).join(', ') + ' — media panel › right-click › Replace file… to point Reel at it.' : 'Nothing is lost: deleting or moving clips never deletes these files.'),
         row(!r.slipped.length, r.slipped.length ? `${r.slipped.length} sound clip${r.slipped.length === 1 ? ' is' : 's are'} out of sync with ${r.slipped.length === 1 ? 'its' : 'their'} picture` : 'All the sound is in sync with its picture', r.slipped.length ? `Most by about ${fmtLen(lateBy)}. REPAIR moves each one back under its picture.` : ''),
-        row(!r.holes.length, r.holes.length ? `${fmtLen(r.holes.reduce((a, h) => a + h.duration, 0))} of picture ${r.holes.length === 1 ? 'has' : 'have'} no microphone under it (${r.holes.length} place${r.holes.length === 1 ? '' : 's'})` : 'Every picture has its microphone', r.holes.length ? 'REPAIR puts that sound back from the same recording, in sync.' : '')),
+        row(!r.holes.length, r.holes.length ? `${fmtLen(r.holes.reduce((a, h) => a + h.duration, 0))} of picture ${r.holes.length === 1 ? 'has' : 'have'} no microphone under it (${r.holes.length} place${r.holes.length === 1 ? '' : 's'})` : 'Every picture has its microphone', r.holes.length ? 'REPAIR puts that sound back from the same recording, in sync.' : ''),
+        r.spelling ? el('div', { class: 'rp-row ' + (r.spelling.length ? 'bad' : 'ok') }, el('b', { text: r.spelling.length ? '!' : '✓' }), el('div', {},
+          el('div', { text: r.spelling.length ? `${r.spelling.length} word${r.spelling.length === 1 ? '' : 's'} on screen may be misspelt` : 'Every word on screen is spelt right' }),
+          r.spelling.length ? el('small', {}, el('span', { text: r.spelling.slice(0, 6).map(f => `“${f.word}”`).join(', ') + (r.spelling.length > 6 ? '…  ' : '  ') }), el('button', { class: 'tool', type: 'button', text: 'ABC✓ CHECK SPELLING', onclick: () => app.cmd('spelling') })) : null)) : null),
       el('div', { class: 'engr rp-h', text: `RECORDINGS (${r.recordings.length})` }),
       el('div', { class: 'rp-list' }, ...r.recordings.map(rec => {
         const unused = rec.files.every(f => !f.used);
