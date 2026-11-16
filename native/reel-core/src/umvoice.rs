@@ -135,7 +135,7 @@ pub fn dtw(a: &Print, b: &Print) -> f64 {
 }
 
 /// Bursts: louder than the room, min..max seconds, with a pause either side. Returns (a, b) in samples.
-pub fn bursts(x: &[f32], min: f64, max: f64, gap: f64) -> Vec<(usize, usize)> {
+pub fn bursts(x: &[f32], min: f64, max: f64, gap: f64, soft: bool) -> Vec<(usize, usize)> {
     let rate = RATE as f64;
     let win = (rate * 0.01).round() as usize;
     let n = x.len() / win;
@@ -149,7 +149,8 @@ pub fn bursts(x: &[f32], min: f64, max: f64, gap: f64) -> Vec<(usize, usize)> {
     sorted.sort_by(|a, b| a.partial_cmp(b).unwrap_or(std::cmp::Ordering::Equal));
     let at = |q: f64| sorted.get((n as f64 * q).floor() as usize).copied().unwrap_or(0.0) as f64;
     let (floor, loud) = (at(0.1), at(0.9));
-    let on = (floor * 3.0).max(floor + (loud - floor) * 0.12).max(1e-4);
+    // soft: a much lower bar, for soft sounds you taught (breaths) that never reach the bar for words
+    let on = if soft { (floor * 1.6).max(floor + (loud - floor) * 0.03).max(3e-5) } else { (floor * 3.0).max(floor + (loud - floor) * 0.12).max(1e-4) };
     let hold = ((gap * rate) / win as f64).round() as usize;
     let mut runs = Vec::new();
     let (mut s, mut quiet): (i64, usize) = (-1, 0);
@@ -181,7 +182,7 @@ pub fn score(m: &Model, fp: &Print) -> (Option<usize>, f64) {
 
 /// Your ums in 16 kHz samples (see findInSamples in the JavaScript).
 pub fn find_in_samples(m: &Model, x: &[f32]) -> Vec<Hit> {
-    let all = bursts(x, 0.12, 1.6, 0.12);
+    let all = bursts(x, 0.12, 1.6, 0.12, false);
     let one = |&(a, b): &(usize, usize)| -> Option<Hit> {
         let fp = fingerprint(&x[a..b]);
         if fp.len() < 8 { return None; }
@@ -192,12 +193,32 @@ pub fn find_in_samples(m: &Model, x: &[f32]) -> Vec<Hit> {
     };
     // each burst is judged on its own, so the Mac's cores share them; the order stays the order in time
     let cores = std::thread::available_parallelism().map_or(1, |n| n.get()).min(8);
-    if cores < 2 || all.len() < 32 { return all.iter().filter_map(one).collect(); }
-    let chunk = all.len().div_ceil(cores);
-    std::thread::scope(|sc| {
-        let jobs: Vec<_> = all.chunks(chunk).map(|part| sc.spawn(move || part.iter().filter_map(one).collect::<Vec<_>>())).collect();
-        jobs.into_iter().flat_map(|j| j.join().unwrap_or_default()).collect()
-    })
+    let mut out: Vec<Hit> = if cores < 2 || all.len() < 32 { all.iter().filter_map(one).collect() } else {
+        let chunk = all.len().div_ceil(cores);
+        std::thread::scope(|sc| {
+            let jobs: Vec<_> = all.chunks(chunk).map(|part| sc.spawn(move || part.iter().filter_map(one).collect::<Vec<_>>())).collect();
+            jobs.into_iter().flat_map(|j| j.join().unwrap_or_default()).collect()
+        })
+    };
+    // your own sounds (breath, sneeze…) can be far quieter than words: listen again with a lower bar, for those only,
+    // where nothing was found already (as findInSamples in the JavaScript)
+    let own: Vec<usize> = (0..m.words.len()).filter(|&i| m.words[i].word != "umm" && m.words[i].word != "uh").collect();
+    if !own.is_empty() {
+        let rate = RATE as f64;
+        for (a, b) in bursts(x, 0.12, 1.6, 0.12, true) {
+            if out.iter().any(|h| h.t < b as f64 / rate && h.end > a as f64 / rate) { continue; }
+            let fp = fingerprint(&x[a..b]);
+            if fp.len() < 8 { continue; }
+            let mut best = (None, f64::INFINITY);
+            for &wi in &own { for p in &m.words[wi].prints { let d = dtw(&fp, p); if d < best.1 { best = (Some(wi), d); } } }
+            let Some(w) = best.0 else { continue };
+            let d = best.1;
+            let no = m.nots.iter().map(|p| dtw(&fp, p)).fold(f64::INFINITY, f64::min);
+            if d <= m.threshold && !(no < d) { out.push(Hit { t: a as f64 / rate, end: b as f64 / rate, word: w, d, sure: d <= m.threshold * 0.85 }); }
+        }
+        out.sort_by(|p, q| p.t.partial_cmp(&q.t).unwrap_or(std::cmp::Ordering::Equal));
+    }
+    out
 }
 
 #[cfg(test)]
@@ -225,7 +246,7 @@ mod tests {
         let mut x = vec![0f32; 8000];
         x.extend(tone(0.4, 200.0, 0.3));
         x.extend(vec![0f32; 8000]);
-        let b = bursts(&x, 0.12, 1.6, 0.12);
+        let b = bursts(&x, 0.12, 1.6, 0.12, false);
         assert_eq!(b.len(), 1);
         assert!((b[0].0 as f64 / RATE as f64 - 0.5).abs() < 0.03);
     }

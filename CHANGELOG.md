@@ -1,5 +1,13 @@
 # Changelog
 
+## Unreleased
+
+- **💬 FILLER WORDS** (was 💬 UMS): it lists ums, uhs, filler words and every sound you taught Reel.
+- **Breaths and other soft sounds you taught are found**: Reel listens a second time with a lower bar, for your own
+  sounds only (so soft syllables are never taken for ums). Same answers in the Rust core (version 0.4.0).
+- **Fixed**: "5 found" with an empty list: when the filter, track or selected clip would hide everything found, the
+  list now shows it all.
+
 ## 1.9.1 — Rust core (ums, waveforms and loudness, sound-only export), clearer export status, fixes
 
 - **The first piece of Reel in Rust**: `reel-core` (native/reel-core, no third-party crates) now finds your ums

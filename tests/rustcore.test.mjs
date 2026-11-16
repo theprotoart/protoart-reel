@@ -212,3 +212,17 @@ test('what the core can\'t mix yet goes to the JavaScript export, with the reaso
   const off = mixDoc(); off.mixFx[0].off = true;
   assert.deepEqual(exportMixJob(off, 0, 5, { codec: 'wav' }).job.limiters, []);
 });
+
+test('reel-core finds the same soft sounds you taught (breaths) as the JavaScript', { skip }, async () => {
+  const breath = sec => { const n = Math.round(sec * RATE), o = new Float32Array(n); let y1 = 0; for (let i = 0; i < n; i++) { y1 = 0.6 * y1 + (rnd() * 2 - 1); o[i] = y1 * 0.012 * Math.sin(Math.PI * i / n); } return o; };
+  const { addTake } = await import('../app/renderer/lib/umvoice.js');
+  let m = train({ takes: [0.7, 0.45, 0.3].map(d => ({ word: 'umm', samples: cat([quiet(0.2), voice(d, UMM), quiet(0.2)]) })), speech: sentence(5) });
+  for (const d of [0.5, 0.4, 0.6]) m = addTake(m, 'breath', cat([quiet(0.15), breath(d), quiet(0.15)]), null);
+  m = unpackModel(packModel(m));
+  const parts = [quiet(0.3)];
+  for (let k = 0; k < 8; k++) parts.push(sentence(1.6), quiet(0.25), k % 2 ? breath(0.35 + k * 0.03) : voice(0.4, UMM, { f0: 106 + k }), quiet(0.3));
+  const x = cat(parts);
+  const js = findInSamples(m, x), rs = await core.umFind(JSON.parse(packModel(m)), x);
+  assert.ok(js.some(h => h.word === 'breath'), 'breaths found');
+  assert.deepEqual(rs.map(h => [h.t, h.end, h.word, h.sure]), js.map(h => [h.t, h.end, h.word, h.sure]));
+});

@@ -50,7 +50,7 @@ export function initKeyPanel(app) {
   }
   // UMS: beside TAKES (find the ums and uhs in the speech, cut them one by one or all at once)
   if (!document.getElementById('btn-ums')) {
-    const b = el('button', { id: 'btn-ums', class: 'hw takes-btn', title: 'UMS: Reel listens to the speech and lists every um, uh and filler. Play each one, keep or cut it, or remove them all at once.', onclick: () => app.cmd('ums') }, '💬 UMS', el('span', { class: 'n' }));
+    const b = el('button', { id: 'btn-ums', class: 'hw takes-btn', title: 'FILLER WORDS: Reel listens to the speech and lists every um, uh, filler word and sound you taught it (breaths…). Play each one, keep or cut it, or remove them all at once.', onclick: () => app.cmd('ums') }, '💬 FILLER WORDS', el('span', { class: 'n' }));
     deck.append(b);
   }
   // STYLE PACKS and FILM CUTS: keys of their own

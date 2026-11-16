@@ -101,12 +101,13 @@ export function dtw(a, b) {
  * Bursts of sound: stretches louder than the room, 0.12 to 1.6 seconds long, with a pause either side (so a burst
  * is something said on its own, like an um, not the middle of a sentence). Returns [{ a, b }] in samples.
  */
-export function bursts(x, { rate = RATE, min = 0.12, max = 1.6, gap = 0.12 } = {}) {
+export function bursts(x, { rate = RATE, min = 0.12, max = 1.6, gap = 0.12, soft = false } = {}) {
   const win = Math.round(rate * 0.01), n = Math.floor(x.length / win), env = new Float32Array(n);
   for (let i = 0; i < n; i++) { let s = 0; for (let k = i * win; k < (i + 1) * win; k++) s += x[k] * x[k]; env[i] = Math.sqrt(s / win); }
   const sorted = Float32Array.from(env).sort();
   const floor = sorted[Math.floor(n * 0.1)] || 0, loud = sorted[Math.floor(n * 0.9)] || 0;
-  const on = Math.max(floor * 3, floor + (loud - floor) * 0.12, 1e-4);
+  // soft: a much lower bar, for soft sounds you taught (breaths) that never reach the bar for words
+  const on = soft ? Math.max(floor * 1.6, floor + (loud - floor) * 0.03, 3e-5) : Math.max(floor * 3, floor + (loud - floor) * 0.12, 1e-4);
   const runs = [];
   let s = -1, quiet = 0;
   const hold = Math.round((gap * rate) / win); // a run ends after this much quiet
@@ -215,6 +216,21 @@ export function findInSamples(model, x) {
     // nearer something you said isn't an um than to any um: not one
     const no = (model.nots || []).reduce((d, p) => Math.min(d, dtw(fp, p)), Infinity);
     if (s.d <= model.threshold && !(no < s.d)) out.push({ t: a / RATE, end: b / RATE, word: s.word, d: s.d, sure: s.d <= model.threshold * 0.85 });
+  }
+  // your own sounds (breath, sneeze…) can be far quieter than words: listen again with a lower bar, for those only
+  // (so a soft syllable is never taken for an um), where nothing was found already
+  const own = model.words.filter(w => w.word !== 'umm' && w.word !== 'uh');
+  if (own.length) {
+    const sub = { ...model, words: own };
+    for (const { a, b } of bursts(x, { soft: true })) {
+      if (out.some(h => h.t < b / RATE && h.end > a / RATE)) continue;
+      const fp = fingerprint(x.subarray(a, b));
+      if (fp.length < 8) continue;
+      const s = score(sub, fp);
+      const no = (model.nots || []).reduce((d, p) => Math.min(d, dtw(fp, p)), Infinity);
+      if (s.d <= model.threshold && !(no < s.d)) out.push({ t: a / RATE, end: b / RATE, word: s.word, d: s.d, sure: s.d <= model.threshold * 0.85 });
+    }
+    out.sort((p, q) => p.t - q.t);
   }
   return out;
 }

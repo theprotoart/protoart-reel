@@ -15,7 +15,7 @@ export const umCount = doc => umsOf(doc).filter(u => u.cut).length;
 
 /** The kind of an um, for the filters: um / uh, like / you know, a sound between words, your trained voice, a word you looked for. */
 export const catOf = u => u.cat || (u.kind === 'sound' ? 'sound' : u.kind === 'voice' ? 'voice' : u.kind === 'find' ? 'find' : u.cut ? 'um' : 'phrase');
-const CATS = [['all', 'All'], ['um', 'Um · uh'], ['phrase', 'Like · you know'], ['voice', 'Your ums'], ['sound', 'Sounds']];
+const CATS = [['all', 'All'], ['um', 'Um · uh'], ['phrase', 'Like · you know'], ['voice', 'Taught'], ['sound', 'Sounds']];
 
 /**
  * Listens to the speech and replaces the project's list of ums (words you looked for stay). With ums you taught
@@ -69,8 +69,8 @@ export function openUms(app) {
   track.title = 'Which track to listen to';
   const list = el('div', { class: 'takes-list ums-list' });
   const status = el('p', { class: 'note ums-status', text: '' });
-  const listenBtn = el('button', { class: 'hw', text: '👂 LISTEN FOR UMS', title: 'Listen to the speech and list every um, uh and filler (the first time takes a little while; it runs on this Mac)' });
-  const removeBtn = el('button', { class: 'hw amber', text: 'REMOVE UMS' });
+  const listenBtn = el('button', { class: 'hw', text: '👂 LISTEN FOR FILLERS', title: 'Listen to the speech and list every um, uh and filler (the first time takes a little while; it runs on this Mac)' });
+  const removeBtn = el('button', { class: 'hw amber', text: 'REMOVE' });
   const markBtn = el('button', { class: 'hw', text: '🏷 MARK', title: 'Put a marker on each one shown instead of cutting (to edit by hand). Click again to take the um markers off' });
   const allBtn = el('button', { class: 'mini ums-all', text: 'ALL CUT', title: 'Mark every one shown CUT (click again to KEEP them)' });
   // what's shown: a kind (or a word you looked for), the chosen track, and the selected clip
@@ -89,9 +89,9 @@ export function openUms(app) {
   teachBtn.addEventListener('click', () => teachUms(app, { onDone: () => { drawTeach(); refresh(true); } }));
   drawTeach();
   const root = el('div', { class: 'vo-panel takes-panel ums-panel' },
-    el('div', { class: 'vo-head' }, el('b', { text: '💬 UMS' }), el('span', { class: 'spacer' }), el('button', { class: 'mini', text: '×', title: 'Close', onclick: () => close() })),
+    el('div', { class: 'vo-head' }, el('b', { text: '💬 FILLER WORDS' }), el('span', { class: 'spacer' }), el('button', { class: 'mini', text: '×', title: 'Close', onclick: () => close() })),
     el('p', { class: 'note takes-how' },
-      el('b', { text: 'Ums, uhs and fillers. ' }),
+      el('b', { text: 'Ums, uhs, filler words and the sounds you taught Reel. ' }),
       'Reel lists them here. Um and uh are marked CUT; "like", "you know" and sounds are marked KEEP: play them first. 🗑 removes one now; REMOVE cuts the ones shown marked CUT.'),
     el('div', { class: 'row ums-opts' }, lang, track),
     el('div', { class: 'row ums-find' }, findIn, findBtn),
@@ -124,7 +124,12 @@ export function openUms(app) {
     const now = JSON.stringify(all.map(u => [u.id, u.t, u.cut])) + busy + filter + track.value + selIds + onlySel.checked + !!umModel();
     if (!force && now === sig) return;
     sig = now;
-    const ums = shownOf(all);
+    let ums = shownOf(all);
+    if (!ums.length && all.length && (filter !== 'all' || track.value || onlySel.checked)) {
+      // what was found would all be hidden by the filter, track or selected clip: show everything instead
+      filter = 'all'; track.value = ''; onlySel.checked = false; ums = shownOf(all);
+    }
+    if (!ums.length && all.length) ums = all; // only words you looked for: show those
     selRow.classList.toggle('hidden', !app.selection.clips.length);
     // the filter chips, with how many of each (in this track and clip)
     const counts = {};
@@ -138,16 +143,16 @@ export function openUms(app) {
         el('span', { text: label }), el('i', { text: String(counts[k] || 0) }))));
     if (filter !== 'all' && !counts[filter]) { filter = 'all'; return refresh(true); }
     const n = ums.filter(u => u.cut).length;
-    removeBtn.textContent = n ? `REMOVE ${n}` : 'REMOVE UMS';
+    removeBtn.textContent = n ? `REMOVE ${n}` : 'REMOVE';
     const marked = (app.doc.markers || []).filter(k => k.ums).length;
     markBtn.textContent = marked ? `🏷 UNMARK ${marked}` : ums.length ? `🏷 MARK ${ums.length}` : '🏷 MARK';
     markBtn.disabled = busy || (!marked && !ums.length);
     removeBtn.title = n ? `Cut the ${n} shown marked CUT and close the gaps (⌘Z undoes)` : 'Mark some CUT first';
     removeBtn.disabled = !n || busy;
     listenBtn.disabled = busy;
-    listenBtn.textContent = app.doc.ums ? '👂 LISTEN AGAIN' : '👂 LISTEN FOR UMS';
+    listenBtn.textContent = app.doc.ums ? '👂 LISTEN AGAIN' : '👂 LISTEN FOR FILLERS';
     allBtn.textContent = ums.length && ums.every(u => u.cut) ? 'ALL KEEP' : 'ALL CUT';
-    if (!app.doc.ums) { list.replaceChildren(el('p', { class: 'takes-empty', text: 'Press LISTEN FOR UMS. Reel listens to the speech on the track you choose and lists every um, uh and filler it hears. 🎙 TEACH REEL YOUR UMS first and it finds them in your voice too.' })); return; }
+    if (!app.doc.ums) { list.replaceChildren(el('p', { class: 'takes-empty', text: 'Press LISTEN FOR FILLERS. Reel listens to the speech on the track you choose and lists every um, uh and filler it hears. 🎙 TEACH REEL YOUR UMS first and it finds them in your voice too.' })); return; }
     if (!ums.length) { list.replaceChildren(el('p', { class: 'takes-empty', text: all.length ? 'None here: pick another filter, track or clip.' : 'No ums found. Nice and clean.' })); return; }
     list.replaceChildren(
       el('div', { class: 'engr takes-rec ums-sum' }, el('span', { text: `${ums.length} shown · ${n} marked CUT` }), allBtn),

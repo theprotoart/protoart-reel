@@ -137,7 +137,7 @@ export function teachUms(app, { onDone } = {}) {
     try {
       const n = await teachFillers(app, fs, msg => { status.textContent = msg; });
       for (const f of fs) picked.delete(f.id);
-      status.textContent = n ? `Learned ${n} from your recording. 💬 UMS › LISTEN AGAIN uses them.` : 'Nothing was learned.';
+      status.textContent = n ? `Learned ${n} from your recording. 💬 FILLER WORDS › LISTEN AGAIN uses them.` : 'Nothing was learned.';
       onDone?.();
     } catch (e) { status.textContent = e.message; }
     drawFillers(); draw();
@@ -158,7 +158,7 @@ export function teachUms(app, { onDone } = {}) {
       if (!m && speech && ums.filter(t => t.word === ums[0].word).length >= 2) m = train({ takes: ums, speech });
       else for (const t of ums) m = addTake(m, t.word, t.samples, speech);
       saveModel(m);
-      toast(`Learned your ${m.words.map(w => w.word).join(' and ')}. 💬 UMS › LISTEN AGAIN finds them; AUTO EDIT cuts them too.`, 6000);
+      toast(`Learned your ${m.words.map(w => w.word).join(' and ')}. 💬 FILLER WORDS › LISTEN AGAIN finds them; AUTO EDIT cuts them too.`, 6000);
       dlg?.close();
       onDone?.();
     } catch (e) { status.textContent = e.message; }

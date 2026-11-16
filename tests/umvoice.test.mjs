@@ -111,3 +111,16 @@ test('"not an um": something it matched by mistake is never matched again', () =
   assert.equal(findInSamples(m, cat([quiet(0.4), voice(0.5, UMM, { f0: 118 }), quiet(0.4)])).length, 1);
   assert.equal(unpackModel(packModel(m)).nots.length, 1);
 });
+
+test('a breath you taught is found even though it is far quieter than speech; ums are not looked for in the quiet', () => {
+  // a breath: soft, airy noise through a broad resonance, about a tenth as loud as the speech
+  const breath = sec => { const n = Math.round(sec * RATE), o = new Float32Array(n); let y1 = 0; for (let i = 0; i < n; i++) { y1 = 0.6 * y1 + (rnd() * 2 - 1); o[i] = y1 * 0.012 * Math.sin(Math.PI * i / n); } return o; };
+  const takes = [0.6, 0.45, 0.3].map(d => ({ word: 'umm', samples: cat([quiet(0.2), voice(d, UMM), quiet(0.2)]) }));
+  let m = train({ takes, speech: sentence(5) });
+  for (const d of [0.5, 0.4, 0.6]) m = addTake(m, 'breath', cat([quiet(0.15), breath(d), quiet(0.15)]), null);
+  const parts = [quiet(0.4), sentence(2), quiet(0.3), breath(0.45), quiet(0.3), sentence(2), quiet(0.4)];
+  const at = parts.slice(0, 3).reduce((s, p) => s + p.length, 0) / RATE;
+  const found = findInSamples(m, cat(parts));
+  assert.ok(found.some(f => f.word === 'breath' && f.t <= at + 0.1 && f.end >= at + 0.25), JSON.stringify(found));
+  assert.ok(!found.some(f => f.word === 'umm'), 'no ums in a recording without any');
+});
