@@ -103,25 +103,58 @@ export async function addSounds(app, list, tag = null) {
   catch (e) { toast(e.message, 5000); return; }
   app.commit(d => placeSfx(d, list, medias, tag));
 }
-function applyTitle(app, anim) {
-  const list = selected(app).filter(c => c.type === 'text');
+function applyTitle(app, anim, at = null, track = null) {
+  const list = at == null ? selected(app).filter(c => c.type === 'text') : [];
   if (list.length) { app.commit(() => { for (const c of list) c.text = { ...c.text, anim }; }); return; }
-  const c = newTextClip(null, app.player.time, 'Your title');
+  const c = newTextClip(null, at ?? app.player.time, 'Your title');
   c.text = { ...c.text, anim };
-  app._insert(c);
+  place(app, c, track);
+}
+/** A new overlay at its start: on the track it was dropped on when that's free there, else the top track as usual. */
+function place(app, c, track) {
+  if (track && isFree(app.doc, track, c.start, c.duration)) { app.commit(d => { c.track = track; d.clips.push(c); }); app.select([c.id], null); }
+  else app._insert(c);
 }
 function applyMotionPreset(app, id) {
   const list = selected(app).filter(c => visual(app.doc, c));
   if (!list.length) { toast('Select a clip (video, picture, title or element) first.'); return; }
   app.commit(() => { for (const c of list) applyMotion(c, id); });
 }
-function addElement(app, kind) {
+function addElement(app, kind, at = null, track = null) {
   const group = ELEMENTS[kind].group;
+  if (at != null) app.seek(at);
   if (group === 'Backgrounds') return addBackground(app, kind);
   if (group === 'Audio visualizers') return addVisualizer(app, kind);
-  const c = newElementClip(null, app.player.time, kind, elementHome(kind), kind === 'burst' || kind === 'ringPop' ? 1.5 : 4);
+  const c = newElementClip(null, at ?? app.player.time, kind, elementHome(kind), kind === 'burst' || kind === 'ringPop' ? 1.5 : 4);
   c.name = ELEMENTS[kind].name;
-  app._insert(c);
+  place(app, c, track);
+}
+
+/**
+ * A preset dropped on the timeline. at: the time under the pointer; track: the track it's over; clip: the clip it's
+ * on, if any. Titles, elements and sounds start there; transitions, cut transitions and motion go on the clip.
+ */
+export function dropPreset(app, { kind, id }, { at, track, clip }) {
+  const doc = app.doc, c = clip && doc.clips.find(x => x.id === clip);
+  let sound = true; try { sound = localStorage.getItem('reel.presetSound') !== '0'; } catch { /* default */ }
+  switch (kind) {
+    case 'title':
+      if (c?.type === 'text') { app.commit(() => { c.text = { ...c.text, anim: id }; }); app.select([c.id], null); return; }
+      return applyTitle(app, id, at, track);
+    case 'element': return addElement(app, id, at, track);
+    case 'sound': return addSound(app, id, at);
+    case 'motion':
+      if (!c || !visual(doc, c)) { toast('Drop a motion preset onto a clip.'); return; }
+      app.select([c.id], null); return applyMotionPreset(app, id);
+    case 'trans': return app.timeline.dropTransition(id, clip, null, at);
+    case 'cut': {
+      if (!c || !visual(doc, c)) { toast('Drop it onto a cut: where one clip ends and the next begins.'); return; }
+      app.select([c.id], null);
+      app.seek(at - c.start < c.duration / 2 ? c.start : clipEnd(c)); // the nearer end of the clip
+      return applyCutTransition(app, id, sound);
+    }
+    default: return undefined;
+  }
 }
 /** A motion background: on its own track at the bottom, under everything, as long as the edit from the playhead. */
 function addBackground(app, kind) {
@@ -245,15 +278,32 @@ export function tile(kind, id, name, onApply, extra) {
 
 // ------------------------------------------------------------------ the browser
 let panel = null;
-export function openPresetBrowser(app, page = 'cut') {
+/** The preset pages: [key, label]. The left panel shows them as tabs beside MEDIA. */
+export const PRESET_PAGES = [['title', 'TITLES'], ['trans', 'TRANSITIONS'], ['cut', 'CUT TRANSITIONS'], ['element', 'ELEMENTS'], ['motion', 'MOTION'], ['sound', 'SOUNDS'], ['style', 'STYLE PACKS'], ['film', 'FILM CUTS'], ['auto', 'AUTO']];
+/** Kinds of preset that can be dragged onto the timeline (the rest are whole-edit clicks). */
+const DRAGGABLE = new Set(['title', 'trans', 'cut', 'element', 'motion', 'sound']);
+const draggable = (node, kind, id, name) => {
+  if (!DRAGGABLE.has(kind)) return node;
+  node.draggable = true; node.classList.add('pl-drag');
+  node.title = `${name}: click to use it, or drag it onto the timeline${kind === 'trans' ? ' (onto a clip: near its start or its end)' : kind === 'cut' ? ' (onto a cut between two clips)' : kind === 'motion' ? ' (onto a clip)' : ''}`;
+  node.addEventListener('dragstart', e => { e.dataTransfer.setData('text/x-reel-preset', JSON.stringify({ kind, id })); e.dataTransfer.effectAllowed = 'copy'; });
+  return node;
+};
+
+/**
+ * Presets. Docked (host given): drawn into the left panel, no title bar or tabs of its own (the panel's tabs pick the
+ * page). Otherwise, when the left panel is showing, they open there; else in a floating window as before.
+ */
+export function openPresetBrowser(app, page = 'cut', host = null) {
   if (!app.doc) return;
-  if (panel) { panel.remove(); panel = null; }
+  if (!host && app.library?.showPresets && document.getElementById('library')?.offsetParent) { panel?.remove(); panel = null; return app.library.showPresets(page === 'cut' && !app.library.presetPage ? 'title' : page); }
+  if (!host && panel) { panel.remove(); panel = null; }
   let sound = (() => { try { return localStorage.getItem('reel.presetSound') !== '0'; } catch { return true; } })();
   const soundCb = el('input', { type: 'checkbox', checked: sound });
   soundCb.addEventListener('change', () => { sound = soundCb.checked; try { localStorage.setItem('reel.presetSound', sound ? '1' : '0'); } catch { /* fine */ } });
   const search = el('input', { type: 'search', placeholder: 'Search presets…' });
   const grid = el('div', { class: 'pl-grid' }), note = el('p', { class: 'note pl-note' });
-  const PAGES = [['style', 'STYLE PACKS'], ['cut', 'CUT TRANSITIONS'], ['film', 'FILM CUTS'], ['trans', 'TRANSITIONS'], ['title', 'TITLES'], ['motion', 'MOTION'], ['element', 'ELEMENTS'], ['sound', 'SOUNDS'], ['auto', 'AUTO']];
+  const PAGES = PRESET_PAGES;
   const tabs = el('div', { class: 'pl-tabs' }, ...PAGES.map(([k, l]) => el('button', { class: 'cs-tab', 'data-k': k, text: l, onclick: () => show(k) })));
   const show = k => {
     page = k;
@@ -275,29 +325,29 @@ export function openPresetBrowser(app, page = 'cut') {
       grid.append(el('div', { class: 'pl-scan' }, leadRow(), randomRow()));
     } else if (k === 'cut') {
       note.textContent = 'Plays across a cut: the end of one clip hands over to the next. Click to put it on the cut nearest the playhead (on the selected clip’s track). ⌥-click puts it on every cut.';
-      for (const [id, n] of CUT_TRANSITIONS) if (match(n)) grid.append(tile('cut', id, n, e => applyCutTransition(app, id, sound, e.altKey)));
+      for (const [id, n] of CUT_TRANSITIONS) if (match(n)) grid.append(draggable(tile('cut', id, n, e => applyCutTransition(app, id, sound, e.altKey)), 'cut', id, n));
     } else if (k === 'trans') {
       note.textContent = 'In and out of a clip. Click for both ends of the selected clips; IN or OUT for one end.';
       for (const [id, n] of TRANSITIONS) if (id !== 'none' && !CUT_TRANSITIONS.some(c => c[0] === id) && match(n)) {
         const side = el('div', { class: 'pl-side' }, el('button', { class: 'mini', text: 'IN', onclick: () => applyTransition(app, id, 'in', sound) }), el('button', { class: 'mini', text: 'OUT', onclick: () => applyTransition(app, id, 'out', sound) }));
-        grid.append(tile('trans', id, n, () => applyTransition(app, id, 'both', sound), side));
+        grid.append(draggable(tile('trans', id, n, () => applyTransition(app, id, 'both', sound), side), 'trans', id, n));
       }
     } else if (k === 'title') {
       note.textContent = 'Text animations. Click to use it on the selected titles, or to add a new title at the playhead.';
-      for (const [id, n] of TEXT_ANIMS) if (id !== 'none' && match(n)) grid.append(tile('title', id, n, () => applyTitle(app, id)));
+      for (const [id, n] of TEXT_ANIMS) if (id !== 'none' && match(n)) grid.append(draggable(tile('title', id, n, () => applyTitle(app, id)), 'title', id, n));
     } else if (k === 'motion') {
       note.textContent = 'Moves made of keyframes you can adjust afterwards. Click to put it on the selected clips.';
-      for (const [id, p] of Object.entries(MOTION_PRESETS)) if (match(p.name) || match(p.group)) grid.append(tile('motion', id, p.name, () => applyMotionPreset(app, id)));
+      for (const [id, p] of Object.entries(MOTION_PRESETS)) if (match(p.name) || match(p.group)) grid.append(draggable(tile('motion', id, p.name, () => applyMotionPreset(app, id)), 'motion', id, p.name));
     } else if (k === 'element') {
       note.textContent = 'Animated graphics. Click to add one at the playhead; change its words and colours in the inspector.';
       // social call-outs (like, subscribe, follow, end screen) first: the ones people look for
       const order = g => (g === 'Social' ? 0 : g === 'Call-outs' ? 1 : g === 'Lower thirds' ? 2 : 3);
-      for (const [id, p] of Object.entries(ELEMENTS).sort((a, b) => order(a[1].group) - order(b[1].group))) if (match(p.name) || match(p.group)) grid.append(tile('element', id, p.name, () => addElement(app, id)));
+      for (const [id, p] of Object.entries(ELEMENTS).sort((a, b) => order(a[1].group) - order(b[1].group))) if (match(p.name) || match(p.group)) grid.append(draggable(tile('element', id, p.name, () => addElement(app, id)), 'element', id, p.name));
     } else if (k === 'sound') {
       note.textContent = 'Sound effects made by Reel (free to use anywhere). ▶ to listen, click the name to add it at the playhead on the Sound FX track.';
       for (const [id, s] of Object.entries(SFX)) if (match(s.name) || match(s.hint)) {
         const play = el('button', { class: 'mini', text: '▶', title: 'Listen', onclick: e => { e.stopPropagation(); preview(id); } });
-        grid.append(el('div', { class: 'pl-sound', onclick: () => addSound(app, id) }, play, el('div', {}, el('b', { text: s.name }), el('small', { text: s.hint }))));
+        grid.append(draggable(el('div', { class: 'pl-sound', onclick: () => addSound(app, id) }, play, el('div', {}, el('b', { text: s.name }), el('small', { text: s.hint }))), 'sound', id, s.name));
       }
     } else if (k === 'auto') {
       note.textContent = 'Put transitions on every cut in one go, in a style. “Find shot changes” first cuts long clips where the picture changes (a new scene, a new window), so those get transitions too. Smart Zoom and Time-lapse can do this as they scan.';
@@ -315,10 +365,14 @@ export function openPresetBrowser(app, page = 'cut') {
     }
   };
   search.addEventListener('input', () => show(page));
+  const tools = el('div', { class: 'row pl-tools' }, search, el('label', { class: 'chk', title: 'Add matching sound effects with transitions and film cuts' }, soundCb, el('span', { text: 'Sound effects' })));
+  if (host) { // docked in the left panel
+    host.replaceChildren(el('div', { class: 'pl-docked' }, tools, note, grid));
+    show(page);
+    return { show };
+  }
   const head = el('div', { class: 'fx-ed-head' }, el('b', { text: 'Presets' }), el('button', { class: 'mini', text: '×', title: 'Close', onclick: () => { panel.remove(); panel = null; } }));
-  panel = el('div', { class: 'fx-editor pl-panel' }, head, tabs,
-    el('div', { class: 'row pl-tools' }, search, el('label', { class: 'chk', title: 'Add matching sound effects with transitions and film cuts' }, soundCb, el('span', { text: 'Sound effects' }))),
-    note, grid);
+  panel = el('div', { class: 'fx-editor pl-panel' }, head, tabs, tools, note, grid);
   document.body.append(panel);
   head.addEventListener('pointerdown', e => {
     if (e.target.closest('button')) return;

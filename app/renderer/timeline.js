@@ -13,6 +13,7 @@ import { openTransitions, transName } from './transpicker.js';
 import { TRANSITIONS } from './inspector.js';
 import { pref } from './prefs.js';
 import { outOfSync } from './lib/sync.js';
+import { dropPreset } from './fxlibrary.js';
 import { dial } from './gear.js';
 import { fxRack, fxRackH } from './fxrack.js';
 import { roleButton, tint } from './automix.js';
@@ -1457,10 +1458,10 @@ export class Timeline {
     ]);
   }
   /** A transition dragged from ⧓ TRANSITIONS onto a clip: the half it lands on picks its start or its end. */
-  dropTransition(type, clipId, clientX) {
+  dropTransition(type, clipId, clientX, at = null) {
     const app = this.app, c = this.doc.clips.find(x => x.id === clipId), m = c?.type === 'media' ? mediaById(this.doc, c.media) : null;
     if (!c || c.audioOnly || m?.kind === 'audio') { toast('Drop a transition on a picture clip (video, image, text…).'); return; }
-    const side = this._timeAt(clientX) < c.start + c.duration / 2 ? 'in' : 'out', key = side === 'in' ? 'transIn' : 'transOut';
+    const side = (at ?? this._timeAt(clientX)) < c.start + c.duration / 2 ? 'in' : 'out', key = side === 'in' ? 'transIn' : 'transOut';
     const nb = this.doc.clips.find(o => o !== c && o.track === c.track && Math.abs(side === 'in' ? clipEnd(o) - c.start : o.start - clipEnd(c)) < 0.05);
     const want = Number(pref('transDur')) || 0.5;
     app.commit(() => {
@@ -1919,6 +1920,14 @@ export class Timeline {
     this.scroll.addEventListener('drop', e => {
       e.preventDefault();
       for (const r of this.tracksEl.children) r.classList.remove('drop');
+      const preset = e.dataTransfer.getData('text/x-reel-preset');
+      if (preset) {
+        let p = null; try { p = JSON.parse(preset); } catch { return; }
+        const ce = e.target.closest?.('.clip'), tr = rowOf(e), raw = Math.max(0, this._timeAt(e.clientX));
+        const at = this.snapOn ? snap(this.doc, raw, this._tol(), [], [this.app.player.time]) : raw;
+        dropPreset(this.app, p, { at, track: tr?.id || null, clip: ce?.dataset.id || null });
+        return;
+      }
       const trans = e.dataTransfer.getData('text/x-reel-trans');
       if (trans) { const ce = e.target.closest?.('.clip'); if (ce) this.dropTransition(trans, ce.dataset.id, e.clientX); else toast('Drop it on a clip: near its start to open with it, near its end to close with it.'); return; }
       const t = Math.max(0, this._timeAt(e.clientX));

@@ -1,6 +1,7 @@
 # Changelog
 
 ## Unreleased
+- The presets live in the left panel, CapCut style: tabs beside MEDIA for TITLES, TRANSITIONS, CUTS, ELEMENTS, MOTION, SOUNDS, STYLES, FILM and AUTO. Drag a title, element or sound onto the timeline to put it there (on the track you drop it on), a transition onto a clip (near its start or end), a cut transition onto a cut, a motion preset onto a clip. Clicking still works as before.
 - ⇆ Picture and sound back in sync: a sound clip that has slipped out of sync with its recording's picture gets a red badge showing how far (+ late, − early); click it to put it back. Right-click › Put back in sync, or Edit › Put Sound Back in Sync for every clip at once. New recordings remember exactly when each file started, so this is exact for them.
 - The clip settings show only what fits the clip you clicked: a sound clip only sound settings (AUDIO, MUSIC, SPEED, FX), a picture only picture settings. Clicking a recording's sound shows the sound's settings even though its picture is selected with it. No more ALL tab mixing everything together.
 - Transitions on the timeline, ScreenFlow style: each one is a labelled block at the start or end of its clip. Drag its edge to make it longer or shorter, double-click or right-click it to change or remove it, and drag any transition from ⧓ TRANSITIONS onto a clip (near its start to open with it, near its end to close with it).

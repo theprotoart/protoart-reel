@@ -4,6 +4,7 @@
 import { el, $, toast, popMenu, promptText } from './ui.js';
 import { fmtTime } from './model.js';
 import { posterFor } from './peaks.js';
+import { openPresetBrowser, PRESET_PAGES } from './fxlibrary.js';
 
 const ICON = { video: '▶', audio: '♪', image: '▣' };
 const ROLE = { screen: 'SCREEN', camera: 'CAMERA', mic: 'MIC', system: 'COMPUTER', app: 'APP', ai: 'AI', import: '', global: 'GLOBAL' };
@@ -25,7 +26,30 @@ export class Library {
     this.search.addEventListener('input', () => { this.query = this.search.value.trim().toLowerCase(); this.render(); });
     this.chips = el('div', { class: 'lib-chips' });
     const head = lib.querySelector('.panel-head');
-    head.after(el('div', { class: 'lib-tools' }, this.search, this.chips));
+    this.tools = el('div', { class: 'lib-tools' }, this.search, this.chips);
+    head.after(this.tools);
+    // CapCut-style: MEDIA and the presets share this panel. Pick a tab; drag anything from it onto the timeline.
+    this.presetPage = null;
+    this.presetHost = el('div', { class: 'lib-presets hidden' });
+    const SHORT = { title: 'TITLES', trans: 'TRANSITIONS', cut: 'CUTS', element: 'ELEMENTS', motion: 'MOTION', sound: 'SOUNDS', style: 'STYLES', film: 'FILM', auto: 'AUTO' };
+    this.tabs = el('div', { class: 'lib-tabs', role: 'tablist' },
+      el('button', { class: 'lib-tab on', 'data-k': 'media', text: 'MEDIA', title: 'Your recordings, videos, pictures and sound', onclick: () => this.showPresets(null) }),
+      ...PRESET_PAGES.map(([k, label]) => el('button', { class: 'lib-tab', 'data-k': k, text: SHORT[k] || label, title: `${label}: click one to use it, or drag it onto the timeline`, onclick: () => this.showPresets(k) })));
+    head.after(this.tabs);
+    lib.append(this.presetHost);
+  }
+
+  /** Shows a preset page in this panel (null: back to MEDIA). */
+  showPresets(page) {
+    const lib = $('#library');
+    this.presetPage = page;
+    for (const b of this.tabs.children) b.classList.toggle('on', b.dataset.k === (page || 'media'));
+    lib.classList.toggle('presets', !!page);
+    for (const n of [this.tools, this.list, lib.querySelector('.lib-hint')]) n?.classList.toggle('hidden', !!page);
+    this.presetHost.classList.toggle('hidden', !page);
+    lib.querySelector('.panel-head .engr').textContent = page ? 'PRESETS' : 'MEDIA';
+    if (page) openPresetBrowser(this.app, page, this.presetHost);
+    else this.presetHost.replaceChildren();
   }
 
   render() {
