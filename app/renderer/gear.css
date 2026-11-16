@@ -2204,3 +2204,9 @@ html[data-theme="light"] .umt-fill-title { color: #9e2618; }
 .clip .tr.tr-live .tr-h { position: absolute; top: 0; bottom: 0; right: 0; width: 5px; background: #fff; opacity: .85; pointer-events: none; }
 .clip .tr.tr-live.out .tr-h { right: auto; left: 0; }
 .tp-grid .pl-tile[draggable="true"] { cursor: grab; }
+
+/* a sound clip out of sync with its picture: red badge with how far; click to put it back */
+.clip.unsynced { box-shadow: inset 0 0 0 2px rgba(235,60,45,.85); }
+.clip .sync-badge { position: absolute; right: 14px; top: 3px; z-index: 4; padding: 1px 6px; border-radius: 9px; border: 1px solid #000; cursor: pointer;
+  font: 700 10px/1.4 var(--font-engrave, system-ui); letter-spacing: .04em; color: #fff; background: linear-gradient(#ff5a46, #c22516); box-shadow: 0 1px 3px rgba(0,0,0,.6); white-space: nowrap; }
+.clip .sync-badge:hover { filter: brightness(1.15); }

@@ -58,7 +58,8 @@ export class Inspector {
     // a new selection opens on the tab for what it is: AUDIO for a sound clip, VIDEO for a video or picture
     // (a tab picked by hand stays while the same clips are selected)
     const selKey = ids.join(',');
-    if (selKey !== this._tabSel) { this._tabSel = selKey; this.tab = defaultTab(doc, ids); }
+    this._kind = defaultTab(doc, ids);
+    if (selKey + '|' + this.focus !== this._tabSel) { this._tabSel = selKey + '|' + this.focus; this.tab = null; }
     this.root.replaceChildren();
     if (app.selection.caption) {
       const cap = (doc.captions || []).find(x => x.id === app.selection.caption);
@@ -70,8 +71,11 @@ export class Inspector {
       const snd = x => x.type === 'media' && (x.audioOnly || mediaById(doc, x.media)?.kind === 'audio');
       const pics = cs.filter(x => !snd(x));
       if (pics.length !== 1 || cs.length !== ids.length) return false;
-      this.root.append(el('p', { class: 'note sel-with-sound', text: `${ids.length} clips selected: this picture and its sound. Drag either to move both; the settings below are the picture’s.` }));
-      this.clip(pics[0]);
+      // the one you clicked: its sound shows sound settings, its picture picture settings
+      const f = cs.find(x => x.id === this.focus), show = f && snd(f) ? f : pics[0];
+      this.root.append(el('p', { class: 'note sel-with-sound', text: show === pics[0] ? 'The picture’s settings. Click its sound clip on the timeline for the sound’s. Drag either to move both.' : 'The sound’s settings. Click its picture on the timeline for the picture’s. Drag either to move both.' }));
+      this._kind = defaultTab(doc, [show.id]);
+      this.clip(show);
       return true;
     })()) { /* shown */ }
     else if (ids.length > 1) {
@@ -110,7 +114,7 @@ export class Inspector {
       const t = title.toLowerCase();
       if (/^speed|^retime/i.test(t)) return 'speed';
       if (/^music/.test(t)) return 'music';
-      if (/^position|^crop|^style|^transitions|^clip$|^video levels|^picture in picture|^stabili[sz]e|^colou?r|^match colou?r|^green screen|^remove background/.test(t)) return 'video';
+      if (/^position|^crop|^style|^transitions|^video levels|^picture in picture|^stabili[sz]e|^colou?r|^match colou?r|^green screen|^remove background/.test(t)) return 'video';
       if (/^audio/.test(t)) return 'audio';
       if (/^actions|^keyframes|^motion presets/.test(t)) return 'motion';
       if (/^pointer|^keystrokes/.test(t)) return 'screen';
@@ -122,9 +126,14 @@ export class Inspector {
     const secs = [...this.root.querySelectorAll(':scope > .insp-section')];
     secs.forEach(sec => { sec.dataset.cat = catOf(sec.querySelector('.engr')?.textContent || ''); });
     const present = new Set(secs.map(x => x.dataset.cat));
-    const tabs = CATS.filter(([k]) => k === 'all' || present.has(k));
-    if (tabs.length <= 2) return; // only one kind: nothing to switch
-    let cur = this.tab && present.has(this.tab) ? this.tab : 'all';
+    // only what fits what you clicked: a sound clip never shows picture settings, a picture never shows sound ones
+    // (a video with its own sound keeps an AUDIO tab for it). No ALL: one tab at a time, the first one to start.
+    const kind = this._kind;
+    const fits = k => k !== 'all' && present.has(k) && !(kind === 'audio' && ['video', 'motion', 'screen', 'callout', 'text'].includes(k));
+    const tabs = CATS.filter(([k]) => fits(k));
+    if (kind === 'audio') for (const sec of secs) if (['video', 'motion', 'screen', 'callout', 'text'].includes(sec.dataset.cat)) sec.remove();
+    if (tabs.length < 2) return; // one kind of setting: nothing to switch
+    let cur = this.tab && fits(this.tab) ? this.tab : kind && fits(kind) ? kind : tabs[0][0];
     const bar = el('div', { class: 'insp-tabs', role: 'tablist' });
     const apply = () => {
       for (const sec of secs) sec.classList.toggle('tab-hidden', cur !== 'all' && sec.dataset.cat !== cur && sec.dataset.cat !== 'other');

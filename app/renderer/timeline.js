@@ -12,6 +12,7 @@ import { copyEffects, copyAction } from './clipops.js';
 import { openTransitions, transName } from './transpicker.js';
 import { TRANSITIONS } from './inspector.js';
 import { pref } from './prefs.js';
+import { outOfSync } from './lib/sync.js';
 import { dial } from './gear.js';
 import { fxRack, fxRackH } from './fxrack.js';
 import { roleButton, tint } from './automix.js';
@@ -253,6 +254,8 @@ export class Timeline {
       ['Duplicate', () => app.cmd('duplicate'), '⌘D'],
       ['Delete', () => app.cmd('delete'), '⌫'],
       ['Ripple delete', () => app.cmd('ripple-delete'), '⇧⌫'],
+      ...(this._unsynced?.has(c.id) || [...(this._unsynced?.values() || [])].some(x => x.pic.id === c.id) ? [['⇆ Put back in sync', () => app.cmd('resync', [c.id])]] : []),
+      this._unsynced?.size ? [`⇆ Put every clip back in sync (${this._unsynced.size})`, () => app.cmd('resync')] : null,
       null,
       ['Fade in (½ s)', () => fade('in', Math.min(0.5, c.duration / 2))],
       ['Fade out (½ s)', () => fade('out', Math.min(0.5, c.duration / 2))],
@@ -446,6 +449,7 @@ export class Timeline {
     if (!this.doc) return;
     tidyCrossfades(this.doc);
     this._soundIds = null; // which tracks have sound (for the role tags), worked out again each draw
+    try { this._unsynced = new Map(outOfSync(this.doc).map(x => [x.clip.id, x])); } catch (err) { console.warn('sync check', err); this._unsynced = new Map(); }
     const doc = this.doc, sel = new Set(this.app.selection.clips);
     const W = this.contentWidth();
     this.tracksEl.style.width = W + 'px';
@@ -907,6 +911,16 @@ export class Timeline {
     const tags = (c.reversed ? ' ◀◀' : '') + (c.speed && Math.round(c.speed * 100) !== 100 ? `  ${Math.round(c.speed * 100)}%` : '') + (c.audio?.mute && c.detached ? '  (sound detached)' : '');
     const e = el('div', { class: `clip ${kind}${selected ? ' selected' : ''}${c.locked ? ' locked' : ''}${c.group ? ' grouped' : ''}${c.bounced ? ' bounced-src' : ''}${c.bounceOf ? ' bounced' : ''}`, 'data-id': c.id, style: { left: this.x(c.start) + 'px', width: Math.max(4, this.x(c.duration)) + 'px' } },
       el('div', { class: 'cname', text: (c.locked ? '🔒 ' : '') + name + tags }));
+    // out of sync with its picture (same recording): a red badge with how far; click it to put it back
+    const off = this._unsynced?.get(c.id);
+    if (off) {
+      const late = -off.shift, ms = Math.round(late * 1000), txt = Math.abs(ms) < 1000 ? `${ms > 0 ? '+' : '−'}${Math.abs(ms)} ms` : `${late > 0 ? '+' : '−'}${Math.abs(late).toFixed(2)} s`; // + late, − early
+      e.classList.add('unsynced');
+      const sb = el('button', { class: 'sync-badge', text: `⇆ ${txt}`, title: `Out of sync: the sound is ${Math.abs(off.shift).toFixed(3)} s ${late > 0 ? 'late' : 'early'} for its picture. Click to put it back in sync (it moves to match the picture).` });
+      sb.addEventListener('pointerdown', ev => ev.stopPropagation());
+      sb.addEventListener('click', ev => { ev.stopPropagation(); this.app.cmd('resync', [c.id]); });
+      e.append(sb);
+    }
     // sound clips on a labelled track take its colour: blue dialogue, orange music, green sound FX
     const role = kind === 'audio' && this.doc.tracks.find(t => t.id === c.track)?.role;
     if (role && ROLES[role]) { e.classList.add('role-' + role); e.style.setProperty('--role', ROLES[role].color); }
@@ -1653,7 +1667,10 @@ export class Timeline {
       return;
     }
     if (retime) return this._retimeDrag(e, c, target.classList.contains('l') ? 'start' : 'end');
+    // the clip you clicked is the one the inspector shows (a recording's sound, clicked, shows sound settings)
+    const was = this.app.inspector.focus; this.app.inspector.focus = c.id;
     if (!sel.includes(c.id)) this.app.select(mine, null);
+    else if (was !== c.id) this.app.inspector.render();
     if (this.app.selection.clips.some(id => this.doc.clips.find(k => k.id === id)?.locked)) return; // locked clips stay put
     // Elastic Wave: press on the waveform and drag to stretch the sound from that moment (the name strip still moves the clip)
     if (c.elastic && !target.classList.contains('edge') && !target.closest('.cbadges, .clip-gear, .fade-h, .ew-mark, .fxbadge')) {

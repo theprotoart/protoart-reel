@@ -1,5 +1,6 @@
 // ProtoArt Reel editor: project state, commands, keyboard, and wiring between the parts.
 import { followFillers } from './model.js';
+import { resync } from './lib/sync.js';
 import { Explain } from './explain.js';
 import { Deck, makeReel } from './deck.js';
 import { el, $, toast, modal, ask, promptText, popMenu } from './ui.js';
@@ -871,6 +872,8 @@ class App {
       const ms = {}, appMedia = [];
       for (const r of ok) {
         const m = { id: uid('m'), recording: recId, name: r.role === 'app' ? `${r.appName} ${stamp}` : `${names[r.role]} ${stamp}`, ...r };
+        // when this file started in the recording, so picture and sound can always be put back in sync
+        m.syncOff = r.role === 'app' ? -appLead : Number((res.offsets || {})[r.role]) || 0;
         if (r.role === 'screen' && res.cursor) { m.cursor = res.cursor; m.cursorOffset = Math.max(0, cursorOffset || 0); if (pointerSeparate) m.pointerSeparate = true; if (res.cursorClicks) m.cursorClicks = res.cursorClicks; if (res.cursorKeys) m.cursorKeys = res.cursorKeys; }
         doc.media.push(m);
         if (r.role === 'app') appMedia.push(m); else ms[r.role] = m;
@@ -1040,7 +1043,7 @@ class App {
   showWindowAfterFailure() { /* the main process shows the window when recording ends */ }
 
   // ---------------------------------------------------------------- commands
-  cmd(name) {
+  cmd(name, arg) {
     const doc = this.doc, t = this.player.time, sel = this.selection.clips;
     const needDoc = !['new', 'open', 'templates', 'home', 'about', 'settings', 'stop-recording', 'pause-recording', 'discard-recording', 'record', 'sound', 'toggle-smpte', 'explain', 'track-small', 'track-regular', 'track-large', 'toggle-scrub'].includes(name);
     if (needDoc && !doc) return;
@@ -1255,6 +1258,12 @@ class App {
       case 'find-claps': return openClapFinder(this);
       case 'takes': closeUms(); return openTakes(this);
       case 'ums': closeTakes(); return openUms(this);
+      case 'resync': { // ⇆ sound back in sync with its picture (arg: clip ids, or every clip)
+        let r = { moved: 0, blocked: 0 };
+        this.commit(d => { r = resync(d, Array.isArray(arg) ? arg : null, isFree); });
+        toast(r.moved ? `Put ${r.moved} clip${r.moved === 1 ? '' : 's'} back in sync with ${r.moved === 1 ? 'its picture' : 'their pictures'}.${r.blocked ? ` ${r.blocked} couldn’t move: another clip is in the way.` : ''} (⌘Z undoes it.)` : r.blocked ? 'Another clip is in the way: move it, then try again.' : 'Everything is in sync.', 5000);
+        return;
+      }
       case 'teach-ums': return teachUms(this, { onDone: () => refreshUms() });
       case 'master': return openMaster(this);
       case 'autoedit-clip': if (sel.length) return openClipAutoEdit(this, sel[0]); toast('Select a clip first (or right-click it).'); return;

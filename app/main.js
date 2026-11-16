@@ -1933,6 +1933,7 @@ function buildMenu() {
       { label: 'Add Marker  (M)', click: m('marker') },
       { label: 'Takes…', accelerator: 'Command+Alt+T', click: m('takes') },
       { label: 'Filler Words…', accelerator: 'Command+Alt+U', click: m('ums') },
+      { label: 'Put Sound Back in Sync', click: m('resync') },
       { label: 'Teach Reel Your Ums…', click: m('teach-ums') },
       { label: 'Find Clap Markers…', click: m('find-claps') },
       { type: 'separator' },
