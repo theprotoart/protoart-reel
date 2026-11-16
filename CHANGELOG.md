@@ -1,6 +1,6 @@
 # Changelog
 
-## Unreleased
+## 1.10.0 — 2026-11-16
 - Rust, step 3 continued (reel-core 0.6): a sound-only export with a loudness target (YouTube −14, Apple −16, broadcast −23…) is now measured, matched and true-peak limited by the Rust core, with no temporary mix file in between. It writes exactly the same file as before (tested to the 24-bit sample). With the built-in master or master plug-ins on, the JavaScript does it as before; if the core can’t, the JavaScript masters it, so the target is never skipped.
 - More variety in Auto Edit: a Variety row for transitions (Same few / Mixed / Surprise me; Mixed by default, so it no longer repeats the same two or three), a new “Mix it up” transition style with fourteen punchy ones (whips, glitches, flashes, shutter, warp zoom, light leaks…), and a Mixed graphics look (the default) that rotates every kinetic title, accent and graphic.
 - Fixed (the cause of sound drifting minutes away from its picture): deleting with the gap closed (⇧⌫, or with “close gaps when deleting” on) closed the gap on each track separately, by each clip’s own length, so a screen and its slightly longer mic, or a picture deleted without its sound, slid apart. Now the gap closes on every track by the same amount, as far as every track has room; music, titles and sound effects playing across it keep their place; and if the deleted clip’s own sound (or picture) is still playing there, the gap stays open and Reel tells you to delete both.
