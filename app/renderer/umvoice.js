@@ -2,7 +2,7 @@
 // what your fillers sound like (lib/umvoice.js) and then finds them in your recordings for 💬 UMS and AUTO EDIT,
 // including the ones speech recognition doesn't write down. Everything stays on this Mac (the model is kept in
 // Reel's own storage here, never uploaded).
-import { el, modal, toast } from './ui.js';
+import { el, modal, toast, ask } from './ui.js';
 import { train, findInSamples, packModel, unpackModel, to16k, RATE, addTake, addNot } from './lib/umvoice.js';
 import { openAudio } from './lib/sources.js';
 import { soundOf, speechClips } from './transcript.js';
@@ -191,7 +191,13 @@ export function teachUms(app, { onDone } = {}) {
   };
   body.append(el('div', { class: 'btn-row umt-save' }, saveB));
   dlg = modal('🎙 Teach Reel your ums', body, [
-    model ? { label: 'FORGET MY UMS', onClick: close => { saveModel(null); toast('Reel forgot your ums.'); close(); onDone?.(); } } : null,
+    model ? { label: 'FORGET MY UMS', cls: 'hw danger', onClick: async close => {
+      const m = umModel(), n = m ? m.words.reduce((k, w) => k + w.prints.length, 0) : 0;
+      const sure = await ask('Forget everything Reel learned?',
+        `Reel will erase all ${n} takes it learned (${m.words.map(w => (w.word === 'umm' ? 'um' : w.word)).join(', ')}) and the sounds you said aren’t ums, for every project. This can’t be undone: you’d have to teach it again.`, 'YES, FORGET THEM');
+      if (!sure) return;
+      saveModel(null); toast('Reel forgot your ums.'); close(); onDone?.();
+    } } : null,
     { label: 'CLOSE', onClick: close => close() },
   ].filter(Boolean), { onClose: () => { stop(); release(); } });
   return dlg;

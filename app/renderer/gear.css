@@ -2151,3 +2151,6 @@ html[data-theme="light"] .umt-fill-title { color: #9e2618; }
 .umt-chip.few { background: rgba(255,214,10,.28); }
 .umt-chip.not { background: rgba(225,60,45,.22); }
 .umt-tip { opacity: .8; font-size: 12px; }
+/* a button that erases something for good (FORGET MY UMS): red, so it isn't pressed by mistake */
+.hw.danger { background: linear-gradient(#c8463a, #8e231a); color: #fff; text-shadow: 0 -1px 0 rgba(0,0,0,.4); box-shadow: 0 0 0 1px rgba(60,8,4,.8), 0 2px 3px rgba(0,0,0,.35), inset 0 1px 0 rgba(255,255,255,.25); }
+.hw.danger:hover { background: linear-gradient(#d9574a, #a02a20); }
