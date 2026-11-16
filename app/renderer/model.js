@@ -584,12 +584,36 @@ export function remove(doc, ids, ripple = false) {
   ids = ids.filter(id => !doc.clips.find(c => c.id === id)?.locked); // locked clips stay
   const gone = doc.clips.filter(c => ids.includes(c.id));
   doc.clips = doc.clips.filter(c => !ids.includes(c.id));
-  if (ripple) {
-    for (const g of gone.sort((a, b) => b.start - a.start)) {
-      // close the gap on that track only
-      for (const c of doc.clips) if (c.track === g.track && c.start >= clipEnd(g) - EPS) c.start -= g.duration;
-    }
+  if (!ripple || !gone.length) return { closed: 0, kept: 0 };
+  // Close the gap on EVERY track by the same amount, so picture and sound stay in sync. The deleted clips' times are
+  // merged into spans (a picture and its slightly longer sound make one span). Latest first, each span closes by as
+  // much as every track has room for: up to the next clip on any track, so nothing ever overlaps and a recording's
+  // picture and sound move together. A clip that belongs with what was deleted (same recording, same group) and still
+  // plays in the span holds it open; anything else playing there (music, a title, a sound effect) keeps its track put.
+  const spans = [];
+  for (const g of [...gone].sort((a, b) => a.start - b.start)) {
+    const last = spans[spans.length - 1];
+    if (last && g.start <= last[1] + EPS) last[1] = Math.max(last[1], clipEnd(g)); else spans.push([g.start, clipEnd(g)]);
   }
+  const recOf = c => (c.type === 'media' ? doc.media.find(m => m.id === c.media)?.recording : null);
+  const goneGroups = new Set(gone.map(c => c.group).filter(Boolean));
+  let closed = 0, kept = 0;
+  for (const [a, b] of spans.reverse()) {
+    const live = doc.clips.filter(c => !trackLocked(doc, c.track));
+    const related = c => recOf(c) || (c.group && goneGroups.has(c.group));
+    const across = live.filter(c => c.start < a - EPS && clipEnd(c) > a + EPS); // already playing when the gap starts
+    if (across.some(related)) { kept++; continue; }
+    // music, titles, sound effects playing in the gap stay where they are (their track doesn't move)
+    const stay = new Set(live.filter(c => !related(c) && c.start < b - EPS && clipEnd(c) > a + EPS).map(c => c.track));
+    let d = b - a;
+    for (const c of live) if (!stay.has(c.track) && c.start >= a - EPS) d = Math.min(d, c.start - a);
+    if (d <= EPS) { kept++; continue; }
+    for (const c of live) if (!stay.has(c.track) && c.start >= a - EPS) c.start -= d;
+    shiftAfter(doc, a + d, -d);
+    closed++;
+    if (d < b - a - 0.05) kept++; // only part of it could close
+  }
+  return { closed, kept };
 }
 
 /**

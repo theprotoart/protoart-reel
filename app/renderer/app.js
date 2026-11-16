@@ -1252,8 +1252,10 @@ class App {
           this.selection.action = null; this.inspector.render(); return;
         }
         if (!sel.length) return;
-        this.commit(d => remove(d, sel, name === 'ripple-delete' || !!pref('autoCloseGaps')));
+        let res = null;
+        this.commit(d => { res = remove(d, sel, name === 'ripple-delete' || !!pref('autoCloseGaps')); });
         this.select([], null);
+        if (res?.kept) toast(`Left ${res.kept === 1 ? 'the gap' : `${res.kept} gaps`} open so picture and sound stay in sync: part of the same recording (its ${'mic or screen'}) still plays there. Select both and delete them together to close it.`, 7000);
         return;
       case 'close-gaps': {
         let r = { closed: 0 };

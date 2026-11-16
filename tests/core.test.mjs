@@ -108,13 +108,13 @@ test('Model: trimming never runs past the media or into a neighbour', () => {
   assert.strictEqual(b.start, 12); // back to the media start, not over clip a (ends at 10)
 });
 
-test('Model: ripple delete closes the gap on that track only', () => {
+test('Model: ripple delete closes the gap on every track by the same amount (sync stays)', () => {
   const doc = doc0();
   const a = M.newMediaClip(doc, doc.media[0], 't1', 0), b = M.newMediaClip(doc, doc.media[0], 't1', 10), x = M.newMediaClip(doc, doc.media[0], 't2', 20);
   doc.clips.push(a, b, x);
   M.remove(doc, [a.id], true);
   assert.strictEqual(b.start, 0);
-  assert.strictEqual(x.start, 20);
+  assert.strictEqual(x.start, 10); // the other track moves with it, so it stays in step
 });
 
 test('Model: fades and ducking shape the gain', () => {
