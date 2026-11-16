@@ -1031,7 +1031,7 @@ export class Timeline {
     if (c.disabled) e.classList.add('disabled');
     e.addEventListener('pointerdown', ev => this._clipPointer(ev, c));
     e.addEventListener('contextmenu', ev => this._clipMenu(ev, c));
-    e.addEventListener('dblclick', () => this.app.focusInspector());
+    e.addEventListener('dblclick', () => (this.app.editClip ? this.app.editClip(c) : this.app.focusInspector()));
     return e;
   }
 

@@ -584,10 +584,13 @@ class App {
     requestAnimationFrame(() => {
       const root = this.inspector.root;
       if (!root) return;
-      root.querySelector('.insp-tab[data-k="all"]')?.click();
-      const t = this.inspector.textArea && document.body.contains(this.inspector.textArea) ? this.inspector.textArea
-        : root.querySelector('textarea, input[type=text]:not([readonly])');
-      const sec = (t && t.closest('.insp-section')) || root.querySelector('.insp-section');
+      // the tab with what you came to change: a title's TEXT, an element's or call-out's CALLOUT settings
+      const k = c.type === 'text' ? 'text' : ['element', 'callout', 'draw', 'arrow', 'shape'].includes(c.type) ? 'callout' : null;
+      if (k) root.querySelector(`.insp-tab[data-k="${k}"]`)?.click();
+      const visible = sel => [...root.querySelectorAll(sel)].find(x => !x.closest('.tab-hidden') && x.offsetParent);
+      const t = this.inspector.textArea && document.body.contains(this.inspector.textArea) && !this.inspector.textArea.closest('.tab-hidden') ? this.inspector.textArea
+        : (k && visible(`.insp-section[data-cat="${k}"] textarea, .insp-section[data-cat="${k}"] input[type=text]:not([readonly])`)) || visible('textarea, input[type=text]:not([readonly])');
+      const sec = (t && t.closest('.insp-section')) || (k && root.querySelector(`.insp-section[data-cat="${k}"]`)) || root.querySelector('.insp-section');
       if (sec) { sec.scrollIntoView({ block: 'start', behavior: 'smooth' }); sec.classList.add('insp-flash'); setTimeout(() => sec.classList.remove('insp-flash'), 1600); }
       if (t) { t.focus(); t.select?.(); }
       else if (c.type !== 'media') toast('Its settings are on the right.', 2500);

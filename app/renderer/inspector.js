@@ -40,6 +40,8 @@ export function defaultTab(doc, ids) {
     const c = doc.clips.find(x => x.id === id);
     if (!c) continue;
     const m = c.type === 'media' ? mediaById(doc, c.media) : null;
+    // a title opens on TEXT, a call-out, element, shape or drawing on CALLOUT: the settings you came to change
+    if (c.type !== 'media') { kinds.add(c.type === 'text' ? 'text' : ['element', 'callout', 'draw', 'arrow', 'shape'].includes(c.type) ? 'callout' : 'other'); continue; }
     kinds.add(!m ? 'other' : m.kind === 'audio' || c.audioOnly ? 'audio' : m.kind === 'video' || m.kind === 'image' ? 'video' : 'other');
   }
   return kinds.size === 1 && !kinds.has('other') ? [...kinds][0] : null;

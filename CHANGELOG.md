@@ -1,6 +1,7 @@
 # Changelog
 
 ## Unreleased
+- Double-click an element or callout on the timeline: the inspector opens its CALLOUT tab with the cursor in its text box, ready to type (a title opens TEXT).
 - Teach Reel your ums: cut fillers right from its list: SEND TO TRAINING first, then ✂ CUT … FROM THE RECORDING beside it (what you sent stays ticked, so it’s one more click), or ✂ on each one (everything after closes up, picture and sound together; ⌘Z undoes). The list is one tidy line per filler, also in the narrow panel.
 - How-to notes (FILLER, CLIPS) show the first three times only, with DON’T SHOW AGAIN; click any note to close it; Settings › General › SHOW TIPS AGAIN brings them back. After the first two fillers, marking one just says “Filler 3 marked”.
 - The media / presets panel folds away: ◀ in its top bar hides it to a thin strip at the side (remembered); click the strip to open it. Asking for presets (CALLOUTS, STYLE PACKS…) opens it again.
