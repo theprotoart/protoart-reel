@@ -46,7 +46,7 @@ export function addFiller(app, t0, t1, track) {
     list.sort((a, b) => a.t0 - b.t0);
   });
   const n = app.doc.fillers.length;
-  toast(`Filler marked: ${n} so far. Click it to hear it. When you have a few, press 🎙 TEACH MY UMS and send them.`, 4500);
+  toast(n <= 2 ? `Filler marked: ${n} so far. Click it to hear it. When you have a few, press 🎙 TEACH MY UMS and send them (or cut them there).` : `Filler ${n} marked.`, n <= 2 ? 4500 : 1500);
   playRange(app, t0, t1);
   return id;
 }

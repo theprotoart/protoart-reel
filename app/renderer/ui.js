@@ -36,6 +36,25 @@ export function toast(msg, ms = 2600) {
   t.classList.add('show');
   clearTimeout(toastTimer);
   toastTimer = setTimeout(() => t.classList.remove('show'), ms);
+  if (!t._clickAway) { t._clickAway = true; t.addEventListener('click', e => { if (!e.target.closest('button')) t.classList.remove('show'); }); } // click it to close it
+}
+
+/**
+ * A how-to note that shows the first few times only (`times`), with a DON'T SHOW AGAIN button. key: which note.
+ * Settings › Show tips again brings them all back (resetHints).
+ */
+export function hint(key, msg, ms = 7000, times = 3) {
+  let seen = 0;
+  try { if (localStorage.getItem(`reel.hint.${key}`) === 'off') return; seen = Number(localStorage.getItem(`reel.hint.${key}`)) || 0; } catch { /* show it */ }
+  if (seen >= times) return;
+  try { localStorage.setItem(`reel.hint.${key}`, String(seen + 1)); } catch { /* fine */ }
+  toast(msg, ms);
+  const t = $('#toast');
+  t.append(el('button', { class: 'toast-off', type: 'button', text: 'DON’T SHOW AGAIN', onclick: () => { try { localStorage.setItem(`reel.hint.${key}`, 'off'); } catch { /* fine */ } t.classList.remove('show'); } }));
+}
+/** Brings every how-to note back. */
+export function resetHints() {
+  try { for (const k of Object.keys(localStorage)) if (k.startsWith('reel.hint.')) localStorage.removeItem(k); } catch { /* fine */ }
 }
 
 /** Opens a modal; returns { close, body, root }. buttons: [{ label, cls, onClick(close) }]. */

@@ -4,7 +4,7 @@ import { resync, recordingOffsets } from './lib/sync.js';
 import { openRepair } from './repair.js';
 import { Explain } from './explain.js';
 import { Deck, makeReel } from './deck.js';
-import { el, $, toast, modal, ask, promptText, popMenu } from './ui.js';
+import { el, $, toast, modal, ask, promptText, popMenu, hint } from './ui.js';
 import { installFaceplate, lamp, sevenSegment, screwCorners } from './gear.js';
 import {
   History, timeFormat, withGroups, normalize, uid, duration, split, remove, newMediaClip, newTextClip, newCalloutClip, newShapeClip,
@@ -1183,13 +1183,13 @@ class App {
       case 'keep-part': {
         const on = !this.timeline.marking;
         this.timeline.setMarking(on);
-        if (on) toast('Drag across the timeline over each part you want to keep. Grey parts are left out. Press ✚ CLIPS again (or Esc) when you’re done.', 7000);
+        if (on) hint('clips', 'Drag across the timeline over each part you want to keep. Grey parts are left out. Press ✚ CLIPS again (or Esc) when you’re done.', 7000);
         return;
       }
       case 'filler': {
         const on = !this.timeline.filling;
         this.timeline.setFilling(on);
-        if (on) toast('Drag across each um (or uh) on the voice track, tightly from its start to its end. Click one to hear it; drag its edges to adjust. Then press 🎙 TEACH MY UMS and send them. Press 〰 FILLER again (or Esc) when you’re done.', 8000);
+        if (on) hint('filler', 'Drag across each um (or uh) on the voice track, tightly from its start to its end. Click one to hear it; drag its edges to adjust. Then press 🎙 TEACH MY UMS and send them. Press 〰 FILLER again (or Esc) when you’re done.', 8000);
         return;
       }
       case 'clear-sections': return ops.clearSections(this);

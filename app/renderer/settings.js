@@ -3,7 +3,7 @@
 // hear Reel), sample rate, playback buffer, a test tone and a level meter. Storage: where new projects and
 // their recordings are saved (the Mac or an external drive). The input is the one the Record window and
 // voice-over use; the output is the mixer's MONITOR OUT.
-import { el, modal, toast, ask } from './ui.js';
+import { el, modal, toast, ask, resetHints } from './ui.js';
 import { audioDevices, fillSelect, permissionNote } from './devices.js';
 import { shortcutsPage } from './shortcuts.js';
 import { FEATURES, can, thisMac, isUnlocked, setUnlocked } from './capability.js';
@@ -203,7 +203,8 @@ export async function openSettings(app, page = 'general') {
     try { for (const k of Object.keys(localStorage)) if (/^reel\.(pref\.|smpte|trackH|scrubAudio|proxy|spectral|voiceover|smartZoom|timelapse|presetSound|theme|unlockHeavy|exportLast)/.test(k)) localStorage.removeItem(k); } catch { /* fine */ }
     toast('Settings reset. Reopen Settings to see them.'); app.applyPrefs();
   } });
-  extra.general[1].append(el('div', { class: 'row', style: { marginTop: '18px' } }, el('label'), resetBtn2));
+  const tipsBtn = el('button', { class: 'hw', text: 'SHOW TIPS AGAIN', title: 'The how-to notes (FILLER, CLIPS…) show the first few times you use something. This brings back the ones you turned off.', onclick: () => { resetHints(); toast('The tips will show again.'); } });
+  extra.general[1].append(el('div', { class: 'row', style: { marginTop: '18px' } }, el('label'), resetBtn2, tipsBtn));
   const keysPage = shortcutsPage(app);
   const pages = { general: extra.general, look: ['Appearance', lookPage], audio: ['Audio Hardware', audioPage], playback: extra.playback, timeline: extra.timeline,
     processing: extra.processing, spectral: extra.spectral, storage: ['Media & Storage', storagePage], export: extra.export, keys: ['Keyboard Shortcuts', keysPage], mac: ['This Mac', macPage] };

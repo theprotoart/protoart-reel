@@ -7,7 +7,7 @@ import { train, findInSamples, packModel, unpackModel, to16k, RATE, addTake, add
 import { openAudio } from './lib/sources.js';
 import { soundOf, speechClips } from './transcript.js';
 import { fmtTime as fmt } from './model.js';
-import { playRange, setFillerWord, teachFillers, soundWords, newSoundWord } from './fillers.js';
+import { playRange, setFillerWord, teachFillers, soundWords, newSoundWord, cutFillers } from './fillers.js';
 
 const KEY = 'reel.umvoice';
 let cached;
@@ -132,15 +132,28 @@ export function teachUms(app, { onDone } = {}) {
       tick.onchange = () => { if (tick.checked) picked.add(f.id); else picked.delete(f.id); syncSend(); };
       return el('label', { class: 'umt-fill' + (f.taught ? ' taught' : '') }, tick,
         el('button', { class: 'mini', text: '▶', title: 'Play it', onclick: e => { e.preventDefault(); playRange(app, f.t0, f.t1); } }),
-        el('span', { class: 'umt-fill-t', text: `${fmt(f.t0)} · ${(f.t1 - f.t0).toFixed(2)} s · ${tr?.name || 'track'}${f.taught ? ' · learned' : ''}` }), word);
+        el('span', { class: 'umt-fill-t', title: `${fmt(f.t0)} · ${(f.t1 - f.t0).toFixed(2)} s on ${tr?.name || 'the track'}${f.taught ? ' · already learned' : ''}`, text: `${fmt(f.t0)} · ${(f.t1 - f.t0).toFixed(2)} s${f.taught ? ' · learned ✓' : ''}` }), word,
+        el('button', { class: 'mini umt-cut', text: '✂', title: 'Cut this one out of the recording (everything after closes up; ⌘Z puts it back). What Reel learned from it stays.', onclick: e => { e.preventDefault(); picked.delete(f.id); cutFillers(app, [f.id]); drawFillers(); } }));
     });
     fillBox.replaceChildren(el('div', { class: 'umt-fill-head' },
       el('span', { class: 'umt-fill-title', text: `〰 FROM YOUR RECORDING (${fs.length})` }),
       el('button', { class: 'hw role-filler', text: '〰 MARK MORE', title: 'Close this and mark more on the timeline', onclick: () => { if (!dlg?.inline) dlg?.close(); if (!app.timeline.filling) app.cmd('filler'); } })),
-      el('div', { class: 'umt-fill-list' }, ...rows), el('div', { class: 'btn-row' }, sendB));
+      el('div', { class: 'umt-fill-list' }, ...rows), el('div', { class: 'btn-row umt-fill-actions' }, cutB, sendB));
     syncSend();
   };
-  const syncSend = () => { const n = [...picked].filter(id => (app.doc?.fillers || []).some(f => f.id === id)).length; sendB.disabled = !n; sendB.textContent = n ? `SEND ${n} TO TRAINING` : 'TICK THE ONES TO SEND'; };
+  // ✂ cut the ticked ones out of the recording, right here (no need to go to the timeline)
+  const cutB = el('button', { class: 'hw umt-cut-all', title: 'Cut the ticked fillers out of the recording: everything after closes up, picture and sound together. ⌘Z puts them back. What Reel learned stays.' });
+  cutB.onclick = () => {
+    const ids = [...picked].filter(id => (app.doc?.fillers || []).some(f => f.id === id));
+    if (!ids.length) return;
+    for (const id of ids) picked.delete(id);
+    cutFillers(app, ids); drawFillers();
+  };
+  const syncSend = () => {
+    const n = [...picked].filter(id => (app.doc?.fillers || []).some(f => f.id === id)).length;
+    sendB.disabled = !n; sendB.textContent = n ? `SEND ${n} TO TRAINING` : 'TICK THE ONES TO SEND';
+    cutB.disabled = !n; cutB.textContent = n ? `✂ CUT ${n} FROM THE RECORDING` : '✂ CUT TICKED';
+  };
   sendB.onclick = async () => {
     const fs = (app.doc?.fillers || []).filter(f => picked.has(f.id));
     if (!fs.length) return;

@@ -2300,3 +2300,31 @@ html[data-theme="light"] .umt-fill-title { color: #9e2618; }
 .lib-repair { color: #fff; }
 button.umt-chip { border: 0; cursor: pointer; color: inherit; font: inherit; font-size: 12px; } button.umt-chip:hover { filter: brightness(1.25); box-shadow: 0 0 0 1px rgba(255,255,255,.35); }
 .tool.callouts-key { color: #fff; background: linear-gradient(#e0603f, #b23c22); box-shadow: 0 1px 0 #000, inset 0 1px 0 rgba(255,255,255,.35); }
+/* filler rows in the trainer: one tidy line each, also in the narrow panel under TEACH MY UMS */
+.umt-fill { display: grid; grid-template-columns: auto auto minmax(0, 1fr) auto auto; align-items: center; gap: 6px; }
+.umt-fill-t { white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.umt-fill .umt-word { max-width: 120px; min-width: 0; }
+#keypanel .drawer .umt-fill .mini { width: auto; padding: 2px 8px; flex: none; }
+#keypanel .drawer .umt-fill-list { max-height: 40vh; }
+.umt-fill .umt-cut { color: #ffb3a8; }
+.umt-fill .umt-cut:hover { color: #fff; background: #c43a26; }
+.umt-fill-actions { display: flex; flex-wrap: wrap; gap: 6px; justify-content: flex-end; }
+.hw.umt-cut-all { color: #fff; background: linear-gradient(#e0603f, #b23c22); }
+.hw.umt-cut-all:disabled { opacity: .5; }
+#keypanel .drawer .umt-fill-actions > button.hw { width: auto; flex: 1 1 auto; }
+#toast { cursor: pointer; }
+#toast .toast-off { display: block; margin: 8px 0 0 auto; padding: 3px 9px; border: 1px solid rgba(0,0,0,.45); border-radius: 3px; cursor: pointer;
+  font: 800 10px/1.3 var(--font-engrave, system-ui); letter-spacing: .1em; color: #2a1d10; background: rgba(255,255,255,.45); }
+#toast .toast-off:hover { background: rgba(255,255,255,.75); }
+.umt-fill { grid-template-columns: auto auto minmax(54px, 1fr) auto auto; }
+.umt-fill .umt-word { max-width: 96px; }
+
+/* the media / presets panel folded away: a thin strip at the side */
+.lib-strip { display: none; }
+#library.folded { width: 30px !important; min-width: 30px; max-width: 30px; padding: 0; overflow: hidden; }
+#library.folded > *:not(.lib-strip) { display: none !important; }
+#library.folded .lib-strip { display: flex; align-items: center; justify-content: center; width: 100%; height: 100%; border: 0; cursor: pointer; padding: 0;
+  background: linear-gradient(90deg, rgba(255,255,255,.04), rgba(0,0,0,.2)); color: #cfc6b2; }
+#library.folded .lib-strip:hover { color: var(--amber, #f5b942); background: rgba(245,185,66,.08); }
+#library.folded .lib-strip span { writing-mode: vertical-rl; transform: rotate(180deg); font: 700 10px/1 var(--font-engrave, system-ui); letter-spacing: .2em; white-space: nowrap; }
+.lib-fold-btn { margin-left: 6px; }

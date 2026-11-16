@@ -38,6 +38,20 @@ export class Library {
       ...PRESET_PAGES.map(([k, label]) => el('button', { class: 'lib-tab', 'data-k': k, text: SHORT[k] || label, title: `${label}: click one to use it, or drag it onto the timeline`, onclick: () => this.showPresets(k) })));
     head.after(this.tabs);
     lib.append(this.presetHost);
+    // fold the whole panel away to a thin strip at the side (remembered); click the strip (or ◀ again) to open it
+    const fold = el('button', { class: 'mini lib-fold-btn', text: '◀', title: 'Hide this panel (it folds to a strip at the side; click the strip to open it again)' });
+    const strip = el('button', { class: 'lib-strip', type: 'button', title: 'Show the media and presets panel' }, el('span', { text: '▶ MEDIA · PRESETS' }));
+    const setFolded = on => {
+      lib.classList.toggle('folded', on);
+      try { localStorage.setItem('reel.libFolded', on ? '1' : '0'); } catch { /* fine */ }
+      window.dispatchEvent(new Event('resize')); // the preview and timeline take the room
+    };
+    fold.addEventListener('click', () => setFolded(true));
+    strip.addEventListener('click', () => setFolded(false));
+    head.append(fold);
+    lib.append(strip);
+    try { if (localStorage.getItem('reel.libFolded') === '1') lib.classList.add('folded'); } catch { /* open */ }
+    this.setFolded = setFolded;
     // drag the panel's right edge to make it wider or narrower (remembered)
     const grip = el('div', { class: 'lib-grip', title: 'Drag to make the panel wider or narrower' });
     lib.append(grip);
@@ -54,6 +68,7 @@ export class Library {
   /** Shows a preset page in this panel (null: back to MEDIA). */
   showPresets(page) {
     const lib = $('#library');
+    if (page && lib.classList.contains('folded')) this.setFolded?.(false); // asked for presets: open the panel
     this.presetPage = page;
     for (const b of this.tabs.children) b.classList.toggle('on', b.dataset.k === (page || 'media'));
     lib.classList.toggle('presets', !!page);
