@@ -28,6 +28,7 @@ export const PACKS = {
   filmic: { name: 'Filmic', hint: 'Lens defocus, exposure burns and soft flares — short films, music videos', list: ['lens-defocus', 'exposure-burn', 'flare-sweep', 'lens-defocus'], dur: 0.9 },
   capcut: { name: 'Trending', hint: 'Slide + shake, fast wipes, warp zooms and glitch blocks — CapCut-style edits', list: ['slide-shake', 'fast-wipe', 'warp-zoom', 'glitch-blocks', 'slide-shake'], dur: 0.45 },
   vintage: { name: 'Vintage', hint: 'Old-film burns, vertigo ramps and graphic match cuts — retro, documentary', list: ['film-burn-vintage', 'match-graphic', 'vertigo', 'film-burn-vintage'], dur: 0.8 },
+  mix: { name: 'Mix it up', hint: 'A bit of everything punchy: whips, glitches, flashes, shutters, warp zooms, light leaks', list: ['whip-through', 'glitch-cut', 'zoom-through', 'flash-cut', 'slide-shake', 'shutter', 'punch-zoom', 'fast-wipe', 'chroma-split', 'warp-zoom', 'light-leak', 'shake-cut', 'glitch-blocks', 'spin-through'], dur: 0.42 },
   social: { name: 'Social (fast)', hint: 'Punch zooms, chromatic splits and flashes — TikTok, Reels, Shorts', list: ['punch-zoom', 'chroma-split', 'flash-cut', 'punch-zoom', 'whip-through'], dur: 0.3 },
 };
 

@@ -75,6 +75,8 @@ export const CLAP_LEVELS = { off: ['Leave them'], markers: ['Mark them'], cut: [
 /** Clap notes (clap, then say what goes on screen): keep the spoken note in the video, or cut it so it only shows as text. */
 export const NOTE_SPEECH = { keep: ['Keep what I say'], cut: ['Cut what I say (text only)'] };
 export const CTA_LEVELS = { off: ['Off'], remind: ['Reminders'], end: ['Reminders + end screen'] };
+/** How mixed up the transitions are: the style's own few, a mix of the same feel, or anything. */
+export const VARIETY_LEVELS = { same: ['Same few', 0], mixed: ['Mixed', 0.5], wild: ['Surprise me', 1] };
 export const SFX_LEVELS = { off: ['Off', 0], quiet: ['Quiet', 0.4], normal: ['Normal', 1], loud: ['Loud', 1.6] };
 /** How a wide video fills a tall frame. */
 export const FIT_LEVELS = { follow: ['Crop, follow the action'], blur: ['Blurred copy'], zoom: ['Zoomed copy'], bars: ['Black bars'] };
@@ -87,7 +89,7 @@ const recipeDefaults = r => ({
   zoom: zoomLevelOf(r), trans: r.pack ? (r.highlights ? 'some' : 'few') : 'off', pack: r.pack || 'clean', sfx: r.sounds ? 'normal' : 'off', volume: 'even',
   captions: r.captions === 'big' ? 'big' : 'file', clean: r.clean || 'gentle', fit: r.fit || 'follow',
   cta: r.highlights ? 'remind' : 'end',
-  gfx: r.highlights || r.format ? 'lots' : 'few', gfxLook: r.gfxLook || 'bold',
+  gfx: r.highlights || r.format ? 'lots' : 'few', gfxLook: r.gfxLook || 'mix', variety: 'mixed',
   keepSped: true,
   motion: r.zoom[0] in MOTION_STYLES ? r.zoom[0] : 'follow',
   claps: r.claps || 'off', voice: r.voice || 'none', noteSpeech: 'keep',
@@ -201,12 +203,12 @@ export function openAutoEdit(app) {
       o.clean !== 'off' ? (o.clean === 'tight' ? 'Cut ums and dead air (tight)' : 'Cut ums and tighten long pauses') + (o.keepSped !== false ? ', leaving sped-up clips whole' : '') : null,
       f ? `Reframe to ${f.w} × ${f.h}${{ blur: ' (whole picture on a blurred copy)', zoom: ' (whole picture on a zoomed copy)', bars: ' (whole picture, black bars)' }[o.fit] || ', cropped, following the action'}` : null,
       o.zoom !== 'off' ? `Smart Zoom, ${ZOOM_LEVELS[o.zoom][0].toLowerCase()}: ${{ punchy: 'quick push-ins and push-outs', follow: 'following the action', kenburns: 'slow Ken Burns drifts' }[o.motion || 'follow']}` : null,
-      o.trans !== 'off' ? `${PACKS[o.pack].name} transitions, ${TRANS_LEVELS[o.trans][0].toLowerCase()} (about one every ${transGap(o.trans, !!r.highlights)} s at most)` : null,
+      o.trans !== 'off' ? `${PACKS[o.pack].name} transitions${o.variety === 'wild' ? ', any kind' : o.variety === 'same' ? '' : ', mixed up'}, ${TRANS_LEVELS[o.trans][0].toLowerCase()} (about one every ${transGap(o.trans, !!r.highlights)} s at most)` : null,
       o.trans !== 'off' ? (o.sfx === 'off' ? 'No sound effects' : `Sound effects with the transitions (${SFX_LEVELS[o.sfx][0].toLowerCase()}), on their own Sound FX track`) : null,
       o.captions !== 'off' ? { file: 'Captions as a subtitle file (.srt) beside the export', burned: 'Captions in the video', big: 'Big, bold captions in the video' }[o.captions] : null,
       chainById(o.voice) ? `Voice: ${chainById(o.voice).name} (${chainById(o.voice).chain.map(f => f.type === 'au' ? f.name : ({ declick: 'De-click', deess: 'De-ess', level: 'Auto Level', eq: 'EQ', comp: 'Compressor', gate: 'Noise gate', limiter: 'Limiter', reverb: 'Reverb', delay: 'Delay', gain: 'Gain' })[f.type] || f.type).join(' → ')}) on the speech tracks` : null,
       o.volume === 'even' ? 'Even out the volume: an Auto Level on each track with sound (quiet parts up, loud parts down)' : null,
-      (o.gfx || 'off') !== 'off' ? `Put the punchy lines on screen as ${{ bold: 'bold kinetic titles (slam, smear, slice), with starbursts and light streaks', clean: 'clean titles with pill, serif and highlighted words', tech: 'tech titles (neon, glitch) with light streaks' }[o.gfxLook || 'bold']}, ${o.gfx === 'lots' ? 'often' : 'now and then'}; a chart for a percentage` : null,
+      (o.gfx || 'off') !== 'off' ? `Put the punchy lines on screen as ${{ bold: 'bold kinetic titles (slam, smear, slice), with starbursts and light streaks', clean: 'clean titles with pill, serif and highlighted words', tech: 'tech titles (neon, glitch) with light streaks', mix: 'a mix of every kinetic look (slam, smear, neon, slice, shatter, pills…), with starbursts, light streaks and charts' }[o.gfxLook || 'mix']}, ${o.gfx === 'lots' ? 'often' : 'now and then'}; a chart for a percentage` : null,
       (o.cta || 'off') !== 'off' ? (r.format ? 'A Follow call-out near the end' : `Like · Subscribe · Bell and comment call-outs between sentences${o.cta === 'end' ? ', and an end screen' : ''}`) : null,
       r.chapters ? 'Chapters as markers (they go in the export notes)' : null,
       `Loudness set for ${r.loud === 'spotify' ? 'TikTok / Reels' : r.loud === 'podcast' ? 'podcasts' : 'YouTube'}`,
@@ -231,6 +233,7 @@ export function openAutoEdit(app) {
         row('Motion', seg('motion', MOTION_STYLES)),
         row('Transitions', seg('trans', TRANS_LEVELS)),
         row('Style', packSel),
+        row('Variety', seg('variety', VARIETY_LEVELS)),
         row('Sound effects', seg('sfx', SFX_LEVELS), sfxNote),
         row('Captions', seg('captions', CAPTION_LEVELS)),
         row('Clean up', seg('clean', CLEAN_LEVELS)),
@@ -483,7 +486,7 @@ export async function runAutoEdit(app, recipeId, o) {
       const spaced = (a, b) => { const t = b.start; if (joins.some(j => Math.abs(j - t) < 0.15)) { last = t; return true; } if (t - last < gap) return false; last = t; return true; };
       const sounds = o.sfx !== 'off';
       const sfxBefore = new Set(app.doc.clips.map(c => c.id));
-      await autoTransitions(app, pack, { sounds, clipIds: ids, filter: spaced });
+      await autoTransitions(app, pack, { sounds, clipIds: ids, filter: spaced, randomize: (VARIETY_LEVELS[o.variety] || VARIETY_LEVELS.mixed)[1] });
       // the sound effects' level: their track's volume (changeable later on its fader)
       if (sounds) {
         const sfxTracks = new Set(app.doc.clips.filter(c => !sfxBefore.has(c.id)).map(c => c.track).filter(tid => /sound ?fx|sfx/i.test(app.doc.tracks.find(t => t.id === tid)?.name || '')));

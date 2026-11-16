@@ -35,3 +35,13 @@ test('the clean look keeps lower case and uses pill / serif / box accents', () =
   assert.ok(plan.length);
   for (const g of plan) { assert.ok(['pill', 'serif', 'box'].includes(g.accent)); assert.notEqual(g.text, g.text.toUpperCase()); }
 });
+
+test('the mixed look varies the animation, the accent and the graphics', () => {
+  const lines = ['This is the best trick ever!', 'Nothing beats this one.', 'You will never guess it!', 'Sales went up 40% overnight!', 'Is that even real?', 'Stop doing it the slow way!', 'This changes everything!', 'Only one click needed!'];
+  const w = say(...lines.flatMap(l => [l, 'and then we carry on with the rest of the steps here.']));
+  const plan = planGraphics(w, w[w.length - 1].end + 5, { amount: 'lots', look: 'mix' });
+  assert.ok(plan.length >= 5);
+  assert.ok(new Set(plan.map(g => g.anim)).size >= 4);
+  assert.ok(new Set(plan.map(g => g.accent)).size >= 2);
+  assert.ok(plan.some(g => g.element));
+});

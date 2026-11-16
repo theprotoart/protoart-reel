@@ -8,7 +8,7 @@ import { sentences } from './highlight.js';
 /** How many: none, a few (one every ~25 s on a long video, ~8 s on a short) or lots. */
 export const GFX_LEVELS = { off: ['Off'], few: ['A few'], lots: ['Lots'] };
 /** The look: Bold (slam, smear, slice, starbursts), Clean (pill and serif accents) or Tech (neon, HUD, streaks). */
-export const GFX_LOOKS = { bold: ['Bold'], clean: ['Clean'], tech: ['Tech'] };
+export const GFX_LOOKS = { mix: ['Mixed'], bold: ['Bold'], clean: ['Clean'], tech: ['Tech'] };
 
 const FILLER = /^(um+|uh+|erm|er|ah|hmm+|mm+|like|so|and|but|you know)$/i;
 const PUNCH = /\b(never|always|no|not|nothing|every|everything|nobody|only|best|worst|biggest|fastest|easiest|free|secret|crazy|insane|huge|wrong|truth|stop|actually|literally|killed|perfect|instantly|zero|one)\b/i;
@@ -75,24 +75,32 @@ export function planGraphics(words, total, { amount = 'few', look = 'bold', tall
     if (out.length >= Math.ceil(total / gap)) break;
   }
   out.sort((a, b) => a.t - b.t);
-  const ROT = { bold: ['slam', 'smear', 'slice', 'slam', 'shatter'], clean: ['build', 'fade', 'blurIn', 'pop'], tech: ['neon', 'slice', 'scramble', 'smear'] }[look] || ['slam'];
-  const ACCENT = { bold: 'color', clean: ['pill', 'serif', 'box'], tech: 'color' }[look];
+  const ROT = { bold: ['slam', 'smear', 'slice', 'stampWords', 'shatter', 'slam'], clean: ['build', 'fade', 'blurIn', 'pop', 'rollUp'], tech: ['neon', 'slice', 'scramble', 'smear', 'tracking'],
+    mix: ['slam', 'smear', 'neon', 'build', 'slice', 'pop', 'shatter', 'blurIn', 'stampWords', 'scramble'] }[look] || ['slam'];
+  const ACCENT = { bold: 'color', clean: ['pill', 'serif', 'box'], tech: 'color', mix: ['color', 'pill', 'color', 'box', 'color', 'serif'] }[look];
+  const SOFT = new Set(['build', 'pop', 'blurIn', 'fade', 'rollUp']); // these read best in plain case
   return out.map((c, i) => {
     const words = c.text.split(' '), ai = accentIndex(words);
     const marked = words.map((w, j) => (j === ai ? `*${w}*` : w));
     const upper = look !== 'clean';
     // slam stacks: break into lines of one or two words so each line fills the width
     let text = marked.join(' ');
-    const anim = c.kind === 'question' && look === 'bold' ? 'slam' : ROT[i % ROT.length];
+    const anim = c.kind === 'question' && (look === 'bold' || look === 'mix') ? 'slam' : ROT[i % ROT.length];
     if (anim === 'slam') { const lines = []; for (let j = 0; j < marked.length; j += marked[j].length > 6 ? 1 : 2) lines.push(marked.slice(j, j + (marked[j].length > 6 ? 1 : 2)).join(' ')); text = lines.join('\n'); }
-    if (upper) text = text.toUpperCase();
+    const accent = Array.isArray(ACCENT) ? ACCENT[i % ACCENT.length] : ACCENT;
+    if (upper && !(look === 'mix' && (SOFT.has(anim) || accent === 'serif' || accent === 'pill'))) text = text.toUpperCase();
     const dur = Math.min(3.5, Math.max(1.4, c.end - c.t + 0.8));
-    const g = { t: Math.max(0, c.t - 0.05), dur, text, anim, accent: Array.isArray(ACCENT) ? ACCENT[i % ACCENT.length] : ACCENT, kind: c.kind, y: tall ? 0.36 : 0.42 };
+    const g = { t: Math.max(0, c.t - 0.05), dur, text, anim, accent, kind: c.kind, y: tall ? 0.36 : 0.42 };
     // a graphic with some of them
-    if (c.kind === 'question' && look === 'bold') { g.element = 'starburst'; g.elementText = ''; }
+    if (c.kind === 'question' && (look === 'bold' || look === 'mix')) { g.element = 'starburst'; g.elementText = ''; }
     else if (c.kind === 'percent') { g.element = 'chart'; g.elementText = (c.text.match(/[+-]?\d+(\.\d+)?\s*%/) || [''])[0].replace(/\s/g, ''); }
     else if (look === 'tech' && i % 3 === 0) g.element = 'lightStreak';
     else if (look === 'bold' && i % 4 === 1) g.element = 'lightStreak';
+    else if (look === 'mix') {
+      // a different graphic now and then: a streak under it, a burst behind a short punch, a ring of light
+      const pick = ['lightStreak', null, words.length <= 2 ? 'starburst' : null, 'particleRing', null, 'lightStreak'][i % 6];
+      if (pick) { g.element = pick; if (pick === 'starburst') g.elementText = ''; }
+    }
     return g;
   });
 }
