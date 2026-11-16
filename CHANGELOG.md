@@ -1,6 +1,7 @@
 # Changelog
 
 ## Unreleased
+- The media panel, redone: a clear list by default (grid if you like): each file with its picture, its name, what it is (SCREEN, MIC…, video or sound, size, length) and whether it’s ON TIMELINE (and how many times), NOT USED or a MISSING FILE. Files are grouped by recording (Recording 3 · 04:21 PM), and DRAG ALL puts a whole recording on the timeline with every file lined up in sync and grouped. A summary on top counts what’s not used and what’s missing (click to see them). Drag the panel’s edge to make it wider. Fixed: with many files the boxes squashed into thin bars.
 - Kinetic titles, the short-form look: Slam stack (lines slam in, each sized to fill the width), Speed smear (words shoot in with streaks and a glowing line), Slice glitch, Shatter out and Neon flicker. Accent any word in a title by putting it between stars (*like this*): accent colour, italic serif, highlight box or pill tag. Ready-made looks in TITLES: Pill words, Serif accent, Highlighted word, Slam stack · red word.
 - New graphics in ELEMENTS: Starburst, Light streak, HUD frame, Growth chart (counting figure, bars, ring), Word switcher, Scattered cards, Particle ring, and two backgrounds: Glowing horizon and 3D wave grid.
 - Auto Edit adds motion graphics: it finds the punchy lines in what you say (questions, “never”, numbers, big claims) and puts them on screen as kinetic titles, with a starburst behind a question, a chart for a percentage and light streaks. Graphics: Off / A few / Lots; look: Bold, Clean or Tech. They go on their own Graphics tracks.

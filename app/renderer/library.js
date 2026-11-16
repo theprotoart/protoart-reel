@@ -19,6 +19,7 @@ export class Library {
     lib.addEventListener('dragover', e => { if (e.dataTransfer.types.includes('Files')) { e.preventDefault(); e.dataTransfer.dropEffect = 'copy'; } });
     lib.addEventListener('drop', e => { e.preventDefault(); e.stopPropagation(); if (e.dataTransfer.files.length || e.dataTransfer.types.includes('Files')) app.importDropped(app.dropPaths(e), null); });
     this.selected = null;
+    this.view = (() => { try { return localStorage.getItem('reel.libView') || 'list'; } catch { return 'list'; } })();
     this.query = '';
     this.filter = 'all';
     // search + filter bar under the panel head
@@ -37,6 +38,17 @@ export class Library {
       ...PRESET_PAGES.map(([k, label]) => el('button', { class: 'lib-tab', 'data-k': k, text: SHORT[k] || label, title: `${label}: click one to use it, or drag it onto the timeline`, onclick: () => this.showPresets(k) })));
     head.after(this.tabs);
     lib.append(this.presetHost);
+    // drag the panel's right edge to make it wider or narrower (remembered)
+    const grip = el('div', { class: 'lib-grip', title: 'Drag to make the panel wider or narrower' });
+    lib.append(grip);
+    try { const w = Number(localStorage.getItem('reel.libWidth')); if (w >= 200) lib.style.width = w + 'px'; } catch { /* default */ }
+    grip.addEventListener('pointerdown', e => {
+      e.preventDefault(); const x0 = e.clientX, w0 = lib.getBoundingClientRect().width;
+      lib.classList.add('sizing');
+      const mv = ev => { lib.style.width = Math.round(Math.max(200, Math.min(window.innerWidth * 0.5, w0 + ev.clientX - x0))) + 'px'; };
+      const up = () => { lib.classList.remove('sizing'); window.removeEventListener('pointermove', mv); window.removeEventListener('pointerup', up); try { localStorage.setItem('reel.libWidth', parseInt(lib.style.width, 10)); } catch { /* fine */ } window.dispatchEvent(new Event('resize')); };
+      window.addEventListener('pointermove', mv); window.addEventListener('pointerup', up);
+    });
   }
 
   /** Shows a preset page in this panel (null: back to MEDIA). */
@@ -64,39 +76,98 @@ export class Library {
       return;
     }
     const usedSet = new Set(doc.clips.map(c => c.media));
-    // newest first: a new recording (or anything just added) is at the top, where you'll find it
-    const shown = doc.media.filter(m => !m.hidden // reversed copies live inside their clips
-      && !(m.sfx && !usedSet.has(m.id)) // Reel's own sound effects show only while they're in the edit (they're made again when needed)
-      && (!this.query || m.name.toLowerCase().includes(this.query))
-      && (this.filter === 'all' || (this.filter === 'unused' ? !usedSet.has(m.id) : m.kind === this.filter))).reverse();
+    const uses = new Map(); for (const c of doc.clips) if (c.media) uses.set(c.media, (uses.get(c.media) || 0) + 1);
+    const visible = m => !m.hidden && !(m.sfx && !usedSet.has(m.id)); // reversed copies live in their clips; Reel's own sound effects show while used
+    const shown = doc.media.filter(m => visible(m)
+      && (!this.query || m.name.toLowerCase().includes(this.query) || (ROLE[m.role] || '').toLowerCase().includes(this.query))
+      && (this.filter === 'all' || (this.filter === 'unused' ? !usedSet.has(m.id) : this.filter === 'missing' ? this.missing?.has(m.file) : m.kind === this.filter)));
     // what's arrived since this list was last drawn gets a NEW badge for a while, and the list goes back to the top
     const known = this._known ||= new Map(), now = Date.now(), first = this._knownDoc !== this.app.token;
-    if (first) { known.clear(); this._knownDoc = this.app.token; }
+    if (first) { known.clear(); this._knownDoc = this.app.token; this.missing = null; }
     let fresh = false;
     for (const m of doc.media) if (!known.has(m.id)) { known.set(m.id, first ? 0 : now); if (!first) fresh = true; }
     if (fresh) requestAnimationFrame(() => { this.list.scrollTop = 0; });
-    if (!shown.length) this.list.append(el('div', { class: 'note', style: { gridColumn: '1 / -1' }, text: 'Nothing matches.' }));
-    for (const m of shown) {
-      const thumb = el('div', { class: 'lthumb', text: ICON[m.kind] || '?' });
-      posterFor(this.app, m).then(url => { if (url) { thumb.style.backgroundImage = `url(${url})`; thumb.textContent = ''; } });
-      const used = usedSet.has(m.id);
-      const more = el('button', { class: 'lmore', text: '⋯', title: 'More: rename, replace file, show in Finder…' });
-      const item = el('div', {
-        class: 'lib-item' + (this.selected === m.id ? ' selected' : '') + (used ? '' : ' unused'), draggable: true,
-        title: `${m.name}\n${m.kind}${m.width ? ` ${m.width}×${m.height}` : ''} · ${fmtTime(m.duration || 0)}${used ? '' : '\nNot on the timeline yet'}\nDouble-click to add at the playhead. Right-click for more.`,
-      }, thumb, ROLE[m.role] ? el('span', { class: 'lrole', text: ROLE[m.role], 'data-role': m.role }) : null, more,
-      now - (known.get(m.id) || 0) < 10 * 60e3 ? el('span', { class: 'lnew', text: 'NEW', title: 'Just added' }) : null,
-      el('div', { class: 'lname', text: m.name }), el('div', { class: 'ldur', text: m.kind === 'image' ? 'image' : fmtTime(m.duration || 0) }));
-      item.addEventListener('dragstart', e => { e.dataTransfer.setData('application/x-reel-media', m.id); e.dataTransfer.effectAllowed = 'copy'; this._dragging = true; });
-      item.addEventListener('dragend', () => { this._dragging = false; if (this._renderLater) { this._renderLater = false; this.render(); } });
-      item.addEventListener('click', () => { this.selected = m.id; this.render(); });
-      item.addEventListener('dblclick', () => this.app.addMediaClip(m.id, null, this.app.player.time));
-      const menu = (x, y) => this.menu(m, used, x, y);
-      item.addEventListener('contextmenu', e => { e.preventDefault(); menu(e.clientX, e.clientY); });
-      more.addEventListener('click', e => { e.stopPropagation(); const r = more.getBoundingClientRect(); menu(r.left, r.bottom + 4); });
-      more.addEventListener('dblclick', e => e.stopPropagation());
-      this.list.append(item);
+    this.checkMissing();
+    // the summary: how much there is, what's not used, what's missing
+    const all = doc.media.filter(visible), recs = new Set(all.map(m => m.recording).filter(Boolean));
+    const unused = all.filter(m => !usedSet.has(m.id)).length, missing = all.filter(m => this.missing?.has(m.file)).length;
+    this.list.classList.toggle('grid', this.view === 'grid');
+    this.list.append(el('div', { class: 'lib-summary' },
+      el('span', { text: `${all.length} file${all.length === 1 ? '' : 's'}${recs.size ? ` · ${recs.size} recording${recs.size === 1 ? '' : 's'}` : ''}` }),
+      unused ? el('button', { class: 'lib-sumchip', text: `${unused} not used`, title: 'Show only the files that aren’t on the timeline', onclick: () => { this.filter = 'unused'; this.render(); } }) : null,
+      missing ? el('button', { class: 'lib-sumchip bad', text: `${missing} missing`, title: 'Show the files that aren’t in the project folder any more', onclick: () => { this.filter = 'missing'; this.render(); } }) : null,
+      el('span', { class: 'spacer' }),
+      el('button', { class: 'lib-view', text: this.view === 'grid' ? '☰ LIST' : '▦ GRID', title: 'Show the media as a list (names first) or as a grid of pictures', onclick: () => { this.view = this.view === 'grid' ? 'list' : 'grid'; try { localStorage.setItem('reel.libView', this.view); } catch { /* fine */ } this.render(); } })));
+    if (!shown.length) { this.list.append(el('div', { class: 'note', text: 'Nothing matches.' })); return; }
+    // groups: each recording (its screen, camera, mic… together, newest first), then everything else
+    const groups = new Map();
+    for (const m of [...shown].reverse()) { const k = m.recording || ''; if (!groups.has(k)) groups.set(k, []); groups.get(k).push(m); }
+    const ORDER = { screen: 0, camera: 1, app: 2, mic: 3, system: 4 };
+    const recNo = new Map([...recs].map((r, i) => [r, i + 1]));
+    const folded = this._folded ||= new Set();
+    for (const [rec, list] of [...groups].sort((a, b) => (a[0] ? 0 : 1) - (b[0] ? 0 : 1))) {
+      list.sort((a, b) => (ORDER[a.role] ?? 9) - (ORDER[b.role] ?? 9));
+      const fold = folded.has(rec || '_');
+      const stamp = rec ? (list[0].name.match(/\d{1,2}:\d{2}\s*[AP]M/i)?.[0] || '') : '';
+      const longest = Math.max(0, ...list.map(m => m.duration || 0));
+      const head = el('div', { class: 'lib-group-head' + (rec ? ' rec' : ''), title: rec ? 'One recording: its files belong together. Drag DRAG ALL onto the timeline to lay them all down in sync.' : '' },
+        el('button', { class: 'lib-fold', text: fold ? '▸' : '▾', onclick: () => { if (fold) folded.delete(rec || '_'); else folded.add(rec || '_'); this.render(); } }),
+        el('b', { text: rec ? `RECORDING ${recNo.get(rec) || ''}${stamp ? ` · ${stamp}` : ''}` : 'OTHER FILES' }),
+        el('span', { class: 'lib-group-sub', text: `${list.length} file${list.length === 1 ? '' : 's'}${rec ? ` · ${fmtTime(longest)}` : ''}` }),
+        rec && list.length > 1 ? el('span', { class: 'lib-dragall', draggable: true, text: '⠿ DRAG ALL', title: 'Drag onto the timeline: every file of this recording, lined up in sync. Double-click to put them at the playhead.' }) : null);
+      const da = head.querySelector('.lib-dragall');
+      if (da) {
+        da.addEventListener('dragstart', e => { e.dataTransfer.setData('application/x-reel-recording', rec); e.dataTransfer.effectAllowed = 'copy'; this._dragging = true; });
+        da.addEventListener('dragend', () => { this._dragging = false; if (this._renderLater) { this._renderLater = false; this.render(); } });
+        da.addEventListener('dblclick', () => this.app.addRecordingClips(rec, this.app.player.time));
+      }
+      this.list.append(head);
+      if (fold) continue;
+      const box = el('div', { class: 'lib-group' });
+      for (const m of list) box.append(this.item(m, uses.get(m.id) || 0, now - (known.get(m.id) || 0) < 10 * 60e3));
+      this.list.append(box);
     }
+  }
+
+  /** One file: its picture, its name, what it is, how long, and whether it's used (or missing). */
+  item(m, n, isNew) {
+    const used = n > 0, gone = this.missing?.has(m.file);
+    const thumb = el('div', { class: 'lthumb', text: ICON[m.kind] || '?' });
+    posterFor(this.app, m).then(url => { if (url) { thumb.style.backgroundImage = `url(${url})`; thumb.textContent = ''; } });
+    const more = el('button', { class: 'lmore', text: '⋯', title: 'More: rename, replace file, show in Finder…' });
+    const info = [m.kind === 'image' ? 'picture' : m.kind === 'audio' ? 'sound' : 'video', m.width ? `${m.width}×${m.height}` : '', m.kind === 'image' ? '' : fmtTime(m.duration || 0)].filter(Boolean).join(' · ');
+    const status = gone ? el('span', { class: 'lstat bad', text: 'MISSING FILE', title: `${m.file} isn’t in the project folder. Right-click › Replace file… to point Reel at it again.` })
+      : used ? el('span', { class: 'lstat ok', text: n === 1 ? 'ON TIMELINE' : `ON TIMELINE ×${n}`, title: `Used by ${n} clip${n === 1 ? '' : 's'}. Right-click › Select clips using it.` })
+      : el('span', { class: 'lstat', text: 'NOT USED', title: 'Not on the timeline yet' });
+    const item = el('div', {
+      class: 'lib-item' + (this.selected === m.id ? ' selected' : '') + (used ? '' : ' unused') + (gone ? ' missing' : ''), draggable: true,
+      title: `${m.name}\n${info}\nFile: ${m.file}\nDouble-click to add at the playhead. Right-click for more.`,
+    }, thumb,
+    el('div', { class: 'lmeta' },
+      el('div', { class: 'lname', text: m.name }),
+      el('div', { class: 'linfo' }, ROLE[m.role] ? el('span', { class: 'lrole', text: ROLE[m.role], 'data-role': m.role }) : null, status, el('span', { class: 'ldur', text: info }))),
+    more,
+    isNew ? el('span', { class: 'lnew', text: 'NEW', title: 'Just added' }) : null);
+    item.addEventListener('dragstart', e => { e.dataTransfer.setData('application/x-reel-media', m.id); e.dataTransfer.effectAllowed = 'copy'; this._dragging = true; });
+    item.addEventListener('dragend', () => { this._dragging = false; if (this._renderLater) { this._renderLater = false; this.render(); } });
+    item.addEventListener('click', () => { this.selected = m.id; this.render(); });
+    item.addEventListener('dblclick', () => this.app.addMediaClip(m.id, null, this.app.player.time));
+    const menu = (x, y) => this.menu(m, used, x, y);
+    item.addEventListener('contextmenu', e => { e.preventDefault(); menu(e.clientX, e.clientY); });
+    more.addEventListener('click', e => { e.stopPropagation(); const r = more.getBoundingClientRect(); menu(r.left, r.bottom + 4); });
+    more.addEventListener('dblclick', e => e.stopPropagation());
+    return item;
+  }
+
+  /** Asks (once per project, and again when files change) which media files aren't in the project folder. */
+  checkMissing() {
+    const files = this.app.doc.media.filter(m => m.file).map(m => m.file), key = files.join('|');
+    if (key === this._missKey || !this.app.api?.missingMedia) return;
+    this._missKey = key;
+    this.app.api.missingMedia(this.app.token, files).then(list => {
+      const before = this.missing?.size || 0; this.missing = new Set(list || []);
+      if (this.missing.size || before) this.render();
+    }).catch(() => {});
   }
 
   menu(m, used, x, y) {

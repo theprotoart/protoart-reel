@@ -617,6 +617,14 @@ handle('media:reveal', async (token, name) => {
   if (!validate.mediaName(name)) throw new Error('Bad name');
   shell.showItemInFolder(path.join(mediaDir(p), name));
 });
+/** Which of these media files are missing from the project folder (moved, deleted, or never copied in). */
+handle('media:missing', async (token, names) => {
+  const p = projectOf(token);
+  if (!Array.isArray(names)) return [];
+  const out = [];
+  for (const n of names.slice(0, 5000)) { if (!validate.mediaName(n)) continue; try { await fs.promises.access(path.join(mediaDir(p), n)); } catch { out.push(n); } }
+  return out;
+});
 /** Pick a new file to stand in for a media item (relink). The old file stays in the project. */
 handle('media:replace', async (token, kind) => {
   const p = projectOf(token);

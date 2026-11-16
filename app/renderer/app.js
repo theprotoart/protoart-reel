@@ -1,6 +1,6 @@
 // ProtoArt Reel editor: project state, commands, keyboard, and wiring between the parts.
 import { followFillers } from './model.js';
-import { resync } from './lib/sync.js';
+import { resync, recordingOffsets } from './lib/sync.js';
 import { Explain } from './explain.js';
 import { Deck, makeReel } from './deck.js';
 import { el, $, toast, modal, ask, promptText, popMenu } from './ui.js';
@@ -840,6 +840,30 @@ class App {
       this.selection = { clips: [c.id], action: null };
       if (m.kind === 'video') this._autoZoomDropped([c.id]);
     });
+  }
+  /**
+   * Every file of one recording (screen, camera, mic, computer sound) laid down at `at`, lined up exactly as they were
+   * recorded (each file's own start offset) and grouped so they move together, like when it was first recorded.
+   */
+  addRecordingClips(recId, at = this.player.time) {
+    const list = this.doc.media.filter(m => m.recording === recId && !m.hidden && !m.sfx);
+    if (!list.length) return;
+    const offs = recordingOffsets(this.doc, recId);
+    const off = m => offs.get(m.id) ?? m.syncOff ?? 0, base = Math.min(...list.map(off));
+    const ORDER = { camera: 0, screen: 1, app: 2, mic: 3, system: 4 };
+    const ids = [];
+    this.commit(doc => {
+      const g = list.length > 1 ? uid('g') : null;
+      for (const m of [...list].sort((a, b) => (ORDER[a.role] ?? 9) - (ORDER[b.role] ?? 9))) {
+        const c = newMediaClip(doc, m, null, Math.max(0, at + off(m) - base));
+        c.track = m.kind === 'audio' ? freeTrack(doc, c.start, c.duration, null) : layerTrack(doc, c.start, c.duration, null);
+        c.name = m.name; if (g) c.group = g;
+        if (m.role === 'camera') Object.assign(c.props, { x: 0.86, y: 0.8, scale: 0.24, radius: 28, shadow: 36 });
+        doc.clips.push(c); ids.push(c.id);
+      }
+      this.selection = { clips: ids.slice(), action: null };
+    });
+    toast(`${list.length} files of the recording laid down in sync. They move together (UNGROUP to split them).`, 4500);
   }
   async removeMedia(m) {
     if (!(await ask('Remove from project?', `“${m.name}” isn’t used on the timeline. Move the file to the Trash?`, 'Move to Trash'))) return;

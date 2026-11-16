@@ -1932,6 +1932,8 @@ export class Timeline {
       if (trans) { const ce = e.target.closest?.('.clip'); if (ce) this.dropTransition(trans, ce.dataset.id, e.clientX); else toast('Drop it on a clip: near its start to open with it, near its end to close with it.'); return; }
       const t = Math.max(0, this._timeAt(e.clientX));
       const tr = rowOf(e);
+      const rec = e.dataTransfer.getData('application/x-reel-recording');
+      if (rec) { this.app.addRecordingClips(rec, this.snapOn ? snap(this.doc, t, this._tol(), [], [this.app.player.time]) : t); return; }
       const id = e.dataTransfer.getData('application/x-reel-media');
       if (id) this.app.addMediaClip(id, tr && tr.id, this.snapOn ? snap(this.doc, t, this._tol(), [], [this.app.player.time]) : t);
       else if (e.dataTransfer.files.length || e.dataTransfer.types.includes('Files')) this.app.importDropped(this.app.dropPaths(e), { track: tr && tr.id, at: t });
