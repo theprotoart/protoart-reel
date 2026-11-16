@@ -30,9 +30,11 @@ JavaScript runs, as before). When little JavaScript is left, the window itself c
 3. **Done (first part): sound-only export.** The core mixes and writes it: every clip's sound, its volume, fades,
    pan, keyframes and automation (worked out by Reel, in lib/mixplan.js), the mix bus gain and limiter and the
    export's soft limit, as 24-bit WAV or as AAC by Apple's encoder. The same file as the JavaScript export, to
-   the 24-bit sample; about 2.2× faster. Still in JavaScript, and used automatically when a project needs them:
-   track effects, other mix bus effects, the master chain and loudness targets, sped-up clips that keep their
-   pitch, time maps and click sounds. They move next, one at a time, then picture export (step 5) can use it.
+   the 24-bit sample; about 2.2× faster. **Loudness targets too** (0.6): the core measures the mix (BS.1770-4,
+   gated), turns it to the target and runs the true-peak limiter; identical to the JavaScript master path, sample
+   for sample, with no temporary mix file. Still in JavaScript, and used automatically when a project needs them:
+   track effects, other mix bus effects, the built-in master chain and master plug-ins, sped-up clips that keep
+   their pitch, time maps and click sounds. They move next, one at a time, then picture export (step 5) can use it.
 4. **Decoding:** read sound and video straight from the files through Apple's frameworks.
 5. **Picture export:** drawing every frame and encoding H.264 / HEVC (VideoToolbox) in Rust.
 6. **Recording:** screen, window and camera through ScreenCaptureKit.

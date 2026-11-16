@@ -75,7 +75,7 @@ export const pcm24 = v => Math.max(-8388608, Math.min(8388607, Math.round(Math.m
  * file names), plans }, or { why } when the project uses something only the JavaScript export does so far (track
  * or mix-bus effects other than the limiter, sped-up clips that keep their pitch, time maps, click sounds).
  */
-export function exportMixJob(doc, from, to, { codec, bitrate, rate = 48000 }) {
+export function exportMixJob(doc, from, to, { codec, bitrate, rate = 48000, loudness = null, ceiling = -1 }) {
   const start = Math.max(0, from || 0), end = Math.min(docDuration(doc), to || Infinity);
   if (!(end > start)) return { why: 'nothing to export' };
   const used = doc.clips.filter(c => c.type === 'media' && !c.disabled && spanStart(c) < end && spanEnd(c) > start);
@@ -96,5 +96,8 @@ export function exportMixJob(doc, from, to, { codec, bitrate, rate = 48000 }) {
     if (!index.has(file)) { index.set(file, sources.length); sources.push(file); }
     plans.push({ src: index.get(file), ...p });
   }
-  return { job: { rate, total, mixGain: doc.mixGain ? 10 ** (doc.mixGain / 20) : 1, limiters, soft: true, codec, bitrate, sources, plans } };
+  // a loudness target: the core measures the mix and turns it to the target, then the true-peak limiter (instead of
+  // the soft limit), with the very numbers the JavaScript master path uses (lib/master.js, export-worker.js)
+  const loud = loudness == null ? null : { target: loudness, ceil: Math.pow(10, (ceiling ?? -1) / 20), rel: Math.exp(-1 / (0.08 * rate)), look: Math.round(rate * 0.0015), measure: Math.round((end - start) * rate) };
+  return { job: { rate, total, mixGain: doc.mixGain ? 10 ** (doc.mixGain / 20) : 1, limiters, soft: !loud, codec, bitrate, sources, plans, ...(loud ? { loud } : {}) } };
 }

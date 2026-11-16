@@ -199,6 +199,54 @@ test('reel-core mixes a sound-only export the same as the JavaScript export, to 
   } finally { fs.rmSync(dir, { recursive: true, force: true }); }
 });
 
+test('reel-core exports to a loudness target the same as the JavaScript master path, to the 24-bit sample', { skip }, async t => {
+  const { LoudnessMeter, TruePeakLimiter } = await import('../app/renderer/lib/master.js');
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'reel-loud-'));
+  try {
+    let s2 = 5; const r = () => ((s2 = (s2 * 16807) % 2147483647) / 2147483647);
+    writeWav(path.join(dir, 'voice.wav'), { rate: 48000, channels: 2, bits: 16, frames: 48000 * 8, sample: (i, c) => 0.3 * Math.sin(i * (c ? 0.031 : 0.027)) * (0.5 + 0.5 * Math.sin(i * 0.00007)) + 0.15 * (r() - 0.5) });
+    writeWav(path.join(dir, 'music.wav'), { rate: 44100, channels: 1, bits: 24, frames: 44100 * 9, sample: i => 0.4 * Math.sin(i * 0.011) * Math.sin(i * 0.0002) });
+    const doc = mixDoc(), from = 0.3, to = 6.9;
+    const { job, why } = exportMixJob(doc, from, to, { codec: 'wav', bitrate: 192000, loudness: -14, ceiling: -1 });
+    assert.ok(job && job.loud && job.soft === false, why);
+    // the JavaScript steps: the mix pass (export-worker.js mode 'mix': mixBlock, no soft limit), measured by
+    // LoudnessMeter, turned by the gain, then TruePeakLimiter and 24-bit (export-worker.js master path)
+    const RATE = 48000, BLOCK = 1024;
+    const srcs = await Promise.all(job.sources.map(f => jsAudio(path.join(dir, f))));
+    const mixAll = async frames => {
+      const chain = new FxChain(RATE).setup(doc.mixFx), L = new Float32Array(frames), R = new Float32Array(frames);
+      for (let pos = 0; pos < frames; pos += BLOCK) {
+        const n = Math.min(BLOCK, frames - pos), l = L.subarray(pos, pos + n), rr = R.subarray(pos, pos + n);
+        for (const p of job.plans) { const src = srcs[p.src], range = sourceRange(p, pos, n, RATE, src.rate); if (range) mixClip(l, rr, pos, n, p, await src.read(range[0], range[1] - range[0]), range[0], RATE, src.rate); }
+        for (let i = 0; i < n; i++) { l[i] *= job.mixGain; rr[i] *= job.mixGain; }
+        for (let q = 0; q < n; q += 512) chain.process(l.subarray(q, Math.min(n, q + 512)), rr.subarray(q, Math.min(n, q + 512)));
+      }
+      return [L, R];
+    };
+    const [mL, mR] = await mixAll(job.loud.measure);
+    const meter = new LoudnessMeter(RATE);
+    for (let p = 0; p < mL.length; p += RATE * 10) meter.push(mL.subarray(p, p + RATE * 10), mR.subarray(p, p + RATE * 10));
+    const lufs = meter.integrated(), gain = Math.pow(10, Math.min(20, -14 - lufs) / 20);
+    const lim = new TruePeakLimiter(-1, RATE), want = Buffer.alloc(job.total * 6);
+    for (let pos = 0, o = 0; pos < job.total; pos += BLOCK) {
+      const n = Math.min(BLOCK, job.total - pos), L = Float32Array.from(mL.subarray(pos, pos + n)), R = Float32Array.from(mR.subarray(pos, pos + n));
+      for (let i = 0; i < n; i++) { L[i] *= gain; R[i] *= gain; }
+      lim.process(L, R);
+      for (let i = 0; i < n; i++) for (const v of [L[i], R[i]]) want.writeIntLE(pcm24(v), (o++) * 3, 3);
+    }
+    srcs.forEach(a => a.close());
+    const out = path.join(dir, 'out.wav');
+    const res = await core.mix({ ...job, sources: job.sources.map(f => path.join(dir, f)) }, out, () => {});
+    assert.ok(Math.abs(res.loudness - lufs) < 1e-9, `measured ${res.loudness} vs ${lufs}`);
+    const got = fs.readFileSync(out);
+    assert.equal(got.length, 44 + want.length);
+    let diff = 0, worst = 0;
+    for (let i = 0; i < job.total * 2; i++) { const a = got.readIntLE(44 + i * 3, 3), b = want.readIntLE(i * 3, 3); if (a !== b) { diff++; worst = Math.max(worst, Math.abs(a - b)); } }
+    assert.ok(worst <= 1 && diff < job.total * 2 * 1e-4, `${diff} samples differ, by up to ${worst}`);
+    t.diagnostic(`loudness ${lufs.toFixed(2)} LUFS → -14 (gain ${(20 * Math.log10(gain)).toFixed(2)} dB); ${diff} of ${job.total * 2} samples differ (by up to ${worst})`);
+  } finally { fs.rmSync(dir, { recursive: true, force: true }); }
+});
+
 test('what the core can\'t mix yet goes to the JavaScript export, with the reason', () => {
   const doc = mixDoc();
   assert.ok(exportMixJob(doc, 0, 5, { codec: 'wav' }).job);

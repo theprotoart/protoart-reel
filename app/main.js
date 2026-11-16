@@ -1396,6 +1396,7 @@ handle('export:finish', async (id, head) => {
 // beside the destination, which replaces the destination only once it's complete. Answers null when the core
 // isn't in this build (the editor then exports in JavaScript); the export handle stays open for that.
 const coreMixes = new Map();
+let coreVersion = null; // asked once
 handle('core:mixExport', async (id, token, job) => {
   if (!core.available()) return null;
   const h = handleOf(id, 'export');
@@ -1412,18 +1413,26 @@ handle('core:mixExport', async (id, token, job) => {
   if (!codec || ![44100, 48000].includes(job.rate) || !(job.total > 0) || !Number.isFinite(job.mixGain)) throw new Error('Bad mix');
   if (!Array.isArray(job.limiters) || job.limiters.length > 16 || job.limiters.some(l => !(l && l.ceil > 0 && l.ceil <= 4 && l.rel >= 0 && l.rel < 1))) throw new Error('Bad limiter');
   for (const pl of job.plans) if (!(pl && Number.isInteger(pl.src) && pl.src >= 0 && pl.src < sources.length && pl.env instanceof Float32Array)) throw new Error('Bad clip plan');
+  if (job.loud != null) {
+    const L = job.loud;
+    if (!(L && L.target > -70 && L.target < 0 && L.ceil > 0 && L.ceil <= 1 && L.rel >= 0 && L.rel < 1 && Number.isInteger(L.look) && L.look >= 1 && L.look <= 4800 && L.measure > 0)) throw new Error('Bad loudness target');
+    // a loudness target needs reel-core 0.6 or newer; an older one isn't asked (the JavaScript export does it)
+    coreVersion ??= core.version();
+    const v = String((await coreVersion) || '0').split('.').map(Number);
+    if (v[0] === 0 && (v[1] || 0) < 6) return null;
+  }
   const tmp = `${h.dst}.${process.pid}.core.tmp`;
   await fs.promises.rm(tmp, { force: true });
   const send = f => { if (win && !win.isDestroyed()) win.webContents.send('core:progress', id, f); };
   coreMixes.set(id, tmp);
   try {
-    await core.mix({ ...job, codec, sources, bitrate: Math.max(64000, Math.min(320000, job.bitrate | 0 || 192000)) }, tmp, send);
+    const res = await core.mix({ ...job, codec, sources, bitrate: Math.max(64000, Math.min(320000, job.bitrate | 0 || 192000)) }, tmp, send);
     if (!coreMixes.has(id)) throw new Error('Cancelled');
     await closeHandle(id);
     await fs.promises.rm(h.file, { force: true }); // the JavaScript export's part file, unused
     await fs.promises.rename(tmp, h.dst);
     exportedFiles.add(h.dst);
-    return { name: path.basename(h.dst) };
+    return { name: path.basename(h.dst), loudness: Number.isFinite(res?.loudness) ? res.loudness : null };
   } catch (e) {
     await fs.promises.rm(tmp, { force: true }).catch(() => {});
     throw e;

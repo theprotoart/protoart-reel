@@ -203,7 +203,10 @@ export function openExport(app) {
     const plugChain = anim ? [] : m.plugins.filter(p => !p.bypass).map(p => ({ kind: 'au', plugin: p.plugin, state: p.state || '' }));
     let masterFile = null; const temps = [];
     const cleanup = () => { for (const t of temps) app.api.fxRemoveTemp(app.token, t); };
-    if (!anim && (m.on || plugChain.length || loud != null)) {
+    // sound only with just a loudness target (no built-in master, no plug-ins): the Rust core measures and writes it
+    const rustLoud = SOUND.has(s.codec) && loud != null && !m.on && !plugChain.length && !!app.api.coreMixExport
+      && !!exportMixJob(doc, from, to, { codec: 'wav', loudness: loud, ceiling: m.ceiling }).job;
+    if (!anim && !rustLoud && (m.on || plugChain.length || loud != null)) {
       try {
         status.textContent = 'Mixing and mastering the sound…';
         const mix = await mixToFile(app, { from, to, master: m, onProgress: f => { progress.firstChild.style.width = (f * 30).toFixed(1) + '%'; } });
@@ -219,17 +222,21 @@ export function openExport(app) {
     // sound only, unmastered: the Rust core mixes and writes it (WAV, or AAC by Apple's encoder) when this build
     // has it and the project uses nothing it can't do yet; otherwise the JavaScript export below, as before
     let usual = null; // why the Rust core isn't mixing this one (shown when it's done)
-    if (SOUND.has(s.codec) && (masterFile || loud)) usual = 'the loudness target or master';
-    if (SOUND.has(s.codec) && !masterFile && !loud && !app.api.coreMixExport) usual = 'this build has no Rust core';
-    if (SOUND.has(s.codec) && !masterFile && !loud && app.api.coreMixExport) {
-      const plan = exportMixJob(doc, from, to, { codec: s.codec === 'wav' ? 'wav' : 'aac', bitrate: s.abr ? s.abr * 1000 : Number(pref('audioBitrate')) || 192000 });
+    if (SOUND.has(s.codec) && masterFile) usual = loud != null && !m.on && !plugChain.length ? 'what this project uses (see below)' : 'the built-in master or master plug-ins';
+    if (SOUND.has(s.codec) && !masterFile && !app.api.coreMixExport) usual = 'this build has no Rust core';
+    if (SOUND.has(s.codec) && !masterFile && app.api.coreMixExport) {
+      const plan = exportMixJob(doc, from, to, { codec: s.codec === 'wav' ? 'wav' : 'aac', bitrate: s.abr ? s.abr * 1000 : Number(pref('audioBitrate')) || 192000, loudness: rustLoud ? loud : null, ceiling: m.ceiling });
       if (!plan.job) usual = plan.why;
       if (plan.job) {
         status.textContent = 'Mixing the sound…';
         const off = app.api.onCoreProgress?.((id, f) => { if (id === h.id) { progress.firstChild.style.width = (f * 100).toFixed(1) + '%'; status.textContent = `Mixing the sound… ${Math.round(f * 100)}%`; } });
         let r = null, failed = null;
         try { r = await app.api.coreMixExport(h.id, app.token, plan.job); } catch (err) { failed = err; } finally { off?.(); }
-        if (r) { progress.firstChild.style.width = '100%'; cleanup(); resolve({ name: r.name, secs: (performance.now() - started) / 1000, how: 'mixed by the Rust core' }); return; }
+        if (r) {
+          progress.firstChild.style.width = '100%'; cleanup();
+          if (rustLoud && Number.isFinite(r.loudness)) toast(`Loudness ${r.loudness.toFixed(1)} LUFS → ${loud} LUFS`, 4000);
+          resolve({ name: r.name, secs: (performance.now() - started) / 1000, how: rustLoud ? 'mixed and loudness-matched by the Rust core' : 'mixed by the Rust core' }); return;
+        }
         if (!r && !failed) usual = 'this build has no Rust core';
         if (failed) usual = 'the Rust core failed';
         if (failed) {
@@ -237,6 +244,14 @@ export function openExport(app) {
           toast(`The fast sound mixer couldn’t do this one (${failed.message}); mixing it the usual way.`, 5000);
         }
       }
+    }
+    // the core was to do the loudness target but didn't: master it the JavaScript way, so the target is never lost
+    if (rustLoud && !masterFile) {
+      try {
+        status.textContent = 'Mixing and mastering the sound…';
+        masterFile = await mixToFile(app, { from, to, master: m, onProgress: f => { progress.firstChild.style.width = (f * 30).toFixed(1) + '%'; } });
+        temps.push(masterFile);
+      } catch (err) { cleanup(); app.api.exportCancel(h.id); reject(new Error(`Mastering failed: ${err.message}`)); return; }
     }
     worker = new Worker('export-worker.js', { type: 'module' });
     worker.onmessage = async e => {

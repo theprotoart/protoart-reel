@@ -3,7 +3,7 @@
 //! One job per run. Reel's main process (app/engine/core.js) starts it, writes the job to stdin and reads one
 //! line of JSON from stdout. Jobs are binary, little-endian, so sound needs no conversion:
 //!
-//!   "RCORE1\n" then a command line ("version\n", "umfind\n", "analyze\n" or "mix\n"), then the command's body.
+//!   "RCORE1\n" then a command line ("version\n", "umfind\n", "analyze\n", "mix\n" or "mixloud\n"), then the command's body.
 //!
 //! analyze body: path (u32 length + UTF-8) of one media file, which it only reads. Answers the file's sample
 //!   rate, waveform peaks (100 a second) and loudness profile (K-weighted mean square every 100 ms).
@@ -16,6 +16,8 @@
 //!   path · sources u32 + paths · plans u32, each: source u32 · first u64 · last u64 · s0 f64 · speed f64 ·
 //!   envelope u32 + that many f32. Writes the export's sound to the output path (a new file) and prints
 //!   {"progress":…} lines on the way. Paths are u32 length + UTF-8.
+//! mixloud body: target LUFS f64 · ceiling gain f64 · release f64 · look-ahead u32 · frames to measure u64, then a mix
+//!   body. Measures the mix, turns it to the target and true-peak limits it (lib/master.js); answers the loudness.
 //!
 //! No network, and no files except the media files a job names (read only) and a mix job's one new output file:
 //! all chosen by Reel's main process (the open project's media folder; the export's own temporary file).
@@ -128,7 +130,15 @@ fn analyze_job(inp: &mut Input) -> Result<String, String> {
     Ok(format!("{{\"ok\":true,\"rate\":{},\"peaks\":[{}],\"steps\":[{}]}}", a.rate, floats(&a.peaks), floats(&a.steps)))
 }
 
-fn mix_job(inp: &mut Input) -> Result<String, String> {
+fn mix_job(inp: &mut Input, loudness: bool) -> Result<String, String> {
+    // mixloud: the loudness target first (target LUFS · ceiling gain · release · look-ahead u32 · frames measured u64)
+    let loud = if loudness {
+        let (target, ceil, rel) = (inp.f64()?, inp.f64()?, inp.f64()?);
+        let look = inp.u32()? as usize;
+        let measure = inp.u64()?;
+        if !(target > -70.0 && target < 0.0) || !(ceil > 0.0 && ceil <= 1.0) || !(0.0..1.0).contains(&rel) || !(1..=4800).contains(&look) { return Err("bad loudness target".into()); }
+        Some(mix::Loud { target, ceil, rel, look, measure })
+    } else { None };
     let rate = inp.f64()?;
     let total = inp.u64()?;
     let mix_gain = inp.f64()?;
@@ -166,11 +176,15 @@ fn mix_job(inp: &mut Input) -> Result<String, String> {
         1 => Box::new(mix::aac::AacSink::create(&out, rate, bitrate)?),
         _ => return Err(format!("this build can't write that kind of sound ({codec}, {bitrate})")),
     };
-    let mut so = std::io::stdout();
-    let result = mix::run(&job, sink.as_mut(), |f| { let _ = writeln!(so, "{{\"progress\":{f}}}"); let _ = so.flush(); });
-    let finished = result.and_then(|_| sink.finish());
-    if let Err(e) = finished { let _ = std::fs::remove_file(&out); return Err(e); }
-    Ok(format!("{{\"ok\":true,\"frames\":{total}}}"))
+    if loud.as_ref().is_some_and(|l| l.measure > total + (rate as u64)) { return Err("bad loudness target".into()); }
+    let report = |f: f64| { let mut so = std::io::stdout(); let _ = writeln!(so, "{{\"progress\":{f}}}"); let _ = so.flush(); };
+    let result = match &loud { Some(l) => mix::run_loud(&job, l, sink.as_mut(), report).map(Some), None => mix::run(&job, sink.as_mut(), report).map(|_| None) };
+    let finished = result.and_then(|m| sink.finish().map(|_| m));
+    match finished {
+        Err(e) => { let _ = std::fs::remove_file(&out); Err(e) }
+        Ok(Some(lufs)) => Ok(format!("{{\"ok\":true,\"frames\":{total},\"loudness\":{}}}", if lufs.is_finite() { format!("{lufs}") } else { "null".into() })),
+        Ok(None) => Ok(format!("{{\"ok\":true,\"frames\":{total}}}")),
+    }
 }
 
 fn run(b: &[u8]) -> Result<String, String> {
@@ -180,7 +194,8 @@ fn run(b: &[u8]) -> Result<String, String> {
         "version" => Ok(format!("{{\"ok\":true,\"version\":{}}}", json_str(env!("CARGO_PKG_VERSION")))),
         "umfind" => umfind(&mut inp),
         "analyze" => analyze_job(&mut inp),
-        "mix" => mix_job(&mut inp),
+        "mix" => mix_job(&mut inp, false),
+        "mixloud" => mix_job(&mut inp, true),
         other => Err(format!("unknown command {}", other.chars().take(20).collect::<String>())),
     }
 }

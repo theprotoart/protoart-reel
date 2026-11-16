@@ -183,6 +183,156 @@ pub fn run(job: &Job, sink: &mut dyn Sink, mut progress: impl FnMut(f64)) -> Res
     Ok(())
 }
 
+// ---------------------------------------------------------------- loudness target (lib/master.js, export-worker.js)
+
+/// A loudness target for the export: the mix is measured (BS.1770-4, gated), turned up or down to `target` LUFS,
+/// then held under the ceiling by the true-peak limiter, exactly as the JavaScript master path does. `ceil` (gain),
+/// `rel` and `look` come from Reel worked out the same way as there; `measure` is how many frames the JavaScript
+/// mix pass measures (its own rounding of the length).
+pub struct Loud { pub target: f64, pub ceil: f64, pub rel: f64, pub look: usize, pub measure: u64 }
+
+/// One biquad (transposed direct form II) with f64 state; its output is stored as f32, like the JavaScript's
+/// Float32Array in place.
+struct Bq { b0: f64, b1: f64, b2: f64, a1: f64, a2: f64, z0: f64, z1: f64 }
+impl Bq {
+    fn shelf_or_hp(high_shelf: bool, f: f64, q: f64, gain_db: f64, rate: f64) -> Bq {
+        let f = f.min(rate * 0.45);
+        let a = 10f64.powf(gain_db / 40.0);
+        let w = std::f64::consts::TAU * f / rate;
+        let (cs, sn) = (w.cos(), w.sin());
+        let al = sn / (2.0 * q);
+        let (b0, b1, b2, a0, a1, a2) = if high_shelf {
+            let s = 2.0 * a.sqrt() * al;
+            (a * ((a + 1.0) + (a - 1.0) * cs + s), -2.0 * a * ((a - 1.0) + (a + 1.0) * cs), a * ((a + 1.0) + (a - 1.0) * cs - s),
+             (a + 1.0) - (a - 1.0) * cs + s, 2.0 * ((a - 1.0) - (a + 1.0) * cs), (a + 1.0) - (a - 1.0) * cs - s)
+        } else {
+            ((1.0 + cs) / 2.0, -(1.0 + cs), (1.0 + cs) / 2.0, 1.0 + al, -2.0 * cs, 1.0 - al)
+        };
+        Bq { b0: b0 / a0, b1: b1 / a0, b2: b2 / a0, a1: a1 / a0, a2: a2 / a0, z0: 0.0, z1: 0.0 }
+    }
+    fn exact(b0: f64, b1: f64, b2: f64, a1: f64, a2: f64) -> Bq { Bq { b0, b1, b2, a1, a2, z0: 0.0, z1: 0.0 } }
+    fn run(&mut self, x: &mut [f32]) {
+        let (mut z0, mut z1) = (self.z0, self.z1);
+        for v in x.iter_mut() {
+            let vi = *v as f64;
+            let y = self.b0 * vi + z0;
+            z0 = self.b1 * vi - self.a1 * y + z1;
+            z1 = self.b2 * vi - self.a2 * y;
+            *v = y as f32;
+        }
+        self.z0 = z0; self.z1 = z1;
+    }
+}
+
+/// Integrated loudness (BS.1770-4), the LoudnessMeter in lib/master.js.
+pub struct Meter { pre: [Bq; 2], rlb: [Bq; 2], block: usize, acc: f64, count: usize, steps: Vec<f64>, l: Vec<f32>, r: Vec<f32> }
+impl Meter {
+    pub fn new(rate: f64) -> Meter {
+        let (pre, rlb) = if rate == 48000.0 {
+            // the exact coefficients published in ITU-R BS.1770
+            let p = || Bq::exact(1.53512485958697, -2.69169618940638, 1.19839281085285, -1.69065929318241, 0.73248077421585);
+            let h = || Bq::exact(1.0, -2.0, 1.0, -1.99004745483398, 0.99007225036621);
+            ([p(), p()], [h(), h()])
+        } else {
+            let p = || Bq::shelf_or_hp(true, 1681.97, 0.7072, 3.9998, rate);
+            let h = || Bq::shelf_or_hp(false, 38.135, 0.5003, 0.0, rate);
+            ([p(), p()], [h(), h()])
+        };
+        Meter { pre, rlb, block: (rate * 0.1).round() as usize, acc: 0.0, count: 0, steps: Vec::new(), l: Vec::new(), r: Vec::new() }
+    }
+    pub fn push(&mut self, l: &[f32], r: &[f32]) {
+        self.l.clear(); self.l.extend_from_slice(l); self.r.clear(); self.r.extend_from_slice(r);
+        self.pre[0].run(&mut self.l); self.pre[1].run(&mut self.r); self.rlb[0].run(&mut self.l); self.rlb[1].run(&mut self.r);
+        for i in 0..self.l.len() {
+            let (a, b) = (self.l[i] as f64, self.r[i] as f64);
+            self.acc += a * a + b * b;
+            self.count += 1;
+            if self.count == self.block { self.steps.push(self.acc / self.block as f64); self.acc = 0.0; self.count = 0; }
+        }
+    }
+    pub fn integrated(&self) -> f64 {
+        let lufs = |z: f64| -0.691 + 10.0 * (z + 1e-12).log10();
+        let blocks: Vec<f64> = (0..self.steps.len().saturating_sub(3)).map(|i| (self.steps[i] + self.steps[i + 1] + self.steps[i + 2] + self.steps[i + 3]) / 4.0).collect();
+        let abs: Vec<f64> = blocks.into_iter().filter(|&z| lufs(z) > -70.0).collect();
+        if abs.is_empty() { return f64::NEG_INFINITY; }
+        let rel = lufs(abs.iter().sum::<f64>() / abs.len() as f64) - 10.0;
+        let g: Vec<f64> = abs.into_iter().filter(|&z| lufs(z) > rel).collect();
+        lufs(g.iter().sum::<f64>() / g.len() as f64)
+    }
+}
+
+/// The look-ahead true-peak limiter (TruePeakLimiter in lib/master.js), sample for sample.
+pub struct TruePeak { ceil: f64, rel: f64, look: usize, buf_l: Vec<f32>, buf_r: Vec<f32>, hold: Vec<f32>, pos: usize, gain: f64, prev_l: f64, prev_r: f64 }
+const SINES: [(f64, f64); 3] = [(0.25, 0.7071067811865475), (0.5, 1.0), (0.75, 0.7071067811865476)]; // Math.sin(Math.PI * t)
+impl TruePeak {
+    pub fn new(ceil: f64, rel: f64, look: usize) -> TruePeak {
+        let look = look.max(1);
+        TruePeak { ceil, rel, look, buf_l: vec![0.0; look], buf_r: vec![0.0; look], hold: vec![1.0; look], pos: 0, gain: 1.0, prev_l: 0.0, prev_r: 0.0 }
+    }
+    fn tp(prev: f64, cur: f64) -> f64 {
+        let mut m = cur.abs();
+        for (t, s) in SINES { let v = prev + (cur - prev) * t; let bulge = v.abs() + (cur - prev).abs() * 0.08 * s; if bulge > m { m = bulge; } }
+        m
+    }
+    pub fn process(&mut self, l: &mut [f32], r: &mut [f32]) {
+        for i in 0..l.len() {
+            let (cl, cr) = (l[i] as f64, r[i] as f64);
+            let pk = Self::tp(self.prev_l, cl).max(Self::tp(self.prev_r, cr));
+            self.prev_l = cl; self.prev_r = cr;
+            let need = if pk > self.ceil { self.ceil / pk } else { 1.0 };
+            let mut target = need;
+            for k in 0..self.look { let h = self.hold[k] as f64; if h < target { target = h; } }
+            self.hold[self.pos] = need as f32;
+            self.gain = if target < self.gain { target } else { self.rel * self.gain + (1.0 - self.rel) * target };
+            let (ol, or) = (self.buf_l[self.pos], self.buf_r[self.pos]);
+            self.buf_l[self.pos] = l[i]; self.buf_r[self.pos] = r[i];
+            self.pos = (self.pos + 1) % self.look;
+            l[i] = (ol as f64 * self.gain) as f32; r[i] = (or as f64 * self.gain) as f32;
+        }
+    }
+}
+
+/// Like `run`, with a loudness target: one pass to measure the mix, a second to write it turned to the target and
+/// limited. Progress: the measuring pass is the first half. Returns the measured loudness (LUFS).
+pub fn run_loud(job: &Job, loud: &Loud, sink: &mut dyn Sink, mut progress: impl FnMut(f64)) -> Result<f64, String> {
+    const BLOCK: u64 = 8192;
+    let (mut l, mut r) = (vec![0f32; BLOCK as usize], vec![0f32; BLOCK as usize]);
+    // pass 1: measure (as long as the JavaScript's mix file)
+    let mut meter = Meter::new(job.rate);
+    {
+        let mut live: Vec<Option<Live>> = (0..job.plans.len()).map(|_| None).collect();
+        let mut limiters: Vec<Limiter> = job.limiters.iter().map(|&(ceil, rel)| Limiter { ceil, rel, g: 1.0 }).collect();
+        let (mut j0, mut last) = (0u64, 0u64);
+        let measure = loud.measure.max(job.total);
+        while j0 < measure {
+            let n = BLOCK.min(measure - j0) as usize;
+            l[..n].iter_mut().for_each(|v| *v = 0.0); r[..n].iter_mut().for_each(|v| *v = 0.0);
+            mix_block(job, &mut live, &mut limiters, j0, &mut l[..n], &mut r[..n])?;
+            meter.push(&l[..n], &r[..n]);
+            j0 += n as u64;
+            if j0 - last >= job.rate as u64 * 30 { progress(0.5 * j0 as f64 / measure as f64); last = j0; }
+        }
+    }
+    let lufs = meter.integrated();
+    let gain = if lufs.is_finite() { 10f64.powf((loud.target - lufs).min(20.0) / 20.0) } else { 1.0 };
+    // pass 2: mix again, turn it to the target, limit, write
+    let mut live: Vec<Option<Live>> = (0..job.plans.len()).map(|_| None).collect();
+    let mut limiters: Vec<Limiter> = job.limiters.iter().map(|&(ceil, rel)| Limiter { ceil, rel, g: 1.0 }).collect();
+    let mut tp = TruePeak::new(loud.ceil, loud.rel, loud.look);
+    let (mut j0, mut last) = (0u64, 0u64);
+    while j0 < job.total {
+        let n = BLOCK.min(job.total - j0) as usize;
+        l[..n].iter_mut().for_each(|v| *v = 0.0); r[..n].iter_mut().for_each(|v| *v = 0.0);
+        mix_block(job, &mut live, &mut limiters, j0, &mut l[..n], &mut r[..n])?;
+        for i in 0..n { l[i] = (l[i] as f64 * gain) as f32; r[i] = (r[i] as f64 * gain) as f32; }
+        tp.process(&mut l[..n], &mut r[..n]);
+        sink.write(&l[..n], &r[..n])?;
+        j0 += n as u64;
+        if j0 - last >= job.rate as u64 * 30 || j0 >= job.total { progress(0.5 + 0.5 * j0 as f64 / job.total as f64); last = j0; }
+    }
+    Ok(lufs)
+}
+
 // ---------------------------------------------------------------- AAC through Apple's encoder (macOS)
 
 #[cfg(target_os = "macos")]
