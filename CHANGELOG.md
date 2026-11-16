@@ -7,7 +7,7 @@
   sounds only (so soft syllables are never taken for ums). Same answers in the Rust core (version 0.5.0).
 - **Teach Reel your ums, clearer**: once Reel knows your voice, the recording steps fold away (optional, not a
   do-over). At the bottom, WHAT REEL KNOWS lists every sound taught and how many takes, which need more (3 or
-  more is best) and common ones not taught yet, with ↻ to read it again. Particular words (curse words…) point to
+  more is best) and common ones not taught yet, in the bottom row with ↻ at the far left to read it again. Particular words (curse words…) point to
   Find a word, which goes by spelling.
 - **FORGET MY UMS** is red and asks first (it erases everything Reel learned, for every project, and can't be undone).
 - **Fixed**: "5 found" with an empty list: when the filter, track or selected clip would hide everything found, the

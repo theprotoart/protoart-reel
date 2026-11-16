@@ -154,15 +154,15 @@ export function teachUms(app, { onDone } = {}) {
     const words = m ? m.words : [];
     const few = words.filter(w => w.prints.length < 3);
     const missing = SUGGEST.filter(w => !words.some(x => x.word === w));
+    // in the dialog's bottom row: ↻ at the far left, then what Reel knows (FORGET MY UMS and CLOSE on the right)
     known.replaceChildren(
-      el('div', { class: 'umt-known-head' },
-        el('b', { text: m ? 'WHAT REEL KNOWS' : 'Reel doesn’t know your ums yet.' }),
-        el('button', { class: 'mini', text: '↻', title: 'Read what Reel knows again', onclick: () => drawKnown(true) })),
+      el('button', { class: 'hw umt-refresh', text: '↻', title: 'Show what Reel knows now', onclick: () => drawKnown(true) }),
+      el('div', { class: 'umt-known-text' },
+      el('b', { text: m ? 'REEL KNOWS' : 'Reel doesn’t know your ums yet.' }),
       words.length ? el('div', { class: 'umt-chips' }, ...words.map(w => el('span', { class: 'umt-chip' + (w.prints.length < 3 ? ' few' : ''), title: `${w.prints.length} take${w.prints.length === 1 ? '' : 's'} learned`, text: `${name(w.word)} · ${w.prints.length}` })),
         m.nots?.length ? el('span', { class: 'umt-chip not', title: 'Sounds you told Reel aren’t ums', text: `not an um · ${m.nots.length}` }) : null) : null,
       few.length ? el('div', { text: `Needs more takes (3 or more find them best): ${few.map(w => `${name(w.word)} (${3 - w.prints.length} more)`).join(', ')}.` }) : null,
-      missing.length ? el('div', { text: `Not taught yet: ${missing.map(name).join(', ')}. Mark one with 〰 FILLER and send it, or record takes.` }) : null,
-      el('div', { class: 'umt-tip', text: 'Particular words (curse words, “basically”, “actually”…) are found by their spelling, not by ear: type them in Find a word in 💬 FILLER WORDS. Everything you add here is added to what Reel knows; FORGET MY UMS starts over.' }));
+      missing.length ? el('div', { text: `Not taught yet: ${missing.map(name).join(', ')}.` }) : null));
   };
   drawKnown();
   // with something learned already, recording the takes again is optional: folded away
@@ -173,7 +173,8 @@ export function teachUms(app, { onDone } = {}) {
     el('p', { text: model
       ? 'Reel already knows how you say your ums. To teach it more (or other sounds, like breaths), mark them in your recording with 〰 FILLER and send them below, or record more takes.'
       : 'Record each one in a quiet room with the microphone you record with. Reel learns how your ums and uhs sound, then finds them in your videos for 💬 FILLER WORDS and AUTO EDIT, even the ones speech recognition leaves out. Nothing leaves this Mac.' }),
-    takesBox, status, fillBox, known);
+    takesBox, status, fillBox,
+    el('p', { class: 'note umt-tip', text: 'Particular words (curse words, “basically”, “actually”…) are found by their spelling, not by ear: type them in Find a word in 💬 FILLER WORDS. Everything you add is added to what Reel knows; FORGET MY UMS starts over.' }));
   draw();
   let dlg = null;
   saveB.onclick = () => {
@@ -200,6 +201,7 @@ export function teachUms(app, { onDone } = {}) {
     } } : null,
     { label: 'CLOSE', onClick: close => close() },
   ].filter(Boolean), { onClose: () => { stop(); release(); } });
+  dlg.foot.prepend(known);
   return dlg;
 }
 
