@@ -487,6 +487,7 @@ class App {
     if (!light || !keepInspector) { if (!keepInspector) this.inspector.render(); }
     if (!light) this.library.render();
     document.querySelector('.tp-panel')?._redraw?.();
+    document.querySelector('.umt-drawer')?._redraw?.(); // the um trainer, folded open: shows fillers as you mark them
     this.player.prune();
     if (this.player.playing) return;
     this.player.syncPaused();

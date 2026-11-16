@@ -1,6 +1,7 @@
 # Changelog
 
 ## Unreleased
+- 🎙 TEACH MY UMS folds open as a panel right under its key (press it again, ×, or Esc to fold it away) instead of a window over the editor; it stays open while you mark fillers, and new ones appear in it as you mark them.
 
 - **💬 FILLER WORDS** (was 💬 UMS): it lists ums, uhs, filler words and every sound you taught Reel.
 - **Breaths and other soft sounds you taught are found**, even one that runs straight into the next word: Reel listens a second time with a lower bar, for your own

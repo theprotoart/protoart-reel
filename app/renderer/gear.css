@@ -2165,3 +2165,31 @@ html[data-theme="light"] .umt-fill-title { color: #9e2618; }
 /* started (1 or 2 takes): blue */
 .umt-step.started { background: linear-gradient(#4f86d9, #3566b3); border-color: #234a87; color: #fff; text-shadow: 0 1px 0 rgba(0,0,0,.35); }
 .umt-step.started .umt-n { background: rgba(255,255,255,.22); color: #fff; }
+
+/* a window folded open in the page (the um trainer under 🎙 TEACH MY UMS) */
+.drawer { grid-column: 1 / -1; display: flex; flex-direction: column; min-height: 0; margin: 2px 0 4px; border-radius: 6px; border: 1px solid #000;
+  background: #1b1b1d var(--plate) 0 0 / 1600px 1000px; box-shadow: inset 0 1px 0 rgba(255,255,255,.07), 0 4px 14px rgba(0,0,0,.45);
+  animation: drawer-in .16s ease-out; }
+@keyframes drawer-in { from { opacity: 0; transform: translateY(-4px); } }
+.drawer-head { display: flex; align-items: center; gap: 8px; padding: 8px 12px; box-shadow: inset 0 -2px 0 rgba(0,0,0,.7), 0 1px 0 rgba(255,255,255,.06); }
+.drawer-head h3 { margin: 0; font: 700 11.5px/1.2 var(--font-engrave, system-ui); text-transform: uppercase; letter-spacing: .18em; color: var(--paint); text-shadow: var(--engrave-shadow); }
+.drawer-head .spacer { flex: 1; }
+#keypanel .drawer-head .mini { width: auto; padding: 2px 8px; }
+.drawer-body { padding: 10px 12px; max-height: 56vh; overflow: auto; font-size: 12.5px; white-space: normal; }
+.drawer-foot { display: flex; flex-wrap: wrap; align-items: center; justify-content: flex-end; gap: 6px; padding: 10px 12px;
+  box-shadow: inset 0 2px 0 rgba(0,0,0,.7), inset 0 3px 0 rgba(255,255,255,.05); }
+#keypanel .drawer button { white-space: normal; text-overflow: clip; }
+#keypanel .drawer-foot > button.hw { width: auto; padding: 8px 12px; }
+#keypanel .drawer .umt-known { flex: 1 1 100%; margin: 0 0 4px; }
+#keypanel .drawer .umt-known .umt-refresh { width: 40px; flex: none; }
+#keypanel .drawer .umt-fill-head .note { flex: 1 1 100%; }
+#keypanel .drawer .umt-fill-head > button.hw, #keypanel .drawer .btn-row > button.hw { width: auto; padding: 8px 12px; }
+#keypanel .drawer .umt-step .mini { width: auto; flex: none; padding: 2px 7px; }
+#keypanel .drawer .kit-rec-row > button.hw { width: auto; flex: none; padding: 8px 12px; }
+#keypanel .drawer select { max-width: 100%; }
+#btn-teachums.lit { box-shadow: 0 0 0 1px #000, 0 0 12px #9b7cf0; }
+#keypanel .kmod.folded .drawer { display: none; }
+/* while the trainer is folded open, the key panel takes the column and scrolls (fold it to get the inspector back) */
+#keypanel:has(.drawer) { flex: 1 1 auto; min-height: 0; overflow-y: auto; }
+#keypanel:has(.drawer) ~ #inspector { flex: 0 0 0; overflow: hidden; }
+#keypanel .drawer-body { max-height: none; overflow: visible; }

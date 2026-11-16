@@ -2,7 +2,7 @@
 // what your fillers sound like (lib/umvoice.js) and then finds them in your recordings for 💬 UMS and AUTO EDIT,
 // including the ones speech recognition doesn't write down. Everything stays on this Mac (the model is kept in
 // Reel's own storage here, never uploaded).
-import { el, modal, toast, ask } from './ui.js';
+import { el, modal, drawer, toast, ask } from './ui.js';
 import { train, findInSamples, packModel, unpackModel, to16k, RATE, addTake, addNot } from './lib/umvoice.js';
 import { openAudio } from './lib/sources.js';
 import { soundOf, speechClips } from './transcript.js';
@@ -34,8 +34,10 @@ const STEPS = [
   { word: 'speech', say: 'Read this in your normal voice: “Today I want to show you how I set this up, step by step, and what I’d do differently next time.”', max: 12 },
 ];
 
-/** The trainer window. */
+/** The trainer: folds open under the 🎙 TEACH MY UMS key (a window when that key isn't showing). Again folds it away. */
+let open = null;
 export function teachUms(app, { onDone } = {}) {
+  if (open?.root.isConnected) { open.close(); return null; }
   const takes = STEPS.map(() => null);
   let cur = 0, stream = null, ctx = null, rec = null, chunks = [], timer = 0, raf = 0, t0 = 0;
   const list = el('div', { class: 'umt-list' });
@@ -113,8 +115,8 @@ export function teachUms(app, { onDone } = {}) {
     if (!fs.length) {
       fillBox.replaceChildren(el('div', { class: 'umt-fill-head' },
         el('span', { class: 'umt-fill-title', text: '〰 FROM YOUR RECORDING' }),
-        el('span', { class: 'note', text: 'For a guest who can’t read lines (or ums you already said on camera): close this, press 〰 FILLER on the timeline tool bar, drag across each um on the voice track, then come back.' }),
-        el('button', { class: 'hw role-filler', text: '〰 MARK FILLERS', onclick: () => { dlg?.close(); app.cmd('filler'); } })));
+        el('span', { class: 'note', text: 'For a guest who can’t read lines (or ums you already said on camera): press MARK FILLERS, drag across each um on the voice track, and they show up here to send.' }),
+        el('button', { class: 'hw role-filler', text: '〰 MARK FILLERS', onclick: () => { if (!dlg?.inline) dlg?.close(); if (!app.timeline.filling) app.cmd('filler'); } })));
       return;
     }
     const rows = fs.map(f => {
@@ -134,7 +136,7 @@ export function teachUms(app, { onDone } = {}) {
     });
     fillBox.replaceChildren(el('div', { class: 'umt-fill-head' },
       el('span', { class: 'umt-fill-title', text: `〰 FROM YOUR RECORDING (${fs.length})` }),
-      el('button', { class: 'hw role-filler', text: '〰 MARK MORE', title: 'Close this and mark more on the timeline', onclick: () => { dlg?.close(); if (!app.timeline.filling) app.cmd('filler'); } })),
+      el('button', { class: 'hw role-filler', text: '〰 MARK MORE', title: 'Close this and mark more on the timeline', onclick: () => { if (!dlg?.inline) dlg?.close(); if (!app.timeline.filling) app.cmd('filler'); } })),
       el('div', { class: 'umt-fill-list' }, ...rows), el('div', { class: 'btn-row' }, sendB));
     syncSend();
   };
@@ -198,7 +200,11 @@ export function teachUms(app, { onDone } = {}) {
     } catch (e) { status.textContent = e.message; }
   };
   body.append(el('div', { class: 'btn-row umt-save' }, saveB));
-  dlg = modal('🎙 Teach Reel your ums', body, [
+  // under the TEACH MY UMS key when it's showing in the tool panel; else a window
+  const key = document.getElementById('btn-teachums'), keyBody = key?.closest('#keypanel .kmod-body');
+  const under = key && keyBody && key.offsetParent ? keyBody : null; // (folded or hidden group: a window)
+  const make = (title, b, btns, opts) => (under ? drawer(under, title, b, btns, { ...opts, cls: 'umt-drawer' }) : modal(title, b, btns, opts));
+  dlg = make('🎙 Teach Reel your ums', body, [
     model ? { label: 'FORGET MY UMS', cls: 'hw danger', onClick: async close => {
       const m = umModel(), n = m ? m.words.reduce((k, w) => k + w.prints.length, 0) : 0;
       const sure = await ask('Forget everything Reel learned?',
@@ -207,8 +213,21 @@ export function teachUms(app, { onDone } = {}) {
       saveModel(null); toast('Reel forgot your ums.'); close(); onDone?.();
     } } : null,
     { label: 'CLOSE', onClick: close => close() },
-  ].filter(Boolean), { onClose: () => { stop(); release(); } });
+  ].filter(Boolean), { onClose: () => { stop(); release(); key?.classList.remove('lit'); if (open === dlg) open = null; } });
   dlg.foot.prepend(known);
+  if (dlg.inline) {
+    key.classList.add('lit');
+    // open while you mark fillers on the timeline: new ones appear (ticked) as you go
+    let sig = (app.doc?.fillers || []).map(f => f.id + (f.taught ? '*' : '')).join();
+    dlg.root._redraw = () => {
+      const fs = app.doc?.fillers || [], now = fs.map(f => f.id + (f.taught ? '*' : '')).join();
+      if (now === sig) return;
+      const had = new Set(sig.split(',').map(x => x.replace('*', '')));
+      for (const f of fs) if (!had.has(f.id) && !f.taught) picked.add(f.id);
+      sig = now; drawFillers();
+    };
+  }
+  open = dlg;
   return dlg;
 }
 

@@ -83,6 +83,30 @@ export function modal(title, body, buttons = [], { wide = false, onClose } = {})
   return { close, body, root: box, foot };
 }
 
+/**
+ * Like modal(), but folds open in the page under `after` (an element) instead of floating over it: the rest of the
+ * window stays usable. Same { close, body, root, foot } back, plus inline: true. Esc or × folds it away.
+ */
+export function drawer(after, title, body, buttons = [], { onClose, cls = '' } = {}) {
+  const foot = el('div', { class: 'drawer-foot' });
+  const box = el('div', { class: 'drawer' + (cls ? ' ' + cls : '') },
+    el('div', { class: 'drawer-head' }, el('h3', { text: title }), el('div', { class: 'spacer' }), el('button', { class: 'mini', text: '×', title: 'Fold this away', onclick: () => close() })),
+    el('div', { class: 'drawer-body' }, body), foot);
+  let closed = false;
+  const close = () => { if (closed) return; closed = true; box.remove(); document.removeEventListener('keydown', onKey, true); if (onClose) onClose(); };
+  const onKey = e => { if (e.key === 'Escape' && !document.querySelector('.backdrop') && box.contains(document.activeElement)) { e.stopPropagation(); close(); } };
+  document.addEventListener('keydown', onKey, true);
+  for (const b of buttons) {
+    const btn = el('button', { class: b.cls || 'hw', text: b.label, onclick: () => b.onClick(close, btn) });
+    if (b.id) btn.id = b.id;
+    foot.append(btn);
+  }
+  if (!buttons.length) foot.remove();
+  after.after(box);
+  box.scrollIntoView?.({ block: 'nearest' });
+  return { close, body, root: box, foot, inline: true };
+}
+
 export function ask(title, text, okLabel = 'OK') {
   return new Promise(resolve => {
     modal(title, el('p', { text }), [
