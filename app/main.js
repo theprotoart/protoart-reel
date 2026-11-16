@@ -1414,7 +1414,13 @@ handle('core:mixExport', async (id, token, job) => {
   if (!Array.isArray(job.limiters) || job.limiters.length > 16 || job.limiters.some(l => !(l && l.ceil > 0 && l.ceil <= 4 && l.rel >= 0 && l.rel < 1))) throw new Error('Bad limiter');
   for (const pl of job.plans) if (!(pl && Number.isInteger(pl.src) && pl.src >= 0 && pl.src < sources.length && pl.env instanceof Float32Array)) throw new Error('Bad clip plan');
   // what each newer part of the core needs: a loudness target 0.6, click sounds 0.7; an older core isn't asked
-  const needs = job.clicks != null ? 7 : job.loud != null ? 6 : 0;
+  const needs = job.stretch != null ? 8 : job.clicks != null ? 7 : job.loud != null ? 6 : 0;
+  if (job.stretch != null) {
+    const st = job.stretch;
+    if (!(st && st.win instanceof Float32Array && st.win.length >= 16 && st.win.length <= 48000 && Number.isInteger(st.tol) && st.tol >= 1 && st.tol <= 48000 && Array.isArray(st.clips) && st.clips.length <= 2000
+      && st.clips.every(c => c && Number.isInteger(c.src) && c.src >= 0 && c.src < sources.length && [c.in, c.srcLen, c.speed, c.cs, c.ce, c.start].every(Number.isFinite) && Array.isArray(c.gains) && c.gains.length <= 2e6)
+      && Array.isArray(st.order) && st.order.every(k => Number.isInteger(k) && k >= 0 && k < job.plans.length + st.clips.length))) throw new Error('Bad stretch');
+  }
   if (job.clicks != null) {
     const k = job.clicks;
     if (!(k && Number.isFinite(k.start) && Number.isInteger(k.block) && k.block >= 1 && k.block <= 65536 && k.wave instanceof Float32Array && k.wave.length <= 48000 && Array.isArray(k.clips) && k.clips.length <= 2000

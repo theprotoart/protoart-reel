@@ -25,7 +25,39 @@ impl Limiter {
     }
 }
 
-pub struct Job { pub rate: f64, pub total: u64, pub mix_gain: f64, pub limiters: Vec<(f64, f64)>, pub soft: bool, pub sources: Vec<String>, pub plans: Vec<Plan>, pub clicks: Clicks }
+pub struct Job { pub rate: f64, pub total: u64, pub mix_gain: f64, pub limiters: Vec<(f64, f64)>, pub soft: bool, pub sources: Vec<String>, pub plans: Vec<Plan>, pub clicks: Clicks,
+    /// clips that keep their pitch (0.8), and the order the clips are added in: an index below plans.len() is a
+    /// plan, at or above it a stretched clip (the JavaScript adds them in the project's order; so does this)
+    pub stretched: Vec<crate::stretch::Stretched>, pub order: Vec<usize>, pub win: Vec<f32>, pub tol: i64 }
+
+impl Job {
+    /// Reads and stretches every clip that keeps its pitch, once, before mixing.
+    pub fn prepare(&mut self) -> Result<(), String> {
+        for s in self.stretched.iter_mut() {
+            if s.ready { continue; }
+            let path = self.sources.get(s.src).ok_or("a clip names no source")?;
+            let mut lv = Live::open(path)?;
+            // as export-worker.js: a0 = floor(in × source rate), n = ceil(length × source rate) + 4,
+            // the resampled length ceil(length × output rate), ratio = source rate / output rate
+            let sr = lv.rate;
+            let a0 = (s.inn * sr).floor() as i64;
+            let n = (s.src_len * sr).ceil() as i64 + 4;
+            let out_n = (s.src_len * self.rate).ceil() as usize;
+            if n > (sr as i64) * 60 * 60 * 3 || out_n > (self.rate as usize) * 60 * 60 * 3 { return Err("a stretched clip is too long".into()); }
+            lv.start(a0)?;
+            lv.cover(a0, a0 + n)?;
+            let read = |x: &[f32]| -> Vec<f32> { (0..n).map(|k| Live::at(x, lv.from, a0 + k) as f32).collect() };
+            let mut chans = vec![read(&lv.a)];
+            if lv.stereo { chans.push(read(&lv.b)); }
+            let res: Vec<Vec<f32>> = chans.iter().map(|c| crate::stretch::resample(c, sr / self.rate, out_n)).collect();
+            let out = crate::stretch::stretch(&res, s.speed, &self.win, self.tol);
+            s.l = out[0].clone();
+            s.r = if out.len() > 1 { out[1].clone() } else { out[0].clone() };
+            s.ready = true;
+        }
+        Ok(())
+    }
+}
 
 /// Mouse-click sounds from the recorded clicks (export-worker.js mixBlock, "click sounds"): added after the mix bus,
 /// before the soft limit. The JavaScript adds them block by block (`block` frames from the export's `start`, in
@@ -121,9 +153,42 @@ fn catmull(p0: f64, p1: f64, p2: f64, p3: f64, f: f64) -> f64 {
 }
 
 /// The sound of output samples [j0, j0 + n), into l and r (zeroed by the caller).
+/// A stretched clip's sound added for frames [j0, j0 + l.len()), block by block as export-worker.js does.
+fn add_stretched(job: &Job, s: &crate::stretch::Stretched, j0: u64, l: &mut [f32], r: &mut [f32]) {
+    let (b, rate, n) = (job.clicks.block.max(1), job.rate, l.len() as u64);
+    let mut p = j0 / b * b;
+    while p < j0 + n {
+        let t0 = job.clicks.start + p as f64 / rate;
+        let first = ((s.cs - t0) * rate).ceil().max(0.0) as i64;
+        let last = ((s.ce - t0) * rate).floor().min(b as f64) as i64;
+        let mut i = first;
+        while i < last {
+            let g = p + i as u64;
+            if g >= j0 && g < j0 + n {
+                let lt = t0 + i as f64 / rate - s.start;
+                let idx = (lt * rate + 0.5).floor() as i64; // Math.round
+                let e = s.gains.partition_point(|x| x.0 <= g);
+                if e > 0 {
+                    let (_, gain, pl, pr) = s.gains[e - 1];
+                    let get = |v: &Vec<f32>| -> f64 { if idx >= 0 && (idx as usize) < v.len() { v[idx as usize] as f64 } else { 0.0 } };
+                    let x = (g - j0) as usize;
+                    l[x] = (l[x] as f64 + get(&s.l) * gain * pl) as f32;
+                    r[x] = (r[x] as f64 + get(&s.r) * gain * pr) as f32;
+                }
+            }
+            i += 1;
+        }
+        p += b;
+    }
+}
+
 fn mix_block(job: &Job, live: &mut [Option<Live>], limiters: &mut [Limiter], j0: u64, l: &mut [f32], r: &mut [f32]) -> Result<(), String> {
     let n = l.len() as u64;
-    for (ci, p) in job.plans.iter().enumerate() {
+    let np = job.plans.len();
+    let order: Vec<usize> = if job.order.is_empty() { (0..np).collect() } else { job.order.clone() };
+    for &oi in &order {
+        if oi >= np { add_stretched(job, &job.stretched[oi - np], j0, l, r); continue; }
+        let (ci, p) = (oi, &job.plans[oi]);
         let (a0, b0) = (j0.max(p.first), (j0 + n).min(p.last));
         if b0 <= a0 {
             if j0 >= p.last { live[ci] = None; } // done with it: let its decoder go
@@ -474,7 +539,7 @@ mod tests {
         write_wav(&src, 48000, 48000, |i, c| if c == 0 { (i as f64 * 0.01).sin() * 0.5 } else { 0.25 });
         let n = 48000u64;
         let segs = n.div_ceil(256) as usize;
-        let job = Job { rate: 48000.0, total: n, mix_gain: 1.0, limiters: vec![], soft: true, clicks: Clicks::default(), sources: vec![src.to_str().unwrap().into()],
+        let job = Job { rate: 48000.0, total: n, mix_gain: 1.0, limiters: vec![], soft: true, clicks: Clicks::default(), stretched: vec![], order: vec![], win: vec![], tol: 0, sources: vec![src.to_str().unwrap().into()],
             plans: vec![Plan { src: 0, first: 0, last: n, s0: 0.0, speed: 1.0, env: vec![1.0; (segs + 2) * 2] }] };
         let mut sink: Box<dyn Sink> = Box::new(WavSink::create(out.to_str().unwrap(), 48000).unwrap());
         run(&job, sink.as_mut(), |_| {}).unwrap();
@@ -499,7 +564,7 @@ mod tests {
         for f in [&wav, &m4a] { std::fs::remove_file(f).ok(); }
         write_wav(&src, 48000, 48000 * 5, |i, c| { let t = i as f64 / 48000.0; 0.4 * (2.0 * std::f64::consts::PI * (330.0 + 110.0 * c as f64) * t).sin() * if t < 2.5 { 1.0 } else { 0.2 } });
         let n = 48000u64 * 5;
-        let job = Job { rate: 48000.0, total: n, mix_gain: 1.0, limiters: vec![(0.891, 0.9997)], soft: true, clicks: Clicks::default(), sources: vec![src.to_str().unwrap().into()],
+        let job = Job { rate: 48000.0, total: n, mix_gain: 1.0, limiters: vec![(0.891, 0.9997)], soft: true, clicks: Clicks::default(), stretched: vec![], order: vec![], win: vec![], tol: 0, sources: vec![src.to_str().unwrap().into()],
             plans: vec![Plan { src: 0, first: 0, last: n, s0: 0.0, speed: 1.0, env: vec![0.9; ((n.div_ceil(256) + 2) * 2) as usize] }] };
         let mut a: Box<dyn Sink> = Box::new(WavSink::create(wav.to_str().unwrap(), 48000).unwrap());
         run(&job, a.as_mut(), |_| {}).unwrap(); a.finish().unwrap();

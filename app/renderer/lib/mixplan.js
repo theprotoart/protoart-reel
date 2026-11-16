@@ -27,6 +27,35 @@ export function clipPlan(doc, c, start, total, rate) {
   return { first, last, s0: sourceTime(c, start + first / rate), speed: c.speed || 1, env };
 }
 
+/** lib/stretch.js's window (the same numbers, so the core uses exactly them). */
+export function stretchWindow(rate) {
+  const N = Math.max(64, 2 * Math.round((0.04 * rate) / 2)), win = new Float32Array(N);
+  for (let i = 0; i < N; i++) win[i] = 0.5 - 0.5 * Math.cos((2 * Math.PI * i) / N);
+  return win;
+}
+/**
+ * A clip that keeps its pitch, as export-worker.js plays it: its sound from `in` for duration × speed seconds,
+ * stretched, then added block by block (`block` frames), its gain and pan read at the block's first sample and every
+ * 256 after: those reads, as (output frame, gain, left, right). Null when it isn't heard in the export.
+ */
+export function stretchPlan(doc, c, start, total, rate, block) {
+  const cs = spanStart(c), ce = spanEnd(c);
+  if (!(ce > start) || !((cs - start) * rate < total)) return null;
+  const gains = [];
+  for (let pos = Math.max(0, Math.floor(((cs - start) * rate) / block) * block - block); pos < total; pos += block) {
+    const t0 = start + pos / rate;
+    if (cs >= t0 + block / rate + 1) continue;
+    if (ce <= t0) break;
+    const firstOut = Math.max(0, Math.ceil((cs - t0) * rate)), lastOut = Math.min(block, Math.floor((ce - t0) * rate));
+    for (let i = firstOut; i < lastOut; i += 256) {
+      const lt = t0 + i / rate - c.start, g = gainAt(doc, c, lt), [pl, pr] = panGains(panAt(doc, c, lt));
+      gains.push([pos + i, g, pl, pr]);
+    }
+  }
+  if (!gains.length) return null;
+  return { in: c.in || 0, srcLen: c.duration * (c.speed || 1), speed: c.speed || 1, cs, ce, start: c.start, gains };
+}
+
 /** The source position (in source samples, fractional) heard at output sample j. */
 export const sourcePos = (p, j, rate, srcRate) => (p.s0 + (j - p.first) * (p.speed / rate)) * srcRate;
 
@@ -76,7 +105,7 @@ export const pcm24 = v => Math.max(-8388608, Math.min(8388607, Math.round(Math.m
  * file names), plans }, or { why } when the project uses something only the JavaScript export does so far (track
  * or mix-bus effects other than the limiter, sped-up clips that keep their pitch, time maps, click sounds).
  */
-export function exportMixJob(doc, from, to, { codec, bitrate, rate = 48000, loudness = null, ceiling = -1, cursors = null }) {
+export function exportMixJob(doc, from, to, { codec, bitrate, rate = 48000, loudness = null, ceiling = -1, cursors = null, stretchMax = 600 }) {
   const start = Math.max(0, from || 0), end = Math.min(docDuration(doc), to || Infinity);
   if (!(end > start)) return { why: 'nothing to export' };
   const used = doc.clips.filter(c => c.type === 'media' && !c.disabled && spanStart(c) < end && spanEnd(c) > start);
@@ -87,18 +116,28 @@ export function exportMixJob(doc, from, to, { codec, bitrate, rate = 48000, loud
   if (bus.some(f => f.type !== 'limiter')) return { why: 'mix bus effects' };
   // the limiter's numbers worked out here exactly as trackfx.js does, so both sides use the very same values
   const limiters = bus.map(f => { const p = { ...FX_TYPES.limiter.defaults, ...(f.params || {}) }; return { ceil: 10 ** (p.ceiling / 20), rel: Math.exp(-1 / Math.max(1, (p.release / 1000) * rate)) }; });
-  if (heard.some(c => c.retime || ((c.speed || 1) !== 1 && c.audio?.keepPitch !== false))) return { why: 'speed changes that keep pitch' };
+  if (heard.some(c => c.retime)) return { why: 'time maps' };
+  // sped-up or slowed clips that keep their pitch (as export-worker.js: only up to stretchMax seconds long; longer
+  // ones play like tape there, so here too)
+  const keepsPitch = c => (c.speed || 1) !== 1 && c.audio?.keepPitch !== false && c.duration <= stretchMax;
   // click sounds: the presses recorded with the screen (cursors: media id → its cursor file, loaded by the caller)
   const clickers = used.filter(c => c.cursor?.clickSound > 0 && !c.audio?.mute);
   if (clickers.some(c => c.retime)) return { why: 'click sounds on a clip with a time map' };
   if (clickers.some(c => !cursors?.get(c.media)?.clicks)) return { why: 'click sounds' };
-  const total = Math.floor((end - start) * rate), sources = [], index = new Map(), plans = [];
+  const total = Math.floor((end - start) * rate), sources = [], index = new Map(), plans = [], stretched = [], order = [];
+  const block = loudness == null ? 1024 : 8192; // export-worker.js's block (its mix pass for loudness: 8192)
+  const srcOf = file => { if (!index.has(file)) { index.set(file, sources.length); sources.push(file); } return index.get(file); };
   for (const c of heard) {
     const m = mediaById(doc, c.media), file = c.fx && c.fx.file && !c.fx.bypass ? c.fx.file : m.file;
+    if (keepsPitch(c)) {
+      const s = stretchPlan(doc, c, start, total, rate, block);
+      if (s) { order.push(['s', stretched.length]); stretched.push({ src: srcOf(file), ...s }); }
+      continue;
+    }
     const p = clipPlan(doc, c, start, total, rate);
     if (!p) continue;
-    if (!index.has(file)) { index.set(file, sources.length); sources.push(file); }
-    plans.push({ src: index.get(file), ...p });
+    order.push(['p', plans.length]);
+    plans.push({ src: srcOf(file), ...p });
   }
   // a loudness target: the core measures the mix and turns it to the target, then the true-peak limiter (instead of
   // the soft limit), with the very numbers the JavaScript master path uses (lib/master.js, export-worker.js)
@@ -109,5 +148,7 @@ export function exportMixJob(doc, from, to, { codec, bitrate, rate = 48000, loud
     return { start: c.start, in: c.in || 0, speed: c.speed || 1, end: c.start + c.duration, offset: m?.cursorOffset || 0, gain: c.cursor.clickSound,
       ms: Float64Array.from(data.clicks.filter(k => k[1] !== 'u').map(k => k[0])) };
   }) } : null;
-  return { job: { rate, total, mixGain: doc.mixGain ? 10 ** (doc.mixGain / 20) : 1, limiters, soft: !loud, codec, bitrate, sources, plans, ...(loud ? { loud } : {}), ...(clicks ? { clicks } : {}) } };
+  const stretch = stretched.length ? { win: stretchWindow(rate), tol: Math.round(0.008 * rate), clips: stretched, order: order.map(([k, i]) => (k === 'p' ? i : plans.length + i)) } : null;
+  return { job: { rate, total, mixGain: doc.mixGain ? 10 ** (doc.mixGain / 20) : 1, limiters, soft: !loud, codec, bitrate, sources, plans, ...(loud ? { loud } : {}),
+    ...(clicks || stretch ? { clicks: clicks || { start, block, wave: new Float32Array(0), clips: [] } } : {}), ...(stretch ? { stretch } : {}) } };
 }

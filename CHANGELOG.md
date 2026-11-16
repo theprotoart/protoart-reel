@@ -1,6 +1,7 @@
 # Changelog
 
 ## Unreleased
+- Rust (reel-core 0.8): sped-up or slowed clips that keep their pitch (the default) are stretched and mixed by the Rust core in a sound-only export, the same WSOLA as before, identical to the JavaScript to the 24-bit sample.
 - Rust (reel-core 0.7): click sounds in a sound-only export are added by the Rust core too, so screen recordings with click sounds no longer fall back to the JavaScript mixer. Identical to it, tested to the 24-bit sample.
 - Teach Reel your ums: click a sound under REEL KNOWS to take back what was taught by mistake: the newest take, the last 3 or 5, or forget that sound altogether (the rest stays).
 - 📣 CALLOUTS on the timeline tool bar (beside FILLER): opens the call-outs and graphics in the left panel, ready to drag onto the timeline.

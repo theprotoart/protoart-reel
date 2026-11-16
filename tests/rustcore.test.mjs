@@ -254,6 +254,73 @@ test('reel-core adds click sounds the same as the JavaScript export, to the 24-b
   } finally { fs.rmSync(dir, { recursive: true, force: true }); }
 });
 
+test('reel-core plays sped-up clips that keep their pitch the same as the JavaScript export, to the 24-bit sample', { skip }, async t => {
+  const { stretch } = await import('../app/renderer/lib/stretch.js');
+  const { gainAt, panAt, panGains, spanStart, spanEnd } = await import('../app/renderer/model.js');
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'reel-stretch-'));
+  try {
+    let s2 = 9; const r = () => ((s2 = (s2 * 16807) % 2147483647) / 2147483647);
+    writeWav(path.join(dir, 'voice.wav'), { rate: 48000, channels: 2, bits: 16, frames: 48000 * 8, sample: (i, c) => 0.35 * Math.sin(i * (c ? 0.031 : 0.027)) * (0.6 + 0.4 * Math.sin(i * 0.0003)) + 0.1 * (r() - 0.5) });
+    writeWav(path.join(dir, 'music.wav'), { rate: 44100, channels: 1, bits: 24, frames: 44100 * 9, sample: i => 0.4 * Math.sin(i * 0.011) * Math.sin(i * 0.0002) });
+    const doc = mixDoc();
+    doc.clips[1].audio.keepPitch = true; // b: 1.25×, keeps its pitch (in order between two plain clips)
+    doc.clips.push({ id: 'e', type: 'media', media: 'm2', track: 't3', start: 1.5, in: 2, duration: 3, speed: 0.8, audio: { volume: 0.7, pan: -0.3, fadeIn: 0.2 } }); // slowed, mono source at 44.1 kHz
+    const from = 0.3, to = 6.9;
+    const { job, why } = exportMixJob(doc, from, to, { codec: 'wav', bitrate: 192000 });
+    assert.ok(job && job.stretch && job.stretch.clips.length === 2, why);
+    const RATE = 48000, BLOCK = 1024, chain = new FxChain(RATE).setup(doc.mixFx);
+    const srcs = await Promise.all(job.sources.map(f => jsAudio(path.join(dir, f))));
+    // export-worker.js stretchedOf: read, resample linearly to 48 kHz, WSOLA
+    const st = new Map();
+    for (const c of doc.clips.filter(c => c.id === 'b' || c.id === 'e')) {
+      const src = srcs[job.sources.indexOf(doc.media.find(m => m.id === c.media).file)], speed = c.speed, srcLen = c.duration * speed;
+      const a0 = Math.floor((c.in || 0) * src.rate), n = Math.ceil(srcLen * src.rate) + 4, pcm = await src.read(a0, n), outN = Math.ceil(srcLen * RATE), ratio = src.rate / RATE;
+      const res = pcm.slice(0, 2).map(ch => { const o = new Float32Array(outN); for (let i = 0; i < outN; i++) { const p = i * ratio, k = Math.floor(p), f = p - k; o[i] = (ch[k] ?? 0) * (1 - f) + (ch[k + 1] ?? ch[k] ?? 0) * f; } return o; });
+      const out = stretch(res, speed, RATE);
+      st.set(c.id, { L: out[0], R: out[1] || out[0] });
+    }
+    const want = Buffer.alloc(job.total * 6);
+    // the clips in the project's order: plain ones by their plan, the stretched ones by their sound
+    const heardIds = ['a', 'b', 'c', 'e'], stretchedIds = ['b', 'e'], plainIds = ['a', 'c'];
+    assert.deepEqual(job.stretch.order, heardIds.map(id => (stretchedIds.includes(id) ? job.plans.length + stretchedIds.indexOf(id) : plainIds.indexOf(id))));
+    const order = heardIds.map(id => doc.clips.find(c => c.id === id));
+    for (let pos = 0, o = 0; pos < job.total; pos += BLOCK) {
+      const n = BLOCK, L = new Float32Array(n), R = new Float32Array(n), t0 = from + pos / RATE, t1 = t0 + n / RATE;
+      for (const c of order) {
+        if (spanEnd(c) <= t0 || spanStart(c) >= t1) continue;
+        if (st.has(c.id)) {
+          const v = st.get(c.id), cs = spanStart(c), ce = spanEnd(c);
+          const firstOut = Math.max(0, Math.ceil((cs - t0) * RATE)), lastOut = Math.min(n, Math.floor((ce - t0) * RATE));
+          let g = 0, pg = [1, 1];
+          for (let i = firstOut; i < lastOut; i++) {
+            const lt = t0 + i / RATE - c.start, idx = Math.round(lt * RATE);
+            if ((i - firstOut) % 256 === 0) { g = gainAt(doc, c, lt); pg = panGains(panAt(doc, c, lt)); }
+            L[i] += (v.L[idx] ?? 0) * g * pg[0]; R[i] += (v.R[idx] ?? 0) * g * pg[1];
+          }
+          continue;
+        }
+        const p = job.plans[plainIds.indexOf(c.id)];
+        const src = srcs[p.src], range = sourceRange(p, pos, n, RATE, src.rate);
+        if (range) mixClip(L, R, pos, n, p, await src.read(range[0], range[1] - range[0]), range[0], RATE, src.rate);
+      }
+      for (let i = 0; i < n; i++) { L[i] *= job.mixGain; R[i] *= job.mixGain; }
+      for (let q = 0; q < n; q += 512) chain.process(L.subarray(q, Math.min(n, q + 512)), R.subarray(q, Math.min(n, q + 512)));
+      softClip(L, R);
+      const k = Math.min(n, job.total - pos);
+      for (let i = 0; i < k; i++) for (const v of [L[i], R[i]]) want.writeIntLE(pcm24(v), (o++) * 3, 3);
+    }
+    srcs.forEach(a => a.close());
+    const out = path.join(dir, 'out.wav');
+    await core.mix({ ...job, sources: job.sources.map(f => path.join(dir, f)) }, out, () => {});
+    const got = fs.readFileSync(out);
+    assert.equal(got.length, 44 + want.length);
+    let diff = 0, worst = 0;
+    for (let i = 0; i < job.total * 2; i++) { const a = got.readIntLE(44 + i * 3, 3), b = want.readIntLE(i * 3, 3); if (a !== b) { diff++; worst = Math.max(worst, Math.abs(a - b)); } }
+    assert.ok(worst <= 1 && diff < job.total * 2 * 1e-4, `${diff} samples differ, by up to ${worst}`);
+    t.diagnostic(`2 stretched clips (1.25× and 0.8×); ${diff} of ${job.total * 2} samples differ (by up to ${worst})`);
+  } finally { fs.rmSync(dir, { recursive: true, force: true }); }
+});
+
 test('reel-core exports to a loudness target the same as the JavaScript master path, to the 24-bit sample', { skip }, async t => {
   const { LoudnessMeter, TruePeakLimiter } = await import('../app/renderer/lib/master.js');
   const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'reel-loud-'));
@@ -307,8 +374,8 @@ test('what the core can\'t mix yet goes to the JavaScript export, with the reaso
   assert.ok(exportMixJob(doc, 0, 5, { codec: 'wav' }).job);
   assert.equal(exportMixJob({ ...doc, mixFx: [...doc.mixFx, { type: 'reverb' }] }, 0, 5, { codec: 'wav' }).why, 'mix bus effects');
   assert.equal(exportMixJob({ ...doc, tracks: [{ ...doc.tracks[0], fx: [{ type: 'eq' }] }, doc.tracks[1]] }, 0, 5, { codec: 'wav' }).why, 'track effects');
-  const pitched = mixDoc(); pitched.clips[1].audio.keepPitch = true;
-  assert.equal(exportMixJob(pitched, 0, 7, { codec: 'wav' }).why, 'speed changes that keep pitch');
+  const pitched = mixDoc(); pitched.clips[1].retime = [{ t: 0, s: 0 }, { t: 2.5, s: 3 }];
+  assert.equal(exportMixJob(pitched, 0, 7, { codec: 'wav' }).why, 'time maps');
   const clicks = mixDoc(); clicks.clips[0].cursor = { clickSound: 0.5 };
   assert.equal(exportMixJob(clicks, 0, 5, { codec: 'wav' }).why, 'click sounds');
   // a bypassed limiter is simply not there

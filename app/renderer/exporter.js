@@ -214,7 +214,7 @@ export function openExport(app) {
       }
     }
     const rustLoud = SOUND.has(s.codec) && loud != null && !m.on && !plugChain.length && !!app.api.coreMixExport
-      && !!exportMixJob(doc, from, to, { codec: 'wav', loudness: loud, ceiling: m.ceiling, cursors }).job;
+      && !!exportMixJob(doc, from, to, { codec: 'wav', loudness: loud, ceiling: m.ceiling, cursors, stretchMax: can('stretchLong').ok ? 1200 : 600 }).job;
     if (!anim && !rustLoud && (m.on || plugChain.length || loud != null)) {
       try {
         status.textContent = 'Mixing and mastering the sound…';
@@ -234,7 +234,7 @@ export function openExport(app) {
     if (SOUND.has(s.codec) && masterFile) usual = loud != null && !m.on && !plugChain.length ? 'what this project uses (see below)' : 'the built-in master or master plug-ins';
     if (SOUND.has(s.codec) && !masterFile && !app.api.coreMixExport) usual = 'this build has no Rust core';
     if (SOUND.has(s.codec) && !masterFile && app.api.coreMixExport) {
-      const plan = exportMixJob(doc, from, to, { codec: s.codec === 'wav' ? 'wav' : 'aac', bitrate: s.abr ? s.abr * 1000 : Number(pref('audioBitrate')) || 192000, loudness: rustLoud ? loud : null, ceiling: m.ceiling, cursors });
+      const plan = exportMixJob(doc, from, to, { codec: s.codec === 'wav' ? 'wav' : 'aac', bitrate: s.abr ? s.abr * 1000 : Number(pref('audioBitrate')) || 192000, loudness: rustLoud ? loud : null, ceiling: m.ceiling, cursors, stretchMax: can('stretchLong').ok ? 1200 : 600 });
       if (!plan.job) usual = plan.why;
       if (plan.job) {
         status.textContent = 'Mixing the sound…';

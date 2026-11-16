@@ -26,6 +26,7 @@
 mod analyze;
 mod media;
 mod mix;
+mod stretch;
 mod umvoice;
 
 use std::io::{Read, Write};
@@ -187,7 +188,32 @@ fn mix_job(inp: &mut Input, loudness: bool) -> Result<String, String> {
         }
         if !(1..=65536).contains(&clicks.block) || clicks.wave.len() > 48000 || clicks.wave.iter().any(|v| !v.is_finite()) || !clicks.start.is_finite() { return Err("bad click plan".into()); }
     }
-    let job = mix::Job { rate, total, mix_gain, limiters, soft, sources, plans, clicks };
+    // clips that keep their pitch (0.8, after the click section): window f32s · tolerance u32 · clips u32, each
+    //   source u32 · in f64 · source length f64 · speed f64 · cs f64 · ce f64 · start f64 ·
+    //   gains u32 + (frame u64, gain f64, left f64, right f64) · then the order u32 + u32 indexes
+    let (mut stretched, mut order, mut win, mut tol) = (Vec::new(), Vec::new(), Vec::new(), 0i64);
+    if inp.at < inp.b.len() {
+        let nw = inp.count(4)?;
+        win = inp.f32s(nw)?;
+        tol = inp.u32()? as i64;
+        let ns = inp.count(56)?;
+        for _ in 0..ns {
+            let src = inp.u32()?;
+            let (inn, src_len, speed, cs, ce, start) = (inp.f64()?, inp.f64()?, inp.f64()?, inp.f64()?, inp.f64()?, inp.f64()?);
+            let ng = inp.count(32)?;
+            let mut gains = Vec::with_capacity(ng);
+            for _ in 0..ng { gains.push((inp.u64()?, inp.f64()?, inp.f64()?, inp.f64()?)); }
+            if src >= sources.len() || !(inn >= 0.0 && inn.is_finite()) || !(src_len > 0.0 && src_len < 3.0 * 3600.0) || !(speed > 0.0 && speed < 100.0)
+                || ![cs, ce, start].iter().all(|v| v.is_finite()) || gains.iter().any(|g| !(g.1.is_finite() && g.2.is_finite() && g.3.is_finite())) || gains.windows(2).any(|w| w[1].0 < w[0].0) { return Err("bad stretched clip".into()); }
+            stretched.push(stretch::Stretched { src, inn, src_len, speed, cs, ce, start, gains, l: vec![], r: vec![], ready: false });
+        }
+        let no = inp.count(4)?;
+        for _ in 0..no { let k = inp.u32()?; if k >= plans.len() + stretched.len() { return Err("bad clip order".into()); } order.push(k); }
+        if !(win.len() >= 16 && win.len() <= 48000) || win.iter().any(|v| !v.is_finite()) || !(1..=48000).contains(&tol) { return Err("bad stretch settings".into()); }
+        if !stretched.is_empty() && clicks.block == 0 { return Err("bad stretch settings".into()); }
+    }
+    let mut job = mix::Job { rate, total, mix_gain, limiters, soft, sources, plans, clicks, stretched, order, win, tol };
+    job.prepare()?;
     let mut sink: Box<dyn mix::Sink> = match codec {
         0 => Box::new(mix::WavSink::create(&out, rate as u32)?),
         #[cfg(target_os = "macos")]

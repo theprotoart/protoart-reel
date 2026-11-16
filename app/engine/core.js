@@ -133,6 +133,17 @@ async function mix(job, out, onProgress) {
       u32(ms.length); parts.push(Buffer.from(ms.buffer, ms.byteOffset, ms.byteLength));
     }
   }
+  if (job.stretch) { // clips that keep their pitch (reel-core 0.8; needs the click section first)
+    const st = job.stretch;
+    if (!job.clicks || !(st.win instanceof Float32Array)) throw new Error('Bad stretch');
+    u32(st.win.length); parts.push(Buffer.from(st.win.buffer, st.win.byteOffset, st.win.byteLength)); u32(st.tol);
+    u32(st.clips.length);
+    for (const c of st.clips) {
+      u32(c.src); for (const v of [c.in, c.srcLen, c.speed, c.cs, c.ce, c.start]) f64(+v);
+      u32(c.gains.length); for (const [fr, g, l, r] of c.gains) { u64(fr); f64(g); f64(l); f64(r); }
+    }
+    u32(st.order.length); for (const k of st.order) u32(k);
+  }
   return run(Buffer.concat(parts), { timeout: 4 * 3600000, onProgress });
 }
 
