@@ -261,7 +261,8 @@ export async function runAutoEdit(app, recipeId, o) {
   const dlg = modal('Auto Edit', el('div', { class: 'ae-run' }, what, bar, list), [{ label: 'Stop', onClick: c => { stopped = true; c(); } }]);
   const step = text => { for (const li of list.querySelectorAll('li.now')) { li.classList.remove('now'); li.classList.add('done'); } list.append(el('li', { class: 'now', text })); what.textContent = text + '…'; };
   const note = text => list.append(el('li', { class: 'skip', text }));
-  const progress = v => { bar.firstChild.style.width = Math.round(v * 100) + '%'; };
+  let shown = 0; // the bar only goes forward, so its time left doesn't start over between steps
+  const progress = v => { shown = Math.max(shown, v); bar.firstChild.style.width = (shown * 100).toFixed(1) + '%'; };
   const alive = () => !stopped && app.token === token && app.doc;
   const report = [];
   const only = o.only || null; // one clip on its own: the rest of the project is set aside, untouched
@@ -410,7 +411,9 @@ export async function runAutoEdit(app, recipeId, o) {
     if (zoomOn) {
       step('Adding zooms');
       const zids = app.doc.clips.filter(c => isVideo(app.doc, c) && !bgTrack(c.track)).map(c => c.id);
-      const made = await app.smartZoom(zids, { style: o.motion || r.zoom[0], strength: ZOOM_LEVELS[o.zoom][1], quiet: true, fallback: true });
+      // the bar moves as each clip is watched (this is the long part on a long recording), so the time left is real
+      const z0 = parseFloat(bar.firstChild.style.width) / 100 || 0.27, z1 = Math.max(z0 + 0.05, 0.5);
+      const made = await app.smartZoom(zids, { style: o.motion || r.zoom[0], strength: ZOOM_LEVELS[o.zoom][1], quiet: true, fallback: true, onProgress: f => progress(z0 + (z1 - z0) * f) });
       report.push(made ? `${made} zoom${made === 1 ? '' : 's'}` : 'no zooms (the picture barely moves)');
       progress(0.5);
     }

@@ -1822,7 +1822,7 @@ class App {
 
   /** Runs Smart Zoom on clips (ids). quiet: no progress window (used for videos as they're dropped). */
   /** Returns how many zoom and pan moves it made. fallback: a clip with nothing to follow gets gentle push-ins. */
-  async smartZoom(ids, { style = 'follow', strength = 1, usePointer = true, quiet = false, pack = '', packSounds = true, packFilter = null, fallback = false } = {}) {
+  async smartZoom(ids, { style = 'follow', strength = 1, usePointer = true, quiet = false, pack = '', packSounds = true, packFilter = null, fallback = false, onProgress = null } = {}) {
     if (this._zooming) { if (!quiet) toast('Smart Zoom is already working.'); return 0; }
     this._zooming = true;
     const token = this.token, ctl = new AbortController();
@@ -1847,7 +1847,7 @@ class App {
           if (m.kind === 'image') {
             actions = zoomPlan([{ t: 0, diff: 0, motion: 0, cx: 0.5, cy: 0.5, box: 1, detail: { x: 0.5, y: 0.45 } }], c.duration, { style: 'cinematic', strength, base });
           } else {
-            const res = await zoomAnalyse(this, c, m, { signal: ctl.signal, onProgress: v => { bar.firstChild.style.width = Math.round(((k + v) / ids.length) * 100) + '%'; } });
+            const res = await zoomAnalyse(this, c, m, { signal: ctl.signal, onProgress: v => { const f = (k + v) / ids.length; bar.firstChild.style.width = Math.round(f * 100) + '%'; onProgress?.(f); } });
             if (this.token !== token) return;
             actions = zoomPlan(res.samples, c.duration, { style, strength, base, cuts: res.cuts });
             if (!actions.length && fallback && style !== 'cinematic') actions = zoomPlan(res.samples, c.duration, { style: 'cinematic', strength, base, cuts: res.cuts });

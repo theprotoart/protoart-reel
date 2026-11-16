@@ -186,3 +186,48 @@ export function promptText(title, text, value = '', okLabel = 'OK') {
     setTimeout(() => input.select(), 50);
   });
 }
+
+// ---------------------------------------------------------------- time left on every progress bar
+/** "about 2 min 10 s left", from how far along it is and how long that took. */
+export function etaText(elapsed, frac) {
+  if (!(frac > 0.02) || elapsed < 2.5 || frac >= 0.999) return '';
+  return leftText((elapsed / frac) * (1 - frac));
+}
+/** Seconds left as words ('' when there's no sensible answer). */
+export function leftText(left) {
+  if (!isFinite(left) || left < 0 || left > 6 * 3600) return '';
+  if (left < 10) return 'a few seconds left';
+  const s = Math.round(left / 5) * 5, h = Math.floor(s / 3600), m = Math.floor((s % 3600) / 60), r = s % 60;
+  return `about ${h ? `${h} h ${m} min` : m ? `${m} min${m < 10 && r ? ` ${r} s` : ''}` : `${r} s`} left`;
+}
+/**
+ * Every progress bar in Reel (a .progress with an <i> whose width grows) gets a line under it: how far along it is and
+ * about how long is left, worked out from how fast it has moved since it started. A bar that jumps back starts again.
+ */
+function watchProgress() {
+  const seen = new WeakMap();
+  const tick = i => {
+    const bar = i.parentElement;
+    if (!bar?.classList.contains('progress')) return;
+    const frac = Math.min(1, (parseFloat(i.style.width) || 0) / 100), now = performance.now();
+    let s = seen.get(bar);
+    if (!s || frac < s.last - 0.05) { s = { t0: now, f0: frac, last: frac, smooth: null }; seen.set(bar, s); }
+    s.last = frac;
+    // the rate since this bar started moving (a stage that jumped ahead counts from where it was)
+    const moved = frac - s.f0, el = (now - s.t0) / 1000;
+    let text = '';
+    if (moved > 0.02 && el > 2.5) {
+      const left = (el / moved) * (1 - frac);
+      s.smooth = s.smooth == null ? left : s.smooth * 0.7 + left * 0.3;
+      text = leftText(s.smooth);
+    }
+    let lab = bar.nextElementSibling?.classList.contains('progress-eta') ? bar.nextElementSibling : null;
+    if (!lab) { lab = document.createElement('div'); lab.className = 'progress-eta'; bar.after(lab); }
+    lab.textContent = frac >= 0.999 ? '' : `${Math.round(frac * 100)}%${text ? ` · ${text}` : ''}`;
+  };
+  new MutationObserver(list => { for (const m of list) if (m.target.tagName === 'I') tick(m.target); })
+    .observe(document.documentElement, { attributes: true, attributeFilter: ['style'], subtree: true });
+}
+if (typeof document !== 'undefined' && typeof MutationObserver !== 'undefined') {
+  if (document.readyState === 'loading') document.addEventListener('DOMContentLoaded', watchProgress); else watchProgress();
+}

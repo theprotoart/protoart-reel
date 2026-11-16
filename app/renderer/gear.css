@@ -2227,3 +2227,4 @@ html[data-theme="light"] .umt-fill-title { color: #9e2618; }
 .pl-docked .pl-tile .pl-name { font-size: 11px; }
 .pl-drag { cursor: grab; }
 .pl-drag:active { cursor: grabbing; }
+.progress-eta { margin: 4px 0 2px; font: 600 11px/1.3 var(--font-mono, ui-monospace, monospace); letter-spacing: .04em; color: var(--text-faint, #a49b88); text-align: right; min-height: 1.3em; }
