@@ -618,6 +618,13 @@ handle('media:reveal', async (token, name) => {
   shell.showItemInFolder(path.join(mediaDir(p), name));
 });
 /** Which of these media files are missing from the project folder (moved, deleted, or never copied in). */
+// the Mac's spelling dictionary: "It's spelt right" adds a word to it (macOS keeps it, for every app)
+handle('spell:add', async word => {
+  const w = String(word || '').trim();
+  if (!/^[\p{L}][\p{L}'’-]{0,59}$/u.test(w)) return false;
+  return session.defaultSession.addWordToSpellCheckerDictionary(w);
+});
+
 handle('media:missing', async (token, names) => {
   const p = projectOf(token);
   if (!Array.isArray(names)) return [];
@@ -2134,6 +2141,18 @@ function createWindow() {
   let boundsTimer = null;
   const keepBounds = () => { clearTimeout(boundsTimer); boundsTimer = setTimeout(() => { if (win && !win.isDestroyed() && !win.isMinimized() && !win.isFullScreen()) store.setWindowBounds({ ...(win.isMaximized() ? win.getNormalBounds() : win.getBounds()), maximized: win.isMaximized() }); }, 400); };
   for (const ev of ['resize', 'move', 'maximize', 'unmaximize']) win.on(ev, keepBounds);
+  // right-click in a box you type in: the right spellings for a red-underlined word, then Cut / Copy / Paste
+  win.webContents.on('context-menu', (e, p) => {
+    if (!p.isEditable) return;
+    const items = [];
+    if (p.misspelledWord) {
+      for (const s of (p.dictionarySuggestions || []).slice(0, 6)) items.push({ label: s, click: () => win.webContents.replaceMisspelling(s) });
+      if (!items.length) items.push({ label: 'No spelling suggestions', enabled: false });
+      items.push({ label: `It’s spelt right: add “${p.misspelledWord}” to the dictionary`, click: () => session.defaultSession.addWordToSpellCheckerDictionary(p.misspelledWord) }, { type: 'separator' });
+    }
+    items.push({ role: 'cut', enabled: p.editFlags.canCut }, { role: 'copy', enabled: p.editFlags.canCopy }, { role: 'paste', enabled: p.editFlags.canPaste }, { type: 'separator' }, { role: 'selectAll' });
+    Menu.buildFromTemplate(items).popup({ window: win });
+  });
   win.webContents.on('will-navigate', e => e.preventDefault());
   win.webContents.on('will-redirect', e => e.preventDefault());
   win.webContents.on('will-attach-webview', e => e.preventDefault());

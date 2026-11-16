@@ -2,6 +2,7 @@
 // Instagram, X, podcast covers, channel banners) from a video frame and/or ERNIE-Image art made on
 // this Mac, with a big title, an optional framed screenshot, and channel-type looks and ideas.
 import { el, modal, toast, slider } from './ui.js';
+import { withKeys } from './texttools.js';
 import { duration, fmtTime, clamp } from './model.js';
 import { hexA } from './compositor.js';
 import { SIZE_PRESETS, genreById } from './genres.js';
@@ -155,7 +156,7 @@ export async function openThumbnailStudio(app, opts = {}) {
   fontSel.addEventListener('change', () => { st.font = fontSel.value; draw(); persist(); });
   const colors = {};
   const colorIn = key => { const c = el('input', { type: 'color', value: st[key] }); c.addEventListener('input', () => { st[key] = c.value; draw(); }); c.addEventListener('change', persist); colors[key] = c; return c; };
-  titleMod.body.append(titleInput, subInput, badgeBox,
+  titleMod.body.append(withKeys(titleInput), withKeys(subInput), badgeBox,
     el('div', { class: 'row' }, el('label', { text: 'Font' }), fontSel),
     live('Size', 'size', { min: 40, max: 220, step: 1, fmt: v => v.toFixed(0) }),
     el('div', { class: 'row' }, el('label', { text: 'Colours' }), colorIn('color'), colorIn('accent'), colorIn('outline')));

@@ -1,4 +1,5 @@
 // Captions, speech from text and annotation clips: the Stage C commands.
+import { withKeys } from './texttools.js';
 import { el, modal, toast, slider, ask } from './ui.js';
 import { kittenPanel } from './kitten.js';
 import { uid, captionAt, parseCaptions, toSRT, toVTT, newDrawClip, newMediaClip, isFree, addTrack, CAPTION_STYLE } from './model.js';
@@ -44,7 +45,7 @@ export function captionPanel(app, insp, cap) {
   area.addEventListener('change', () => { started = false; app.endChange({ keepInspector: true }); });
   insp.textArea = area;
   const fmt = t => t.toFixed(2) + 's';
-  root.append(sec('Caption', area,
+  root.append(sec('Caption', withKeys(area),
     insp.sl('Starts', () => cap.t, v => { cap.t = Math.min(v, cap.end - 0.1); }, { min: 0, max: Math.max(1, cap.end), step: 0.01, fmt }),
     insp.sl('Ends', () => cap.end, v => { cap.end = Math.max(v, cap.t + 0.1); }, { min: cap.t + 0.1, max: cap.t + 20, step: 0.01, fmt }),
     el('p', { class: 'note', text: 'Drag captions in the caption lane; drag their edges to retime. Enter a new one at the playhead with ⌃⌘C.' }),

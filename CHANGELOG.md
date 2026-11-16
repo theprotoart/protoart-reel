@@ -1,6 +1,7 @@
 # Changelog
 
 ## Unreleased
+- TT and ABC✓ beside every box you type words into (titles, elements and callouts, captions, reveal text, thumbnail text). TT makes the words ALL CAPS in one click; click it again (Tt) to get back what you typed. ABC✓ checks the spelling with the Mac’s own dictionary (nothing leaves your Mac): it lists each word it doesn’t know, shown as you spelt it, with the likely right spellings to click, one after the other, or “is right: keep it”. Right-clicking a red-underlined word shows the same fixes, plus Cut, Copy and Paste.
 - Number counter: it counts across the clip’s whole length and lands on the number just before the end, so dragging the clip longer makes it count slower (it used to finish in 2 seconds whatever the length).
 - Double-click an element or callout on the timeline: the inspector opens its CALLOUT tab with the cursor in its text box, ready to type (a title opens TEXT).
 - Teach Reel your ums: cut fillers right from its list: SEND TO TRAINING first, then ✂ CUT … FROM THE RECORDING beside it (what you sent stays ticked, so it’s one more click), or ✂ on each one (everything after closes up, picture and sound together; ⌘Z undoes). The list is one tidy line per filler, also in the narrow panel.

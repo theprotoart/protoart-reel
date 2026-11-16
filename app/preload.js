@@ -1,7 +1,7 @@
 // Bridge between the editor and the main process. Runs sandboxed: only these narrow
 // functions are exposed; the page never sees Node, Electron or file paths.
 'use strict';
-const { contextBridge, ipcRenderer, webUtils } = require('electron');
+const { contextBridge, ipcRenderer, webUtils, webFrame } = require('electron');
 const invoke = (ch, ...a) => ipcRenderer.invoke(ch, ...a);
 
 contextBridge.exposeInMainWorld('reel', {
@@ -31,6 +31,12 @@ contextBridge.exposeInMainWorld('reel', {
   deleteMedia: (token, name) => invoke('media:delete', token, name),
   revealMedia: (token, name) => invoke('media:reveal', token, name),
   missingMedia: (token, names) => invoke('media:missing', token, names),
+  // the Mac's own spelling dictionary (nothing leaves the Mac): is a word misspelt, the likely right spellings, add one
+  spell: {
+    check: w => { try { return webFrame.isWordMisspelled(String(w).slice(0, 60)); } catch { return false; } },
+    suggest: w => { try { return webFrame.getWordSuggestions(String(w).slice(0, 60)); } catch { return []; } },
+    add: w => invoke('spell:add', String(w).slice(0, 60)),
+  },
   backupEdit: (token, why) => invoke('project:backupEdit', token, why),
   archiveProject: (token, onlyUsed) => invoke('project:archive', token, onlyUsed),
   templateSave: (token, name) => invoke('template:save', token, name),

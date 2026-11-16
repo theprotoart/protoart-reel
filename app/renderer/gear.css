@@ -2329,3 +2329,15 @@ button.umt-chip { border: 0; cursor: pointer; color: inherit; font: inherit; fon
 #library.folded .lib-strip span { writing-mode: vertical-rl; transform: rotate(180deg); font: 700 10px/1 var(--font-engrave, system-ui); letter-spacing: .2em; white-space: nowrap; }
 .lib-fold-btn { margin-left: 6px; }
 .umt-fill-actions { justify-content: flex-start; }
+
+/* TT (ALL CAPS) and ABC✓ (spelling) beside every box you type words into */
+.text-keys { display: flex; gap: 4px; flex: none; }
+.text-with-keys > .text-keys { justify-content: flex-end; margin: 4px 0 2px; }
+.row.has-keys > input, .row.has-keys > textarea { flex: 1 1 auto; min-width: 0; }
+.text-keys .tool { padding: 3px 7px; min-width: 0; font-size: 10px; letter-spacing: 0.06em; }
+.text-keys .tt-key { font-weight: 800; min-width: 30px; }
+.spell-menu { min-width: 280px; max-width: 380px; }
+.spell-menu button, .spell-menu button span { text-transform: none; letter-spacing: 0.01em; white-space: normal; text-align: left; } /* words exactly as spelt */
+.spell-menu button:disabled { opacity: 1; cursor: default; }
+.spell-menu button:disabled span { font-weight: 700; letter-spacing: 0.02em; }
+.spell-menu button:not(:disabled) span { font-size: 14px; }

@@ -15,6 +15,7 @@ import { MOTION_PRESETS, applyMotion, clearMotion } from './motion.js';
 import { hasDynZoom, getDynZoom, setDynZoomEase, swapDynZoom, removeDynZoom, DZ_EASES, setDynZoomTimes, addZoomBackOut, hasZoomBackOut } from './lib/dynzoom.js';
 import { ELEMENTS } from './lib/elements.js';
 import { pref } from './prefs.js';
+import { textKeys, withKeys } from './texttools.js';
 
 export const TRANSITIONS = [['none', 'None'], ['fade', 'Fade'], ['dip-black', 'Dip to black'], ['dip-white', 'Dip to white'], ['flash', 'Flash'],
   ['slide-left', 'Slide left'], ['slide-right', 'Slide right'], ['slide-up', 'Slide up'], ['slide-down', 'Slide down'], ['push-left', 'Push left'], ['push-right', 'Push right'],
@@ -345,7 +346,7 @@ export class Inspector {
         c.transIn.type === 'text-reveal' ? (() => {
           const i = el('input', { type: 'text', value: c.transIn.text || 'NEXT', maxlength: 40, placeholder: 'NEXT' });
           i.addEventListener('change', () => this.edit(() => { c.transIn.text = i.value.trim().slice(0, 40) || 'NEXT'; }));
-          return el('div', { class: 'row', title: 'The words this clip shows through. Short and bold works best: one word, or two.' }, el('label', { text: 'Reveal text' }), i);
+          return el('div', { class: 'row', title: 'The words this clip shows through. Short and bold works best: one word, or two.' }, el('label', { text: 'Reveal text' }), i, textKeys(i));
         })() : null,
         this.sl('In length', () => c.transIn.dur, v => { c.transIn.dur = v; }, { min: 0.1, max: Math.max(0.2, Math.min(5, c.duration / 2)), step: 0.05, fmt: v => v.toFixed(2) + 's' }),
         selectRow('Out', c.transOut.type, TRANSITIONS, v => this.edit(() => { if (c.transOut.type === 'none') c.transOut.dur = Math.min(c.duration / 2, Number(pref('transDur')) || 0.5); c.transOut.type = v; })),
@@ -526,7 +527,7 @@ export class Inspector {
     area.addEventListener('input', () => { if (!started) { started = true; this.app.beginChange(); } tx.content = area.value; this.app.changed({ light: true, keepInspector: true }); });
     area.addEventListener('change', () => { started = false; this.app.endChange({ keepInspector: true }); });
     this.textArea = area;
-    this.root.append(section('Text', area,
+    this.root.append(section('Text', withKeys(area),
       selectRow('Font', tx.font, FONTS.map(f => [f, f]), v => this.edit(() => { tx.font = v; })),
       selectRow('Weight', tx.weight, [[300, 'Light'], [400, 'Regular'], [600, 'Semibold'], [700, 'Bold'], [800, 'Heavy'], [900, 'Black']], v => this.edit(() => { tx.weight = Number(v); })),
       checkRow('Italic', tx.italic, v => this.edit(() => { tx.italic = v; })),
@@ -677,7 +678,8 @@ function elementPanel(insp, c) {
       insp.app.changed({ light: true, keepInspector: true });
     });
     i.addEventListener('change', () => { if (typing) { typing = false; insp.app.endChange({ keepInspector: true }); } });
-    return el('div', { class: 'row' }, el('label', { text: label }), i);
+    const words = !(key === 'text' && e.kind === 'counter'); // a number needs no caps or spelling
+    return el('div', { class: 'row' + (words ? ' has-keys' : '') }, el('label', { text: label }), i, words ? textKeys(i) : null);
   };
   const usesText = 'text' in def.defaults && def.defaults.text !== '', usesSub = 'sub' in def.defaults && def.defaults.sub !== '';
   // picture slots (an end screen's boxes): your own thumbnail in each, with its own caption
