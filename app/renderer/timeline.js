@@ -2,14 +2,16 @@
 // clips with their keyframes, automation lanes, markers and the playhead. Move, trim, snap, drop,
 // marquee-select, scrub (also while playing) and zoom from a single frame out to the whole project.
 import { el, $, popMenu, toast } from './ui.js';
-import { clipEnd, isFree, addTrack, snap, trim, setSpeed, SPEED_STEPS, mediaById, duration, fmtTime, keyAt, withGroups, TRACK_LANES, gainToPos, posToGain, fmtDb, fmtPan, clamp, neighbour, roll, KEY_EASES, split, tidyCrossfades, cutsOn, crossfadeOverlaps, fadeShape, putKey, emptyTracks } from './model.js';
+import { clipEnd, isFree, addTrack, snap, trim, setSpeed, SPEED_STEPS, mediaById, duration, fmtTime, keyAt, withGroups, TRACK_LANES, gainToPos, posToGain, fmtDb, fmtPan, clamp, neighbour, roll, KEY_EASES, split, tidyCrossfades, cutsOn, crossfadeOverlaps, fadeShape, putKey, emptyTracks, OVERLAP_CUTS, applyCut } from './model.js';
 import { peaksFor, posterFor } from './peaks.js';
 import { mapAt, addPoint, movePoint, removePoint, linearRetime } from './lib/retime.js';
 import { musicLike, fitSource, refitTo, canFit } from './musicfit.js';
 import { renderingNow } from './fx.js';
 import { openSpeedPanel } from './speedpanel.js';
 import { copyEffects, copyAction } from './clipops.js';
-import { openTransitions } from './transpicker.js';
+import { openTransitions, transName } from './transpicker.js';
+import { TRANSITIONS } from './inspector.js';
+import { pref } from './prefs.js';
 import { dial } from './gear.js';
 import { fxRack, fxRackH } from './fxrack.js';
 import { roleButton, tint } from './automix.js';
@@ -932,8 +934,7 @@ export class Timeline {
       e.append(b);
       if (st === 'busy') this._fxBar(b, renderingNow.get(c.id));
     }
-    if (c.transIn && !['none', 'fade'].includes(c.transIn.type)) e.append(el('div', { class: 'tr', style: { left: 0, width: this.x(c.transIn.dur) + 'px' } }));
-    if (c.transOut && !['none', 'fade'].includes(c.transOut.type)) e.append(el('div', { class: 'tr out', style: { right: 0, width: this.x(c.transOut.dur) + 'px' } }));
+    for (const side of ['in', 'out']) { const tr = side === 'in' ? c.transIn : c.transOut; if (tr && !['none', 'fade'].includes(tr.type)) e.append(this._transBlock(c, side)); }
     for (const a of c.actions || []) {
       const ae = el('div', { class: 'act' + (this.app.selection.action === a.id && selected ? ' selected' : ''), title: `Action at ${fmtTime(c.start + a.t)}`, style: { left: this.x(a.t) + 'px', width: Math.max(6, this.x(a.dur)) + 'px' } });
       ae.addEventListener('pointerdown', ev => this._actionDrag(ev, c, a));
@@ -1387,6 +1388,75 @@ export class Timeline {
     window.addEventListener('pointermove', move); window.addEventListener('pointerup', up);
   }
 
+  /**
+   * A transition on the timeline, ScreenFlow style: a labelled block at the clip's start (in) or end (out). Drag its
+   * inner edge (or the block) sideways to make it longer or shorter; double-click or right-click to change or remove it.
+   */
+  _transBlock(c, side) {
+    const key = side === 'in' ? 'transIn' : 'transOut', tr = c[key];
+    const name = transName(tr.type);
+    const b = el('div', { class: `tr ${side === 'out' ? 'out' : ''} tr-live`, title: `${name} ${side === 'in' ? 'in' : 'out'} (${tr.dur.toFixed(2)} s): drag the edge to make it longer or shorter · double-click to change it`,
+      style: side === 'in' ? { left: 0, width: this.x(tr.dur) + 'px' } : { right: 0, width: this.x(tr.dur) + 'px' } },
+      el('span', { class: 'tr-name', text: name }), el('i', { class: 'tr-h' }));
+    b.addEventListener('pointerdown', ev => { if (ev.button === 0) this._transDrag(ev, c, side, b); });
+    b.addEventListener('dblclick', ev => { ev.stopPropagation(); this._transMenu(ev, c, side); });
+    b.addEventListener('contextmenu', ev => { ev.preventDefault(); ev.stopPropagation(); this._transMenu(ev, c, side); });
+    return b;
+  }
+  /** Longest a transition can be on this side (it can't run into the other side's). */
+  _transMax(c, side) {
+    const other = side === 'in' ? c.transOut : c.transIn, used = other && other.type !== 'none' && other.type !== 'fade' ? other.dur : 0;
+    return Math.max(0.1, Math.min(5, c.duration - used - 0.05));
+  }
+  _transDrag(e, c, side, b) {
+    e.stopPropagation(); e.preventDefault();
+    const app = this.app, key = side === 'in' ? 'transIn' : 'transOut';
+    if (OVERLAP_CUTS.has(c[key].type)) { toast('This one plays across the cut: set its length in ⧓ TRANSITIONS.'); return; }
+    const x0 = e.clientX, len0 = c[key].dur, max = this._transMax(c, side);
+    const tip = el('div', { class: 'fade-tip' }); let moved = false;
+    const move = ev => {
+      const dx = (ev.clientX - x0) * (side === 'in' ? 1 : -1);
+      if (!moved && Math.abs(dx) < 2) return;
+      if (!moved) { moved = true; app.beginChange(); document.body.append(tip); }
+      const v = Math.round(clamp(len0 + this.t(dx), 0.1, max) * 100) / 100;
+      c[key] = { ...c[key], dur: v };
+      b.style.width = this.x(v) + 'px';
+      tip.textContent = `${transName(c[key].type)} ${side} ${v.toFixed(2)} s`;
+      Object.assign(tip.style, { left: ev.clientX + 14 + 'px', top: ev.clientY - 30 + 'px' });
+      app.changed({ light: true, keepInspector: true, noTimeline: true });
+    };
+    const up = () => {
+      tip.remove(); window.removeEventListener('pointermove', move); window.removeEventListener('pointerup', up);
+      if (moved) app.endChange({ keepInspector: true });
+      else { app.select([c.id], null); app.seek(side === 'in' ? c.start : Math.max(c.start, clipEnd(c) - c[key].dur)); }
+    };
+    window.addEventListener('pointermove', move); window.addEventListener('pointerup', up);
+  }
+  _transMenu(e, c, side) {
+    const key = side === 'in' ? 'transIn' : 'transOut', app = this.app;
+    const set = type => app.commit(() => { c[key] = type === 'none' ? { type: 'none', dur: 0.5 } : { ...c[key], type }; });
+    popMenu(e.clientX, e.clientY, [
+      ...TRANSITIONS.filter(([k]) => k !== 'none' && !OVERLAP_CUTS.has(k)).map(([k, l]) => [`${c[key].type === k ? '✓ ' : '   '}${l}`, () => set(k)]),
+      null,
+      ['⧓ All transitions, with previews…', () => openTransitions(app)],
+      [`Remove this transition`, () => set('none')],
+    ]);
+  }
+  /** A transition dragged from ⧓ TRANSITIONS onto a clip: the half it lands on picks its start or its end. */
+  dropTransition(type, clipId, clientX) {
+    const app = this.app, c = this.doc.clips.find(x => x.id === clipId), m = c?.type === 'media' ? mediaById(this.doc, c.media) : null;
+    if (!c || c.audioOnly || m?.kind === 'audio') { toast('Drop a transition on a picture clip (video, image, text…).'); return; }
+    const side = this._timeAt(clientX) < c.start + c.duration / 2 ? 'in' : 'out', key = side === 'in' ? 'transIn' : 'transOut';
+    const nb = this.doc.clips.find(o => o !== c && o.track === c.track && Math.abs(side === 'in' ? clipEnd(o) - c.start : o.start - clipEnd(c)) < 0.05);
+    const want = Number(pref('transDur')) || 0.5;
+    app.commit(() => {
+      if (OVERLAP_CUTS.has(type)) { if (nb) applyCut(side === 'in' ? nb : c, side === 'in' ? c : nb, type, 0.8); return; }
+      c[key] = { type, dur: Math.round(Math.min(want, this._transMax(c, side)) * 100) / 100 };
+    });
+    app.select([c.id], null);
+    toast(`${transName(type)} on the ${side === 'in' ? 'start' : 'end'} of the clip: drag its edge on the timeline to make it longer or shorter.`, 4500);
+  }
+
   /** A strip of white splicing tape at a fresh cut, for a moment. */
   spliceMark(t) {
     const host = this.playheadEl.parentElement;
@@ -1832,6 +1902,8 @@ export class Timeline {
     this.scroll.addEventListener('drop', e => {
       e.preventDefault();
       for (const r of this.tracksEl.children) r.classList.remove('drop');
+      const trans = e.dataTransfer.getData('text/x-reel-trans');
+      if (trans) { const ce = e.target.closest?.('.clip'); if (ce) this.dropTransition(trans, ce.dataset.id, e.clientX); else toast('Drop it on a clip: near its start to open with it, near its end to close with it.'); return; }
       const t = Math.max(0, this._timeAt(e.clientX));
       const tr = rowOf(e);
       const id = e.dataTransfer.getData('application/x-reel-media');

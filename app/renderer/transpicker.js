@@ -15,6 +15,8 @@ export const CUT_CHOICES = [
   ['film-burn-vintage', 'Vintage film burn'], ['match-move', 'Movement match'], ['match-graphic', 'Graphic match'], ['vertigo', 'Vertigo ramp'], ['wipe-left', 'Wipe'], ['iris', 'Iris'], ['clock', 'Clock'], ['barn', 'Barn doors'], ['letterbox', 'Letterbox'], ['blinds', 'Blinds'], ['zoom', 'Zoom in'], ['pop', 'Pop'], ['text-reveal', 'Text reveal'],
 ];
 const NAME = Object.fromEntries(CUT_CHOICES);
+/** A transition's name for people: 'letterbox' → 'Letterbox'. */
+export const transName = t => NAME[t] || String(t || '').replace(/-/g, ' ').replace(/^./, x => x.toUpperCase());
 
 const visual = (doc, c) => c.type !== 'media' || (!c.audioOnly && mediaById(doc, c.media)?.kind !== 'audio');
 /** Every cut in the edit where two pictures meet: [[a, b], …]. */
@@ -49,7 +51,13 @@ export function openTransitions(app, cut = null) {
   const grid = el('div', { class: 'tp-grid' });
   const none = el('div', { class: 'pl-tile tp-none', title: 'No transition: a straight cut' }, el('div', { class: 'tp-none-in', text: 'NONE' }), el('div', { class: 'pl-name', text: 'Cut' }));
   none.addEventListener('click', () => apply('none'));
-  grid.append(none, ...CUT_CHOICES.map(([id, name]) => { const t = tile('cut', id, name, () => apply(id)); t.dataset.id = id; return t; }));
+  grid.append(none, ...CUT_CHOICES.map(([id, name]) => {
+    const t = tile('cut', id, name, () => apply(id)); t.dataset.id = id;
+    // ScreenFlow style: drag it onto a clip on the timeline (near its start or its end)
+    t.draggable = true; t.title = `${name}: click to put it on the cut, or drag it onto a clip on the timeline`;
+    t.addEventListener('dragstart', e => { e.dataTransfer.setData('text/x-reel-trans', id); e.dataTransfer.effectAllowed = 'copy'; });
+    return t;
+  }));
 
   const drawWhere = () => {
     const p = get();

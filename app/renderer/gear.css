@@ -2193,3 +2193,14 @@ html[data-theme="light"] .umt-fill-title { color: #9e2618; }
 #keypanel:has(.drawer) { flex: 1 1 auto; min-height: 0; overflow-y: auto; }
 #keypanel:has(.drawer) ~ #inspector { flex: 0 0 0; overflow: hidden; }
 #keypanel .drawer-body { max-height: none; overflow: visible; }
+
+/* transitions on the timeline: a labelled block you drag by its inner edge (ScreenFlow style) */
+.clip .tr.tr-live { pointer-events: auto; cursor: ew-resize; z-index: 3; min-width: 6px; overflow: hidden;
+  background: repeating-linear-gradient(135deg, rgba(255,255,255,.26) 0 6px, rgba(255,255,255,.12) 6px 12px); box-shadow: inset 0 0 0 1px rgba(255,255,255,.45); border-radius: 3px; }
+.clip .tr.tr-live:hover { box-shadow: inset 0 0 0 1px #fff, 0 0 8px rgba(255,255,255,.5); }
+.clip .tr.tr-live .tr-name { position: absolute; left: 4px; right: 8px; bottom: 3px; font: 700 9px/1.2 var(--font-engrave, system-ui); letter-spacing: .06em; color: #fff;
+  text-shadow: 0 1px 2px #000; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; pointer-events: none; }
+.clip .tr.tr-live.out .tr-name { left: 8px; right: 4px; text-align: right; }
+.clip .tr.tr-live .tr-h { position: absolute; top: 0; bottom: 0; right: 0; width: 5px; background: #fff; opacity: .85; pointer-events: none; }
+.clip .tr.tr-live.out .tr-h { right: auto; left: 0; }
+.tp-grid .pl-tile[draggable="true"] { cursor: grab; }
