@@ -17,6 +17,8 @@ export function umModel() {
   try { cached = unpackModel(localStorage.getItem(KEY)); } catch { cached = null; }
   return cached;
 }
+/** Reads what Reel knows from storage again (↻ in the trainer). */
+export function reloadModel() { cached = undefined; return umModel(); }
 function saveModel(m) { cached = m; try { if (m) localStorage.setItem(KEY, packModel(m)); else localStorage.removeItem(KEY); } catch { /* storage unavailable: kept for this session */ } }
 
 const recMic = () => { try { return (JSON.parse(localStorage.getItem('rec-settings') || '{}') || {}).micId || ''; } catch { return ''; } };
@@ -140,14 +142,38 @@ export function teachUms(app, { onDone } = {}) {
       status.textContent = n ? `Learned ${n} from your recording. 💬 FILLER WORDS › LISTEN AGAIN uses them.` : 'Nothing was learned.';
       onDone?.();
     } catch (e) { status.textContent = e.message; }
-    drawFillers(); draw();
+    drawFillers(); draw(); drawKnown();
   };
   drawFillers();
   const model = umModel();
+  // what Reel knows, at the bottom: kept up to date after every send (and ↻ to read it again)
+  const known = el('p', { class: 'note umt-known' });
+  const SUGGEST = ['umm', 'uh', 'breath', 'lip smack', 'cough', 'sneeze'];
+  const drawKnown = (reread = false) => {
+    const m = reread ? reloadModel() : umModel(), name = w => (w === 'umm' ? 'um' : w);
+    const words = m ? m.words : [];
+    const few = words.filter(w => w.prints.length < 3);
+    const missing = SUGGEST.filter(w => !words.some(x => x.word === w));
+    known.replaceChildren(
+      el('div', { class: 'umt-known-head' },
+        el('b', { text: m ? 'WHAT REEL KNOWS' : 'Reel doesn’t know your ums yet.' }),
+        el('button', { class: 'mini', text: '↻', title: 'Read what Reel knows again', onclick: () => drawKnown(true) })),
+      words.length ? el('div', { class: 'umt-chips' }, ...words.map(w => el('span', { class: 'umt-chip' + (w.prints.length < 3 ? ' few' : ''), title: `${w.prints.length} take${w.prints.length === 1 ? '' : 's'} learned`, text: `${name(w.word)} · ${w.prints.length}` })),
+        m.nots?.length ? el('span', { class: 'umt-chip not', title: 'Sounds you told Reel aren’t ums', text: `not an um · ${m.nots.length}` }) : null) : null,
+      few.length ? el('div', { text: `Needs more takes (3 or more find them best): ${few.map(w => `${name(w.word)} (${3 - w.prints.length} more)`).join(', ')}.` }) : null,
+      missing.length ? el('div', { text: `Not taught yet: ${missing.map(name).join(', ')}. Mark one with 〰 FILLER and send it, or record takes.` }) : null,
+      el('div', { class: 'umt-tip', text: 'Particular words (curse words, “basically”, “actually”…) are found by their spelling, not by ear: type them in Find a word in 💬 FILLER WORDS. Everything you add here is added to what Reel knows; FORGET MY UMS starts over.' }));
+  };
+  drawKnown();
+  // with something learned already, recording the takes again is optional: folded away
+  const takesBox = el('details', { class: 'umt-takes', open: !model },
+    el('summary', { text: model ? 'Record more takes (optional: Reel already knows your voice)' : 'Record your takes' }),
+    list, el('div', { class: 'row kit-rec-row' }, recB, meter));
   const body = el('div', { class: 'umt' },
-    el('p', { text: 'Record each one in a quiet room with the microphone you record with. Reel learns how your ums and uhs sound, then finds them in your videos for 💬 UMS and AUTO EDIT, even the ones speech recognition leaves out. Nothing leaves this Mac.' }),
-    model ? el('p', { class: 'note', text: `Already learned: ${model.words.map(w => `${w.word} (${w.prints.length})`).join(', ')}${model.nots?.length ? `, and ${model.nots.length} that aren’t` : ''}. New takes are added to it (another voice, another way of saying it); FORGET MY UMS starts over.` }) : null,
-    list, el('div', { class: 'row kit-rec-row' }, recB, meter), status, fillBox);
+    el('p', { text: model
+      ? 'Reel already knows how you say your ums. To teach it more (or other sounds, like breaths), mark them in your recording with 〰 FILLER and send them below, or record more takes.'
+      : 'Record each one in a quiet room with the microphone you record with. Reel learns how your ums and uhs sound, then finds them in your videos for 💬 FILLER WORDS and AUTO EDIT, even the ones speech recognition leaves out. Nothing leaves this Mac.' }),
+    takesBox, status, fillBox, known);
   draw();
   let dlg = null;
   saveB.onclick = () => {

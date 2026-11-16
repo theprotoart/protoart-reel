@@ -2138,3 +2138,16 @@ html[data-theme="light"] .umt-fill-title { color: #9e2618; }
 .umt-fill-t { flex: 1; min-width: 0; font-variant-numeric: tabular-nums; }
 .umt-fill.taught .umt-fill-t { opacity: .75; }
 .umt-word { flex: none; }
+/* the um trainer: the takes fold away once Reel knows your voice; what it knows sits at the bottom */
+.umt-takes { margin: 8px 0; }
+.umt-takes > summary { cursor: pointer; font-weight: 600; padding: 6px 0; }
+.umt-known { display: flex; align-items: center; gap: 8px; margin-top: 12px; }
+.umt-known span { flex: 1; }
+.umt-known { display: block; padding: 10px; border-radius: 8px; background: rgba(127,127,127,.08); }
+.umt-known > div { margin-top: 6px; }
+.umt-known-head { display: flex; align-items: center; justify-content: space-between; margin-top: 0 !important; }
+.umt-chips { display: flex; flex-wrap: wrap; gap: 6px; }
+.umt-chip { padding: 2px 9px; border-radius: 10px; background: rgba(95,211,90,.22); font-size: 12px; font-variant-numeric: tabular-nums; }
+.umt-chip.few { background: rgba(255,214,10,.28); }
+.umt-chip.not { background: rgba(225,60,45,.22); }
+.umt-tip { opacity: .8; font-size: 12px; }
