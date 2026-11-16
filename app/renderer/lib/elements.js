@@ -801,8 +801,23 @@ export const ELEMENTS = {
 
 /** Draws an element clip into a W×H frame. p: position props (x, y, scale, rotation, opacity). */
 /** img(mediaId) → a loaded picture or null: for elements with picture slots (an end screen's boxes). */
+/** The length an element is made for. Dragged longer, its animation plays that much slower (typing, counting,
+ *  drawing, popping in, the pointer's clicks…), so the length you give it is the time it takes. */
+export const ELEMENT_LENGTH = 4;
+// these run in real time whatever their length: loops, clocks and tickers, and the visualizers that follow the sound
+const REAL_TIME = new Set(['sparkle', 'bubbles', 'vhs', 'scoreBug', 'replayBug', 'newsTicker']);
+/** How much slower than made: 1 at 4 s or less, 2 at 8 s… (lower thirds slow more gently: they mostly sit and read). */
+export function elementPace(kind, d) {
+  const def = ELEMENTS[kind];
+  if (!def || REAL_TIME.has(kind) || def.group === 'Backgrounds' || def.group === 'Audio visualizers') return 1;
+  const s = clamp(d / ELEMENT_LENGTH, 1, 5);
+  return def.group === 'Lower thirds' ? Math.sqrt(s) : s;
+}
+
 export function drawElement(ctx, el, p, t, d, W, H, img = null) {
   const def = ELEMENTS[el.kind]; if (!def) return;
+  const pace = elementPace(el.kind, d);
+  if (pace !== 1) { t /= pace; d /= pace; }
   const e = { ...def.defaults, ...el };
   const u = (Math.min(W, H) / 1080) * (p.scale ?? 1);
   ctx.save();

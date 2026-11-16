@@ -3,6 +3,7 @@ import { followFillers } from './model.js';
 import { resync, recordingOffsets } from './lib/sync.js';
 import { openRepair } from './repair.js';
 import { openSpelling } from './spelling.js';
+import { openTalkingText } from './talktext.js';
 import { Explain } from './explain.js';
 import { Deck, makeReel } from './deck.js';
 import { el, $, toast, modal, ask, promptText, popMenu, hint } from './ui.js';
@@ -1151,6 +1152,7 @@ class App {
       case 'reverse': return ops.toggleReverse(this);
       case 'adr-align': return ops.alignToGuide(this);
       case 'auto-captions': return autoCaptions(this);
+      case 'talking-text': return openTalkingText(this);
       case 'make-vertical': return this.makeVertical();
       case 'auto-edit': return openAutoEdit(this);
       case 'transitions': return openTransitions(this);

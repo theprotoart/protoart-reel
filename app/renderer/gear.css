@@ -2363,3 +2363,8 @@ button.umt-chip { border: 0; cursor: pointer; color: inherit; font: inherit; fon
 html[data-theme="light"] .sp-word { background: rgba(0,0,0,.06); }
 html[data-theme="light"] .sp-bad { color: #c0261a; }
 html[data-theme="light"] .sp-place { background: rgba(0,0,0,.07); }
+
+/* the line that shows where a dragged edge has snapped (to another clip's edge, a marker, the playhead) */
+.snap-guide { position: absolute; top: 0; width: 2px; margin-left: -1px; pointer-events: none; z-index: 30; display: none;
+  background: #ff4fd8; box-shadow: 0 0 6px #ff4fd8, 0 0 14px rgba(255,79,216,.6); }
+.snap-guide.on { display: block; }

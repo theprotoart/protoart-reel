@@ -4,7 +4,7 @@ import { el, section, slider, selectRow, colorRow, checkRow, toast } from './ui.
 import { retimeSection } from './retimeui.js';
 import { applyCut, OVERLAP_CUTS, clipEnd, mediaById, fmtTime, ANIMATABLE, propsAt, paramAt, setParam, putKey, removeKey, keysOf, hasKeys, anyKeys, clamp, KEY_EASES, LABELS, setSpeed, SPEED_MIN, SPEED_MAX } from './model.js';
 import { effectsSection, addPluginToClip } from './fx.js';
-import { TEXT_ANIMS } from './compositor.js';
+import { TEXT_ANIMS, TEXT_ACCENTS } from './compositor.js';
 import { styleRow } from './titles.js';
 import { roleButton } from './automix.js';
 import { canFit, musicSection } from './musicfit.js';
@@ -534,8 +534,9 @@ export class Inspector {
       this.ksl(c, 'text.size', 'Size', { min: 12, max: 400, step: 1, fmt: v => v.toFixed(0) }),
       colorRow('Color', tx.color, v => this.edit(() => { tx.color = v; })),
       el('p', { class: 'note', text: 'Accent a word: put it between stars, like *this*. It takes the accent look below.' }),
-      selectRow('Accent look', tx.accent || 'color', [['color', 'Accent colour'], ['serif', 'Italic serif'], ['box', 'Highlight box'], ['pill', 'Pill tag']], v => this.edit(() => { tx.accent = v; })),
+      selectRow('Accent look', tx.accent || 'color', TEXT_ACCENTS, v => this.edit(() => { tx.accent = v; })),
       colorRow('Accent color', tx.accentColor || '#ff2d3c', v => this.edit(() => { tx.accentColor = v; })),
+      ['karaoke', 'oneWord'].includes(tx.anim) ? colorRow('Word being said', tx.hiColor || tx.accentColor || '#ff2d3c', v => this.edit(() => { tx.hiColor = v; })) : null,
       selectRow('Align', tx.align, [['left', 'Left'], ['center', 'Center'], ['right', 'Right']], v => this.edit(() => { tx.align = v; })),
       this.sl('Wrap width', () => tx.width, v => { tx.width = v; }, { min: 0.1, max: 1, step: 0.01, fmt: v => (v * 100).toFixed(0) + '%' }),
       colorRow('Box', tx.bg, v => this.edit(() => { tx.bg = v; })),

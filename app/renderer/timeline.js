@@ -143,7 +143,7 @@ export class Timeline {
   _partSnap(t, skipId = null) {
     if (!this.snapOn) return t;
     const edges = (this.doc.sections || []).filter(p => p.id !== skipId).flatMap(p => [p.t0, p.t1]);
-    return snap(this.doc, t, this._tol(), [], [this.app.player.time, ...edges]);
+    return this._snap(this.doc, t, this._tol(), [], [this.app.player.time, ...edges]);
   }
   _partDrag(e, id, what) {
     if (e.button !== 0) return;
@@ -200,7 +200,7 @@ export class Timeline {
   /** Where the blade would cut: snaps to the playhead and clip edges when SNAP is on. */
   _bladeTime(clientX) {
     let t = Math.max(0, this._timeAt(clientX));
-    if (this.snapOn) t = snap(this.doc, t, this._tol(), [], [this.app.player.time]);
+    if (this.snapOn) t = this._snap(this.doc, t, this._tol(), [], [this.app.player.time]);
     return t;
   }
   _bladeHover(e) {
@@ -569,7 +569,7 @@ export class Timeline {
       const dt = this.t(ev.clientX - x0);
       if (!moved && Math.abs(ev.clientX - x0) < 3) return;
       if (!moved) { moved = true; app.beginChange(); }
-      const sn = v => (this.snapOn ? snap(this.doc, v, this._tol(), [], [app.player.time]) : v);
+      const sn = v => (this.snapOn ? this._snap(this.doc, v, this._tol(), [], [app.player.time]) : v);
       if (edge === 'l') cap.t = clamp(sn(t0 + dt), 0, e0 - 0.1);
       else if (edge === 'r') cap.end = Math.max(cap.t + 0.1, sn(e0 + dt));
       else { const nt = Math.max(0, sn(t0 + dt)); cap.t = nt; cap.end = nt + (e0 - t0); }
@@ -770,7 +770,7 @@ export class Timeline {
         const list = c.keys['props.scale'], i = list.indexOf(k);
         const lo = i > 0 ? list[i - 1].t + 1e-3 : 0, hi = i < list.length - 1 ? list[i + 1].t - 1e-3 : c.duration;
         let t = local(ev);
-        if (this.snapOn) t = snap(this.doc, c.start + t, this._tol(), [], [app.player.time]) - c.start;
+        if (this.snapOn) t = this._snap(this.doc, c.start + t, this._tol(), [], [app.player.time]) - c.start;
         t = clamp(t, lo, hi);
         if (Math.abs(t - k.t) > 1e-6) moveZoomKey(c, k.t, t);
         setZoomAt(c, k.t, vOf(ev.clientY - r.top));
@@ -859,7 +859,7 @@ export class Timeline {
       const move = ev => {
         const lo = i > 0 ? list[i - 1].t + 1e-3 : 0, hi = i < list.length - 1 ? list[i + 1].t - 1e-3 : Infinity;
         let t = tAt(ev);
-        if (this.snapOn) t = snap(this.doc, t, this._tol(), [], [app.player.time]);
+        if (this.snapOn) t = this._snap(this.doc, t, this._tol(), [], [app.player.time]);
         k.t = clamp(t, lo, hi); k.v = vOf(ev.clientY - r.top);
         draw();
         app.changed({ light: true, keepInspector: true, noTimeline: true });
@@ -1058,7 +1058,7 @@ export class Timeline {
       document.body.style.cursor = 'ew-resize';
       const move = mv => {
         let t = end0 + this.t(mv.clientX - x0);
-        t = snap(this.doc, t, this.t(8), f.members.map(x => x.id));
+        t = this._snap(this.doc, t, this.t(8), f.members.map(x => x.id));
         end = Math.max(f.first.start + 3, t);
         e.style.width = Math.max(12, w0 + this.x(end - end0)) + 'px';
         tip.textContent = `${fmtTime(end - f.first.start).replace(/\.\d$/, '')}`;
@@ -1472,6 +1472,26 @@ export class Timeline {
     toast(`${transName(type)} on the ${side === 'in' ? 'start' : 'end'} of the clip: drag its edge on the timeline to make it longer or shorter.`, 4500);
   }
 
+  /**
+   * snap() that shows it: while an edge is caught (by another clip's edge, a marker, the playhead…) a bright line runs
+   * down the timeline where they meet, so you can see things line up. The line goes when you let go.
+   */
+  _snap(doc, t, tol, ids = [], extra = []) {
+    const at = snap(doc, t, tol, ids, extra);
+    const host = this.playheadEl.parentElement;
+    if (host) {
+      let g = this._snapGuide;
+      if (!g || !g.isConnected) {
+        g = this._snapGuide = el('div', { class: 'snap-guide' }); host.append(g);
+        if (!this._snapGuideOff) { this._snapGuideOff = () => this._snapGuide?.classList.remove('on'); window.addEventListener('pointerup', this._snapGuideOff, true); }
+      }
+      const caught = Math.abs(at - t) > 1e-9 || doc.clips.some(c => !ids.includes(c.id) && (Math.abs(c.start - at) < 1e-6 || Math.abs(clipEnd(c) - at) < 1e-6));
+      g.classList.toggle('on', caught);
+      if (caught) { g.style.left = this.x(at) + 'px'; g.style.height = (28 + this.totalH()) + 'px'; }
+    }
+    return at;
+  }
+
   /** A strip of white splicing tape at a fresh cut, for a moment. */
   spliceMark(t) {
     const host = this.playheadEl.parentElement;
@@ -1502,7 +1522,7 @@ export class Timeline {
     for (let i = 0; i < l.length; i++) if (y < l[i].end) return i;
     return l.length - 1;
   }
-  _tol() { return 14 / this.pps; } // snap distance: 14 pixels at any zoom
+  _tol() { return 18 / this.pps; } // snap distance: 18 pixels at any zoom
 
   /** Drag the playhead (ruler or its red head). While playing, playback continues from where you let go. */
   _scrub(e) {
@@ -1705,7 +1725,7 @@ export class Timeline {
         for (const id of ids) { const k = doc.clips.find(x => x.id === id), o = orig.get(id); Object.assign(k, { start: o.start, duration: o.duration, in: o.in, actions: structuredClone(o.actions) }); if (o.keys) k.keys = structuredClone(o.keys); else delete k.keys; }
         const [left, right] = edge === 'end' ? [c, rollWith] : [rollWith, c];
         let t = (edge === 'start' ? orig.get(c.id).start : orig.get(c.id).start + orig.get(c.id).duration) + this.t(dx);
-        if (this.snapOn) t = snap(doc, t, this._tol(), ids, [this.app.player.time]);
+        if (this.snapOn) t = this._snap(doc, t, this._tol(), ids, [this.app.player.time]);
         roll(doc, left, right, t);
       } else if (edge) {
         const o = orig.get(c.id);
@@ -1715,7 +1735,7 @@ export class Timeline {
           if (ok.keys) k.keys = structuredClone(ok.keys); else delete k.keys;
         }
         let t = (edge === 'start' ? o.start : o.start + o.duration) + this.t(dx);
-        if (this.snapOn) t = snap(doc, t, this._tol(), ids, [this.app.player.time]);
+        if (this.snapOn) t = this._snap(doc, t, this._tol(), ids, [this.app.player.time]);
         // the group's clips can only go as far as the shortest of them allows, so they stay lined up
         const d = t - (edge === 'start' ? o.start : o.start + o.duration);
         for (const id of ids) {
@@ -1737,8 +1757,8 @@ export class Timeline {
         const lead = [...orig.values()].reduce((a, b) => (b.start < a.start ? b : a));
         let ns = lead.start + this.t(dx);
         if (this.snapOn) {
-          const s1 = snap(doc, ns, this._tol(), ids, [this.app.player.time]);
-          const s2 = snap(doc, ns + lead.duration, this._tol(), ids, [this.app.player.time]) - lead.duration;
+          const s1 = this._snap(doc, ns, this._tol(), ids, [this.app.player.time]);
+          const s2 = this._snap(doc, ns + lead.duration, this._tol(), ids, [this.app.player.time]) - lead.duration;
           ns = Math.abs(s1 - ns) <= Math.abs(s2 - ns) ? s1 : s2;
         }
         const dt = Math.max(ns - lead.start, -Math.min(...[...orig.values()].map(o => o.start)));
@@ -1836,7 +1856,7 @@ export class Timeline {
       if (o.audio) c.audio = { ...o.audio };
       let len = edge === 'end' ? o.duration + this.t(dx) : o.duration - this.t(dx);
       if (this.snapOn) {
-        const at = edge === 'end' ? snap(doc, o.start + len, this._tol(), [c.id], [this.app.player.time]) - o.start : o.start + o.duration - snap(doc, o.start + o.duration - len, this._tol(), [c.id], [this.app.player.time]);
+        const at = edge === 'end' ? this._snap(doc, o.start + len, this._tol(), [c.id], [this.app.player.time]) - o.start : o.start + o.duration - this._snap(doc, o.start + o.duration - len, this._tol(), [c.id], [this.app.player.time]);
         len = at;
       }
       len = Math.max(0.05, len);
@@ -1874,7 +1894,7 @@ export class Timeline {
       if (!moved && Math.abs(dx) < 3) return;
       if (!moved) { moved = true; app.beginChange(); }
       let t = kt + this.t(dx);
-      if (this.snapOn) t = snap(this.doc, c.start + t, this._tol(), [], [app.player.time]) - c.start;
+      if (this.snapOn) t = this._snap(this.doc, c.start + t, this._tol(), [], [app.player.time]) - c.start;
       t = clamp(t, 0, c.duration);
       for (const k of keys) k.t = t;
       for (const l of Object.values(c.keys)) l.sort((a, b) => a.t - b.t);
@@ -1897,7 +1917,7 @@ export class Timeline {
       if (!moved && Math.abs(dx) < 3) return;
       if (!moved) { moved = true; this.app.beginChange(); }
       let t = t0 + this.t(dx);
-      if (this.snapOn) t = snap(this.doc, c.start + t, this._tol(), [], [this.app.player.time]) - c.start;
+      if (this.snapOn) t = this._snap(this.doc, c.start + t, this._tol(), [], [this.app.player.time]) - c.start;
       a.t = Math.max(0, Math.min(c.duration - a.dur, t));
       this.app.changed({ light: true });
     };
@@ -1924,7 +1944,7 @@ export class Timeline {
       if (preset) {
         let p = null; try { p = JSON.parse(preset); } catch { return; }
         const ce = e.target.closest?.('.clip'), tr = rowOf(e), raw = Math.max(0, this._timeAt(e.clientX));
-        const at = this.snapOn ? snap(this.doc, raw, this._tol(), [], [this.app.player.time]) : raw;
+        const at = this.snapOn ? this._snap(this.doc, raw, this._tol(), [], [this.app.player.time]) : raw;
         dropPreset(this.app, p, { at, track: tr?.id || null, clip: ce?.dataset.id || null });
         return;
       }
@@ -1933,9 +1953,9 @@ export class Timeline {
       const t = Math.max(0, this._timeAt(e.clientX));
       const tr = rowOf(e);
       const rec = e.dataTransfer.getData('application/x-reel-recording');
-      if (rec) { this.app.addRecordingClips(rec, this.snapOn ? snap(this.doc, t, this._tol(), [], [this.app.player.time]) : t); return; }
+      if (rec) { this.app.addRecordingClips(rec, this.snapOn ? this._snap(this.doc, t, this._tol(), [], [this.app.player.time]) : t); return; }
       const id = e.dataTransfer.getData('application/x-reel-media');
-      if (id) this.app.addMediaClip(id, tr && tr.id, this.snapOn ? snap(this.doc, t, this._tol(), [], [this.app.player.time]) : t);
+      if (id) this.app.addMediaClip(id, tr && tr.id, this.snapOn ? this._snap(this.doc, t, this._tol(), [], [this.app.player.time]) : t);
       else if (e.dataTransfer.files.length || e.dataTransfer.types.includes('Files')) this.app.importDropped(this.app.dropPaths(e), { track: tr && tr.id, at: t });
     });
   }

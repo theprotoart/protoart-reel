@@ -7,6 +7,8 @@
 import { el, modal, toast } from './ui.js';
 import { mediaById, removeRange, insertTime, uid, duration as docDuration, split, clipEnd, withGroups, newTextClip, newElementClip, addTrack } from './model.js';
 import { planGraphics, GFX_LEVELS, GFX_LOOKS } from './lib/kinetic.js';
+import { planTalkingText, TALK_MODES, TALK_LOOKS } from './lib/talktext.js';
+import { placeTalkingText } from './talktext.js';
 import { ELEMENTS, elementHome } from './lib/elements.js';
 import { buildCaptions, fillerRanges, pauseRanges, cutRanges, withoutSpans } from './lib/words.js';
 import { pickHighlights, chapters, sentences } from './lib/highlight.js';
@@ -26,32 +28,32 @@ export const RECIPES = {
   tiktok: {
     name: 'TikTok · Reels', icon: '9:16', hint: 'The best moment of your video as a vertical short: a strong opening line, punchy zooms and transitions, big captions.',
     lengths: [[15, '15 s'], [30, '30 s'], [45, '45 s'], [60, '60 s']], length: 30,
-    format: 'vertical', fit: 'follow', zoom: ['punchy', 1.5], pack: 'social', sounds: true, captions: 'big', loud: 'spotify', clean: 'tight', highlights: 1,
+    format: 'vertical', fit: 'follow', zoom: ['punchy', 1.5], pack: 'social', sounds: true, captions: 'big', loud: 'spotify', clean: 'tight', highlights: 1, talk: 'both', talkLook: 'green',
   },
   shorts: {
     name: 'YouTube Shorts', icon: '9:16', hint: 'Like TikTok, up to 60 seconds, mixed for YouTube.',
     lengths: [[30, '30 s'], [45, '45 s'], [58, 'Up to 60 s']], length: 45,
-    format: 'vertical', fit: 'follow', zoom: ['punchy', 1.4], pack: 'punchy', sounds: true, captions: 'big', loud: 'youtube', clean: 'tight', highlights: 1,
+    format: 'vertical', fit: 'follow', zoom: ['punchy', 1.4], pack: 'punchy', sounds: true, captions: 'big', loud: 'youtube', clean: 'tight', highlights: 1, talk: 'both', talkLook: 'yellow',
   },
   multi: {
     name: 'Several Shorts', icon: '3×', hint: 'The 3 best moments, one after another, each marked. Export each one with In and Out (I / O).',
     lengths: [[20, '20 s each'], [30, '30 s each'], [45, '45 s each']], length: 30,
-    format: 'vertical', fit: 'follow', zoom: ['punchy', 1.4], pack: 'punchy', sounds: true, captions: 'big', loud: 'spotify', clean: 'tight', highlights: 3,
+    format: 'vertical', fit: 'follow', zoom: ['punchy', 1.4], pack: 'punchy', sounds: true, captions: 'big', loud: 'spotify', clean: 'tight', highlights: 3, talk: 'both', talkLook: 'green',
   },
   podcast: {
     name: 'Podcast clip', icon: '9:16', hint: 'A highlight from a talk or podcast: the whole picture on a blurred background, gentle zooms, big captions.',
     lengths: [[30, '30 s'], [60, '60 s'], [90, '90 s']], length: 60,
-    format: 'vertical', fit: 'blur', zoom: ['follow', 0.55], pack: 'clean', sounds: false, captions: 'big', loud: 'podcast', clean: 'tight', highlights: 1,
+    format: 'vertical', fit: 'blur', zoom: ['follow', 0.55], pack: 'clean', sounds: false, captions: 'big', loud: 'podcast', clean: 'tight', highlights: 1, talk: 'spoken', talkLook: 'box',
   },
   tutorial: {
     name: 'Tutorial', icon: '16:9', hint: 'A screen tutorial, tidied: clap signals cut out (your takes stay in ✂ TAKES), mouth clicks removed, the voice evened out, ums and long pauses cut, gentle zooms that follow your work, chapters.',
     lengths: null, format: null, zoom: ['kenburns', 0.8], pack: null, sounds: false, captions: 'file', loud: 'youtube', clean: 'gentle', chapters: true, highlights: 0,
-    claps: 'cut', voice: 'tutorial',
+    claps: 'cut', voice: 'tutorial', talk: 'both', talkLook: 'yellow',
   },
   youtube: {
     name: 'YouTube video', icon: '16:9', hint: 'The whole video, tidied: ums and long pauses cut, medium zooms, smooth transitions, chapters, YouTube loudness.',
     lengths: null, format: null, zoom: ['kenburns', 1], pack: 'smooth', sounds: false, captions: 'file', loud: 'youtube', clean: 'gentle', chapters: true, highlights: 0,
-    claps: 'markers', voice: 'light',
+    claps: 'markers', voice: 'light', talk: 'keywords',
   },
 };
 
@@ -93,6 +95,7 @@ const recipeDefaults = r => ({
   keepSped: true,
   motion: r.zoom[0] in MOTION_STYLES ? r.zoom[0] : 'follow',
   claps: r.claps || 'off', voice: r.voice || 'none', noteSpeech: 'keep',
+  talk: r.talk || 'off', talkLook: r.talkLook || 'green',
 });
 /**
  * The parts to work on: the sections added with X (each an In–Out), plus the current In–Out if it isn't one of
@@ -205,10 +208,11 @@ export function openAutoEdit(app) {
       o.zoom !== 'off' ? `Smart Zoom, ${ZOOM_LEVELS[o.zoom][0].toLowerCase()}: ${{ punchy: 'quick push-ins and push-outs', follow: 'following the action', kenburns: 'slow Ken Burns drifts' }[o.motion || 'follow']}` : null,
       o.trans !== 'off' ? `${PACKS[o.pack].name} transitions${o.variety === 'wild' ? ', any kind' : o.variety === 'same' ? '' : ', mixed up'}, ${TRANS_LEVELS[o.trans][0].toLowerCase()} (about one every ${transGap(o.trans, !!r.highlights)} s at most)` : null,
       o.trans !== 'off' ? (o.sfx === 'off' ? 'No sound effects' : `Sound effects with the transitions (${SFX_LEVELS[o.sfx][0].toLowerCase()}), on their own Sound FX track`) : null,
-      o.captions !== 'off' ? { file: 'Captions as a subtitle file (.srt) beside the export', burned: 'Captions in the video', big: 'Big, bold captions in the video' }[o.captions] : null,
+      o.captions !== 'off' ? (['spoken', 'both'].includes(o.talk) && o.captions !== 'file' ? 'Captions as a subtitle file (the talking text puts the words in the video)' : { file: 'Captions as a subtitle file (.srt) beside the export', burned: 'Captions in the video', big: 'Big, bold captions in the video' }[o.captions]) : null,
       chainById(o.voice) ? `Voice: ${chainById(o.voice).name} (${chainById(o.voice).chain.map(f => f.type === 'au' ? f.name : ({ declick: 'De-click', deess: 'De-ess', level: 'Auto Level', eq: 'EQ', comp: 'Compressor', gate: 'Noise gate', limiter: 'Limiter', reverb: 'Reverb', delay: 'Delay', gain: 'Gain' })[f.type] || f.type).join(' → ')}) on the speech tracks` : null,
       o.volume === 'even' ? 'Even out the volume: an Auto Level on each track with sound (quiet parts up, loud parts down)' : null,
-      (o.gfx || 'off') !== 'off' ? `Put the punchy lines on screen as ${{ bold: 'bold kinetic titles (slam, smear, slice), with starbursts and light streaks', clean: 'clean titles with pill, serif and highlighted words', tech: 'tech titles (neon, glitch) with light streaks', mix: 'a mix of every kinetic look (slam, smear, neon, slice, shatter, pills…), with starbursts, light streaks and charts' }[o.gfxLook || 'mix']}, ${o.gfx === 'lots' ? 'often' : 'now and then'}; a chart for a percentage` : null,
+      (o.gfx || 'off') !== 'off' && !['keywords', 'both'].includes(o.talk) ? `Put the punchy lines on screen as ${{ bold: 'bold kinetic titles (slam, smear, slice), with starbursts and light streaks', clean: 'clean titles with pill, serif and highlighted words', tech: 'tech titles (neon, glitch) with light streaks', mix: 'a mix of every kinetic look (slam, smear, neon, slice, shatter, pills…), with starbursts, light streaks and charts' }[o.gfxLook || 'mix']}, ${o.gfx === 'lots' ? 'often' : 'now and then'}; a chart for a percentage` : null,
+      (o.talk || 'off') !== 'off' ? `Talking text: ${{ spoken: 'what you say along the bottom, each word lighting up as you say it', keywords: 'the key words popping up big in the middle (questions, numbers, tips), with an emoji now and then', both: 'what you say along the bottom (each word lighting up as you say it), and the key words popping up big in the middle with an emoji now and then' }[o.talk]}` : null,
       (o.cta || 'off') !== 'off' ? (r.format ? 'A Follow call-out near the end' : `Like · Subscribe · Bell and comment call-outs between sentences${o.cta === 'end' ? ', and an end screen' : ''}`) : null,
       r.chapters ? 'Chapters as markers (they go in the export notes)' : null,
       `Loudness set for ${r.loud === 'spotify' ? 'TikTok / Reels' : r.loud === 'podcast' ? 'podcasts' : 'YouTube'}`,
@@ -242,6 +246,8 @@ export function openAutoEdit(app) {
         noteRow,
         row('Voice', voiceSel),
         row('Volume', seg('volume', VOLUME_LEVELS)),
+        row('Talking text', seg('talk', TALK_MODES)),
+        row('Spoken words', seg('talkLook', TALK_LOOKS)),
         row('Graphics', seg('gfx', GFX_LEVELS)),
         row('Graphics look', seg('gfxLook', GFX_LOOKS)),
         row('Call-outs', seg('cta', CTA_LEVELS)),
@@ -499,18 +505,33 @@ export async function runAutoEdit(app, recipeId, o) {
     // 6 · captions
     if (o.captions !== 'off' && words.length) {
       step('Writing captions');
-      const big = o.captions === 'big', vertical = app.doc.canvas.height > app.doc.canvas.width;
+      // the talking text already shows what's said: captions burned in as well would say it twice, so they go in the
+      // subtitle file instead (for people who turn subtitles on)
+      const spokenOn = ['spoken', 'both'].includes(o.talk) && !only;
+      const burnIt = o.captions !== 'file' && !spokenOn;
+      const big = o.captions === 'big' && burnIt, vertical = app.doc.canvas.height > app.doc.canvas.width;
       const caps = buildCaptions(words, big ? { maxChars: 28, lines: 1, maxDur: 2.4 } : { maxChars: vertical ? 40 : 64, lines: 2 }).map(c => ({ id: uid('cap'), ...c }));
       app.commit(d => {
         d.captions = caps;
-        d.captionStyle = { ...(d.captionStyle || {}), burn: o.captions !== 'file', ...(big ? { size: 78, weight: 800, bgOpacity: 0.6, pos: 'bottom' } : o.captions === 'burned' ? { size: vertical ? 52 : 46, weight: 700, bgOpacity: 0.72, pos: 'bottom' } : {}) };
+        d.captionStyle = { ...(d.captionStyle || {}), burn: burnIt, ...(big ? { size: 78, weight: 800, bgOpacity: 0.6, pos: 'bottom' } : burnIt && o.captions === 'burned' ? { size: vertical ? 52 : 46, weight: 700, bgOpacity: 0.72, pos: 'bottom' } : {}) };
       });
       app.showCaptionLane = true;
-      report.push(`${caps.length} captions`);
+      report.push(`${caps.length} captions${spokenOn && o.captions !== 'file' ? ' (as a subtitle file: the talking text shows the words)' : ''}`);
     }
 
+    // 6½ · talking text: the words on screen as they're said (and the key words big), on their own tracks
+    const talk = o.talk || 'off';
+    if (talk !== 'off' && words.length && !only) {
+      step('Putting your words on screen');
+      const tall = app.doc.canvas.height > app.doc.canvas.width;
+      const plan = planTalkingText(words, docDuration(app.doc), { mode: talk, amount: o.gfx === 'lots' ? 'lots' : 'few', tall });
+      let made = null; app.commit(d => { made = placeTalkingText(d, plan, { look: o.talkLook || 'green', tall }); });
+      if (made.lines) report.push(`${made.lines} spoken lines`);
+      if (made.pops) report.push(`${made.pops} key words`);
+    }
     // 7 · motion graphics: the punchy lines as kinetic titles (and a graphic with some), on their own tracks
-    if ((o.gfx || 'off') !== 'off' && words.length && !only) {
+    // (not when the talking text already puts the key words up: they'd be the same lines twice)
+    if ((o.gfx || 'off') !== 'off' && words.length && !only && !(talk === 'keywords' || talk === 'both')) {
       step('Adding motion graphics');
       const total = docDuration(app.doc), tall = app.doc.canvas.height > app.doc.canvas.width;
       const plan = planGraphics(words, total, { amount: o.gfx, look: o.gfxLook || 'bold', tall });

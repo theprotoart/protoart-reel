@@ -2033,6 +2033,7 @@ function buildMenu() {
       ] },
       { type: 'separator' },
       { label: 'Auto Captions…', click: m('auto-captions') },
+      { label: 'Talking Text…', click: m('talking-text') },
       { label: 'Edit by Text…', accelerator: 'Control+Command+T', click: m('text-edit') },
       { type: 'separator' },
       { label: 'Auto Edit This Clip…', click: m('autoedit-clip') },

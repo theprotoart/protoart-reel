@@ -677,7 +677,10 @@ export const TEXT_ANIMS = [['none', 'None'], ['fade', 'Fade'], ['slide', 'Slide 
   ['build', 'Build (word by word)'], ['buildScale', 'Build scale'], ['fadeChars', 'Fade letters'], ['flip', 'Character flip'],
   ['gravity', 'Gravity'], ['moveIntoPlace', 'Move into place'], ['breakApart', 'Break apart'], ['bounce', 'Bounce'],
   ['wave', 'Wave'], ['blurIn', 'Blur in (letters)'], ['scramble', 'Scramble / decode'], ['tracking', 'Tracking in'], ['swing', 'Swing'], ['rollUp', 'Roll up (words)'], ['stampWords', 'Stamp (words)'],
-  ['slam', 'Slam stack'], ['smear', 'Speed smear'], ['slice', 'Slice glitch'], ['shatter', 'Shatter out'], ['neon', 'Neon flicker']];
+  ['slam', 'Slam stack'], ['smear', 'Speed smear'], ['slice', 'Slice glitch'], ['shatter', 'Shatter out'], ['neon', 'Neon flicker'],
+  ['karaoke', 'Spoken words (highlight)'], ['oneWord', 'One word at a time'], ['punch', 'Punch in'], ['sticker', 'Sticker'], ['split', 'Split reveal'], ['maskUp', 'Clean slide up']];
+/** Accent looks for *starred* words. */
+export const TEXT_ACCENTS = [['color', 'Accent colour'], ['serif', 'Italic serif'], ['box', 'Highlight box'], ['pill', 'Pill tag'], ['marker', 'Highlighter pen'], ['underline', 'Underline swipe'], ['strike', 'Crossed out']];
 
 /** How one letter (or word) of a per-letter animation sits at progress k (0 hidden … 1 in place). */
 function unitMotion(anim, k, i, u, local, dur, size, alpha) {
@@ -746,7 +749,9 @@ function drawCharAnim(ctx, tx, lines, widths, boxW, boxH, lh, align, local, dur,
 // a pill (tx.accent: 'color' | 'serif' | 'box' | 'pill'; tx.accentColor). The kinetic looks lay the title out word by
 // word: Slam stack (each line sized to fill the width, slamming in one by one), Speed smear (words shoot in with
 // motion streaks and a glowing line under them) and Slice glitch (the title cut into strips that slide and snap).
-const RICH_ANIMS = { slam: 1, smear: 1, slice: 1, shatter: 1, neon: 1 };
+const RICH_ANIMS = { slam: 1, smear: 1, slice: 1, shatter: 1, neon: 1, karaoke: 1, oneWord: 1, punch: 1, sticker: 1, split: 1, maskUp: 1 };
+/** Light colours get dark ink on them (a yellow highlighter), dark ones white. */
+const isLight = hex => { const h = String(hex || '#000').replace('#', '').padEnd(6, '0'), n = parseInt(h.slice(0, 6), 16); return ((n >> 16 & 255) * 0.299 + (n >> 8 & 255) * 0.587 + (n & 255) * 0.114) > 150; };
 export const hasAccent = s => /\*[^*\n]+\*/.test(String(s || ''));
 const expoOut = k => (k >= 1 ? 1 : 1 - 2 ** (-10 * k));
 
@@ -767,7 +772,8 @@ function richLayout(ctx, tx, content, maxW, sx, fit) {
     const push = () => { if (line.words.length) out.push(line); line = { words: [], w: 0 }; };
     for (const t of toks) {
       ctx.font = t.accent ? accentFont : base;
-      const w = ctx.measureText(t.str).width + (t.accent && (tx.accent === 'pill' || tx.accent === 'box') ? size * 0.5 : 0);
+      const boxed = (t.accent || tx.anim === 'karaoke') && (tx.accent === 'pill' || tx.accent === 'box'); // (the word being said gets the box too)
+      const w = ctx.measureText(t.str).width + (boxed ? size * 0.5 : tx.anim === 'karaoke' ? size * 0.12 : 0);
       if (!fit && line.words.length && line.w + space + w > maxW) push();
       line.words.push({ ...t, w, font: t.accent ? accentFont : base, x: line.w + (line.words.length ? space : 0) });
       line.w = line.words[line.words.length - 1].x + w;
@@ -783,7 +789,8 @@ function drawRich(ctx, tx, content, maxW, local, dur, ad, alpha, sx, paint, maxH
   const anim = tx.anim, fit = anim === 'slam' && tx.fit !== false;
   const { lines, size } = richLayout(ctx, tx, content, maxW, sx, fit);
   if (!lines.length) return;
-  const lhK = tx.lineHeight || 1.15, accentCol = tx.accentColor || '#ff2d3c', align = tx.align || 'center';
+  const lhK = tx.lineHeight || 1.15, align = tx.align || 'center';
+  let accentCol = tx.accentColor || '#ff2d3c';
   // a stack taller than the frame shrinks as a whole (short words would otherwise grow off the bottom)
   if (fit) { const h = lines.reduce((a, l) => a + size * lhK * l.s * 0.98, 0); if (h > maxH) for (const l of lines) l.s *= maxH / h; }
   const heights = lines.map(l => size * lhK * l.s * (fit ? 0.98 : 1)), total = heights.reduce((a, b) => a + b, 0);
@@ -804,8 +811,25 @@ function drawRich(ctx, tx, content, maxW, local, dur, ad, alpha, sx, paint, maxH
     if (extra.blur > 0.3) ctx.filter = `blur(${extra.blur.toFixed(1)}px)`;
     ctx.globalAlpha = clamp(extra.a ?? alpha, 0, 1);
     ctx.font = u.font; ctx.textAlign = 'center'; ctx.textBaseline = 'middle';
-    const str = extra.str ?? u.str;
-    if (u.accent && (tx.accent === 'pill' || tx.accent === 'box')) {
+    const str = extra.str ?? u.str, acc = u.accent || extra.hi;
+    const bar = acc && (tx.accent === 'marker' || tx.accent === 'underline' || tx.accent === 'strike')
+      ? easeOut(clamp(extra.mk ?? (local - (extra.t0 ?? 0) - ad * 0.7) / 0.35, 0, 1)) : 0; // how far the pen has drawn
+    if (acc && tx.accent === 'marker') {
+      // a highlighter stroke behind the word, drawn left to right, a little slanted; dark ink on a light pen
+      const w = u.w + size * 0.3, h = size * 0.86;
+      if (bar > 0) { ctx.save(); ctx.rotate(-0.025); ctx.fillStyle = hexA(accentCol, 0.92); roundRectPath(ctx, -w / 2, -h / 2 + size * 0.04, w * bar, h, size * 0.14); ctx.fill(); ctx.restore(); }
+      const keep = { c: tx.color, st: tx.stroke, sh: tx.shadow };
+      if (bar > 0.3) { tx.color = isLight(accentCol) ? '#121212' : '#ffffff'; tx.stroke = 0; tx.shadow = 0; }
+      paint(str, 0, 0); Object.assign(tx, { color: keep.c, stroke: keep.st, shadow: keep.sh });
+    } else if (acc && (tx.accent === 'underline' || tx.accent === 'strike')) {
+      const keep = tx.color; if (tx.accent === 'underline') tx.color = accentCol; paint(str, 0, 0); tx.color = keep;
+      if (bar > 0) {
+        ctx.save(); ctx.fillStyle = accentCol; ctx.shadowColor = 'rgba(0,0,0,0.45)'; ctx.shadowBlur = size * 0.1;
+        if (tx.accent === 'underline') roundRectPath(ctx, -u.w / 2, size * 0.5, u.w * bar, size * 0.12, size * 0.06);
+        else { ctx.rotate(-0.06); roundRectPath(ctx, -u.w / 2 - size * 0.1, -size * 0.06, (u.w + size * 0.2) * bar, size * 0.12, size * 0.06); }
+        ctx.fill(); ctx.restore();
+      }
+    } else if (acc && (tx.accent === 'pill' || tx.accent === 'box')) {
       const h = size * 1.12, w = u.w;
       ctx.save();
       if (tx.accent === 'pill') { ctx.fillStyle = 'rgba(255,255,255,0.14)'; ctx.strokeStyle = 'rgba(255,255,255,0.55)'; ctx.lineWidth = Math.max(1, size * 0.04); roundRectPath(ctx, -w / 2, -h / 2, w, h, h / 2); ctx.fill(); ctx.stroke(); }
@@ -813,8 +837,8 @@ function drawRich(ctx, tx, content, maxW, local, dur, ad, alpha, sx, paint, maxH
       ctx.restore();
       ctx.fillStyle = tx.accent === 'box' ? '#fff' : tx.color || '#fff';
       ctx.fillText(str, 0, size * 0.03);
-    } else if (u.accent) {
-      const keep = tx.color; tx.color = accentCol; paint(str, 0, 0); tx.color = keep;
+    } else if (acc) {
+      const keep = tx.color; tx.color = extra.hi && !u.accent ? (tx.hiColor || accentCol) : accentCol; paint(str, 0, 0); tx.color = keep;
     } else paint(str, 0, 0);
     ctx.restore();
   };
@@ -908,6 +932,91 @@ function drawRich(ctx, tx, content, maxW, local, dur, ad, alpha, sx, paint, maxH
     tx.color = keep.c; tx.shadow = keep.sh;
     return;
   }
+  // when each word is said: from the speech (tx.wordTimes, seconds from the clip's start), else spread over the clip
+  // (a longer clip says them slower)
+  const said = () => {
+    const wt = tx.wordTimes;
+    if (Array.isArray(wt) && wt.length >= n) return wt.slice(0, n);
+    const per = Math.max(0.08, Math.max(0.3, dur * 0.82 - ad * 0.5) / Math.max(1, n));
+    return units.map((_, i) => i * per);
+  };
+  const saying = ts => { let cur = -1; for (let i = 0; i < n; i++) if (local >= ts[i]) cur = i; return cur; };
+  if (anim === 'karaoke') {
+    // the words come in as they're said; the one being said is lit up (and a touch bigger); all leave together
+    const ts = said(), cur = saying(ts), kout = clamp((dur - local) / Math.min(0.25, ad), 0, 1);
+    units.forEach((u, i) => {
+      const k = clamp((local - ts[i]) / 0.1, 0, 1);
+      if (k <= 0 || kout <= 0) return;
+      const now = i === cur, pop = now ? 1.03 + 0.1 * (1 - expoOut(clamp((local - ts[i]) / 0.2, 0, 1))) : 1;
+      word(u, { sc: pop * (0.7 + 0.3 * expoOut(k)), a: alpha * k * kout, hi: now, mk: 1, dy: (1 - expoOut(k)) * size * 0.25 });
+    });
+    return;
+  }
+  if (anim === 'oneWord') {
+    // only the word being said, big in the middle, popping in with a small random tilt
+    const ts = said(), cur = saying(ts), kout = clamp((dur - local) / Math.min(0.2, ad), 0, 1);
+    if (cur < 0 || kout <= 0) return;
+    const u = units[cur], k = clamp((local - ts[cur]) / 0.14, 0, 1), big = clamp((maxW * 0.8) / Math.max(1, u.w), 1, 2.4);
+    word({ ...u, cx: 0, cy: 0, s: big }, { sc: 1 + 0.4 * (1 - expoOut(k)), a: alpha * Math.min(1, k * 3) * kout, rot: (rnd(cur, 5) - 0.5) * 0.1, mk: 1 });
+    return;
+  }
+  if (anim === 'punch') {
+    // the whole title punches in from big with a jolt, then keeps pushing in slowly for as long as it's on
+    const inn = Math.min(0.22, ad), kin = clamp(local / inn, 0, 1), kout = clamp((dur - local) / Math.min(0.25, ad), 0, 1);
+    if (kin <= 0 || kout <= 0) return;
+    const land = local - inn, jolt = land > 0 && land < 0.22 ? Math.sin(land * 75) * size * 0.07 * (1 - land / 0.22) : 0;
+    const sc = (1 + (1 - expoOut(kin)) * 1.1) * (1 + 0.07 * clamp(local / dur, 0, 1)) * (0.92 + 0.08 * kout);
+    ctx.save(); ctx.translate(jolt, -jolt * 0.6); ctx.scale(sc, sc);
+    units.forEach((u, i) => word(u, { a: alpha * Math.min(1, kin * 3) * kout, t0: inn + i * 0.05 }));
+    ctx.restore();
+    return;
+  }
+  if (anim === 'sticker') {
+    // the words on a tilted label in the accent colour, slapped on with a bounce, white edge and a drop shadow
+    const kin = clamp(local / Math.max(0.3, ad * 1.2), 0, 1), kout = clamp((dur - local) / Math.min(0.3, ad), 0, 1), k = Math.min(easeElastic(kin), easeOut(kout));
+    if (k <= 0.001) return;
+    const bw = Math.max(...lines.map(l => l.w * l.s)) + size * 0.9, bh = total + size * 0.55;
+    ctx.save(); ctx.rotate(-0.06 + Math.sin(local * 1.6) * 0.012); ctx.scale(k, k);
+    ctx.save(); ctx.shadowColor = 'rgba(0,0,0,0.5)'; ctx.shadowBlur = size * 0.4; ctx.shadowOffsetY = size * 0.12;
+    ctx.fillStyle = '#ffffff'; roundRectPath(ctx, -bw / 2 - size * 0.09, -bh / 2 - size * 0.09, bw + size * 0.18, bh + size * 0.18, size * 0.3); ctx.fill(); ctx.restore();
+    ctx.fillStyle = accentCol; roundRectPath(ctx, -bw / 2, -bh / 2, bw, bh, size * 0.24); ctx.fill();
+    const keep = { c: tx.color, st: tx.stroke, sh: tx.shadow }; tx.color = tx.color && tx.color !== '#ffffff' ? tx.color : isLight(accentCol) ? '#121212' : '#ffffff'; tx.stroke = 0; tx.shadow = 0;
+    const ink = tx.color;
+    const label = accentCol; accentCol = isLight(label) ? '#d0021b' : '#ffe600'; // accent words: red on a light label, yellow on a dark one
+    for (const u of units) word(u, { a: alpha });
+    accentCol = label; Object.assign(tx, { color: keep.c, stroke: keep.st, shadow: keep.sh }); void ink;
+    ctx.restore();
+    return;
+  }
+  if (anim === 'split') {
+    // a line draws across, then the words open out of it: the top half rises, the bottom half drops into place
+    const kin = clamp(local / (ad * 1.8), 0, 1), kout = clamp((dur - local) / (ad * 1.2), 0, 1);
+    if (kin <= 0 || kout <= 0) return;
+    const line = expoOut(clamp(kin * 2.2, 0, 1)), open = expoOut(clamp(Math.min((kin - 0.3) / 0.7, kout), 0, 1)), half = total / 2 + size * 0.3;
+    ctx.save(); ctx.globalAlpha = alpha * (1 - open * 0.65); ctx.fillStyle = accentCol; ctx.fillRect(-maxW * 0.5 * line, -size * 0.025, maxW * line, size * 0.05); ctx.restore();
+    if (open <= 0.001) return;
+    for (const side of [-1, 1]) {
+      ctx.save(); ctx.beginPath(); ctx.rect(-maxW, side < 0 ? -half : 0, maxW * 2, half); ctx.clip();
+      ctx.translate(0, -side * (1 - open) * half);
+      for (const u of units) word(u, { a: alpha * kout, t0: ad * 1.4 });
+      ctx.restore();
+    }
+    return;
+  }
+  if (anim === 'maskUp') {
+    // each line slides up from behind its own edge, one after another (the clean look of product videos)
+    const st = Math.min(0.12, (dur * 0.3) / Math.max(1, nl));
+    lines.forEach((l, li) => {
+      const kin = clamp((local - li * st) / ad, 0, 1), kout = clamp((dur - local - (nl - 1 - li) * st * 0.5) / ad, 0, 1);
+      if (kin <= 0 || kout <= 0) return;
+      const h = heights[li], cy = units.find(u => u.li === li).cy;
+      ctx.save(); ctx.beginPath(); ctx.rect(-maxW, cy - h / 2 - size * 0.08, maxW * 2, h + size * 0.16); ctx.clip();
+      const dy = (1 - expoOut(kin)) * h * 1.05 - (1 - expoOut(kout)) * h * 1.05;
+      for (const u of units) if (u.li === li) word(u, { dy, a: alpha, t0: li * st + ad });
+      ctx.restore();
+    });
+    return;
+  }
   // any other look, with accents: the letters' motion applied word by word
   if (CHAR_ANIMS[anim]) {
     const stagger = Math.min(0.12, (dur * 0.4) / Math.max(1, n));
@@ -915,7 +1024,7 @@ function drawRich(ctx, tx, content, maxW, local, dur, ad, alpha, sx, paint, maxH
       const kin = clamp((local - i * stagger) / ad, 0, 1), kout = clamp((dur - local - (n - 1 - i) * stagger) / ad, 0, 1), k = Math.min(kin, kout);
       if (k <= 0) return;
       const m = unitMotion(anim, k, i, { str: u.str, x: u.cx - u.w / 2, w: u.w }, local, dur, size, alpha);
-      if (m.a > 0.001) word(u, { dx: m.dx, dy: m.dy, sc: m.sc, scY: m.scY, rot: m.rot, blur: m.blur, a: m.a, str: m.str });
+      if (m.a > 0.001) word(u, { dx: m.dx, dy: m.dy, sc: m.sc, scY: m.scY, rot: m.rot, blur: m.blur, a: m.a, str: m.str, t0: i * stagger });
     });
     return;
   }

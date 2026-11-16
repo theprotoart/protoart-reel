@@ -110,13 +110,28 @@ export const TITLE_LOOKS = {
   lookSerif: { name: 'Serif accent', anim: 'fade', accent: 'serif', accentColor: '#ff6a3d', content: '14 TABS *open.*' },
   lookBox: { name: 'Highlighted word', anim: 'pop', accent: 'box', accentColor: '#ff2d3c', content: 'Just *one* file' },
   lookSlam: { name: 'Slam stack · red word', anim: 'slam', accent: 'color', accentColor: '#ff2d3c', weight: 900, content: 'AND BEFORE\nYOU\n*ASK*' },
+  // the looks of today's most-watched channels: big outlined words, words lit up as they're said, stickers, pens
+  lookBigPop: { name: 'Big bold pop', anim: 'punch', font: 'Avenir Next Condensed', weight: 900, size: 130, stroke: 7, strokeColor: '#000000', shadow: 22, accent: 'color', accentColor: '#ffe600', content: 'THIS CHANGES *EVERYTHING*' },
+  lookSpoken: { name: 'Spoken words · green', anim: 'karaoke', font: 'Avenir Next Condensed', weight: 900, size: 100, stroke: 6, strokeColor: '#000000', shadow: 16, accent: 'color', accentColor: '#3dff6e', hiColor: '#3dff6e', width: 0.8, content: 'WATCH WHAT HAPPENS WHEN I CLICK THIS' },
+  lookSpokenBox: { name: 'Spoken words · box', anim: 'karaoke', font: 'Avenir Next', weight: 900, size: 92, stroke: 0, shadow: 18, accent: 'box', accentColor: '#7b3dff', width: 0.8, content: 'THE ONE SETTING NOBODY TALKS ABOUT' },
+  lookSpokenYellow: { name: 'Spoken words · yellow', anim: 'karaoke', font: 'Arial Black', weight: 900, size: 88, stroke: 6, strokeColor: '#000000', shadow: 12, accent: 'color', accentColor: '#ffe600', hiColor: '#ffe600', width: 0.8, content: 'it only takes ten seconds' },
+  lookOneWord: { name: 'One word at a time', anim: 'oneWord', font: 'Avenir Next Condensed', weight: 900, size: 120, stroke: 8, strokeColor: '#000000', shadow: 20, accent: 'color', accentColor: '#ffe600', content: 'STOP DOING *THIS*' },
+  lookSticker: { name: 'Sticker label', anim: 'sticker', font: 'Avenir Next', weight: 900, size: 84, color: '#121212', stroke: 0, shadow: 0, accent: 'color', accentColor: '#ffe600', content: 'PRO *TIP*' },
+  lookMarker: { name: 'Highlighter pen', anim: 'build', font: 'Avenir Next', weight: 800, size: 96, accent: 'marker', accentColor: '#ffe600', content: 'The *one setting* you need' },
+  lookUnderline: { name: 'Underline swipe', anim: 'blurIn', font: 'Avenir Next', weight: 800, size: 96, accent: 'underline', accentColor: '#ff3b30', content: 'Save *hours* every week' },
+  lookStrike: { name: 'Crossed out', anim: 'build', font: 'Avenir Next', weight: 800, size: 96, accent: 'strike', accentColor: '#ff3b30', content: 'It’s not *hard.* It’s new.' },
+  lookSplit: { name: 'Split reveal', anim: 'split', font: 'Futura', weight: 700, size: 104, accent: 'color', accentColor: '#4aa8ff', shadow: 10, content: 'CHAPTER *ONE*' },
+  lookClean: { name: 'Clean slide up', anim: 'maskUp', font: 'SF Pro Display', weight: 700, size: 96, shadow: 6, accent: 'color', accentColor: '#9a9aa0', content: 'Simple.\n*Fast. Yours.*' },
+  lookQuestion: { name: 'Big question', anim: 'punch', font: 'Impact', weight: 400, size: 150, stroke: 6, strokeColor: '#000000', shadow: 24, accent: 'color', accentColor: '#ff2d3c', content: 'BUT *WHY?*' },
+  lookTip: { name: 'Tip in a box', anim: 'pop', font: 'Avenir Next', weight: 800, size: 72, bg: '#111114', bgOpacity: 0.85, padding: 30, shadow: 0, accent: 'color', accentColor: '#ffb02a', content: '💡 *Tip:* hold ⌥ to duplicate' },
+  lookNumber: { name: 'Big number', anim: 'stampWords', font: 'Avenir Next Condensed', weight: 900, size: 170, stroke: 7, strokeColor: '#000000', shadow: 24, accent: 'color', accentColor: '#3dff6e', content: '*10X* FASTER' },
 };
 /** The text settings a title tile stands for (a look, or just an animation with words that suit it). */
-const BIG_TITLES = new Set(['slam', 'smear', 'slice', 'shatter', 'neon']);
+const BIG_TITLES = new Set(['slam', 'smear', 'slice', 'shatter', 'neon', 'punch', 'oneWord', 'sticker', 'split', 'karaoke']);
 export function titleLook(id) {
   const L = TITLE_LOOKS[id];
   if (L) { const { name, ...t } = L; return t; }
-  const sample = { slam: { content: 'AND BEFORE\nYOU *ASK*', weight: 900, accentColor: '#ff2d3c' }, smear: { content: 'THIS *ISN’T*', weight: 900 }, slice: { content: 'LAYERS.', weight: 900 }, shatter: { content: 'LYING.', weight: 900 }, neon: { content: 'MOTION GRAPHICS', weight: 800, accentColor: '#ff6a1a' } }[id];
+  const sample = { slam: { content: 'AND BEFORE\nYOU *ASK*', weight: 900, accentColor: '#ff2d3c' }, smear: { content: 'THIS *ISN’T*', weight: 900 }, slice: { content: 'LAYERS.', weight: 900 }, shatter: { content: 'LYING.', weight: 900 }, neon: { content: 'MOTION GRAPHICS', weight: 800, accentColor: '#ff6a1a' }, karaoke: { content: 'WATCH WHAT HAPPENS NEXT', weight: 900, stroke: 6, accentColor: '#3dff6e' }, oneWord: { content: 'STOP DOING *THIS*', weight: 900, stroke: 7, accentColor: '#ffe600' }, punch: { content: 'THIS CHANGES *EVERYTHING*', weight: 900, stroke: 6, accentColor: '#ffe600' }, sticker: { content: 'PRO *TIP*', weight: 900, color: '#121212', stroke: 0, accentColor: '#ffe600' }, split: { content: 'CHAPTER *ONE*', weight: 700 }, maskUp: { content: 'Simple.\n*Fast. Yours.*', weight: 700 } }[id];
   return { anim: id, ...(sample || {}) };
 }
 function applyTitle(app, anim, at = null, track = null) {
@@ -264,7 +279,7 @@ function miniDoc(kind, id) {
   let len = 2.4;
   if (kind === 'cut') { const a = clip('A', 't2', 0, 1.2), b = clip('B', 't2', 1.2, 1.2); applyCut(a, b, id, 0.8); doc.clips.push(a, b); }
   else if (kind === 'trans') { doc.clips.push(clip('B', 't2', 0, 2.4), clip('A', 't1', 0.2, 2, { transIn: { type: id, dur: 0.7 }, transOut: { type: id, dur: 0.7 } })); }
-  else if (kind === 'title') { const c = newTextClip('t1', 0, 'Your title'); c.text = { ...c.text, ...titleLook(id), size: 46, animDur: 0.6 }; if (BIG_TITLES.has(c.text.anim) || TITLE_LOOKS[id]) c.props.y = 0.5; c.duration = 2.4; doc.clips.push(clip('A', 't2', 0, 2.4), c); }
+  else if (kind === 'title') { const c = newTextClip('t1', 0, 'Your title'), L = titleLook(id), k = 46 / (L.size || 96); c.text = { ...c.text, ...L, size: 46, animDur: 0.6, stroke: (L.stroke || 0) * k, padding: (L.padding ?? 24) * k, shadow: (L.shadow ?? 12) * k }; if (BIG_TITLES.has(c.text.anim) || TITLE_LOOKS[id]) c.props.y = 0.5; c.duration = 2.4; doc.clips.push(clip('A', 't2', 0, 2.4), c); }
   else if (kind === 'motion') { const c = clip('A', 't1', 0, 2.4); applyMotion(c, id); doc.clips.push(c); }
   else if (kind === 'element') { const L = ELEMENTS[id]?.group === 'Social' ? 3.6 : 2.6; const c = newElementClip('t1', 0, id, elementHome(id), L); c.props.scale = 1; doc.clips.push(clip('B', 't2', 0, L), c); len = L; } // social ones click through a sequence: a little longer
   else if (kind === 'style') {
