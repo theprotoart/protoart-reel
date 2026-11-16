@@ -424,7 +424,7 @@ export async function runAutoEdit(app, recipeId, o) {
       // down; only the sure matches are cut here
       if (umModel()) {
         try {
-          const yours = (await findYourUms(app, speechClips(app.doc, ''), t => { what.textContent = t; })).filter(y => y.sure);
+          const yours = (await findYourUms(app, speechClips(app.doc, ''), t => { what.textContent = t; })).filter(y => y.sure && (y.word === 'umm' || y.word === 'uh')); // only ums and uhs are cut, not your other sounds (breaths…)
           if (yours.length) { ranges.push(...yours.map(y => ({ t: y.t, end: y.end }))); report.push(`${yours.length} of your ums found by ear`); }
         } catch { /* listening for them failed: the words are still used */ }
       }

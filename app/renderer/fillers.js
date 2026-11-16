@@ -1,11 +1,30 @@
 // 〰 FILLER: like ✚ CLIPS, but for the sounds you want Reel to learn. Press it, then drag across an um (or uh, or
 // any filler sound) on the voice track. Each one becomes a red, zig-zagged band on that track that you can play,
 // nudge and then send to 🎙 Teach Reel your ums, for a guest who can't read lines as easily as for yourself.
-import { popMenu, toast } from './ui.js';
+import { popMenu, toast, promptText } from './ui.js';
 import { uid, removeRange } from './model.js';
 import { teachFromTimeline, notAnUm } from './umvoice.js';
 
 export const WORDS = [['umm', 'um'], ['uh', 'uh']];
+const FILLERS = new Set(['umm', 'uh']); // what's cut by default; your own sounds (breath, sneeze…) are kept unless you cut them
+
+/** The sounds Reel can learn: um, uh and the ones you named (kept on this Mac). [[word, label]] */
+export function soundWords() {
+  let mine = [];
+  try { mine = JSON.parse(localStorage.getItem('reel.umwords') || '[]').filter(w => typeof w === 'string'); } catch { /* none */ }
+  return [...WORDS, ...mine.map(w => [w, w])];
+}
+export const isFiller = w => FILLERS.has(w);
+export const soundLabel = w => (w === 'umm' ? 'um' : w === 'not' ? 'not an um' : w || 'um');
+/** Asks for a new sound's name (breath, sneeze, cough, lip smack…); adds it to the list. The name, or null. */
+export async function newSoundWord() {
+  const raw = await promptText('Another sound', 'Name the sound for Reel to learn: breath, sneeze, cough, lip smack, click…', '', 'ADD');
+  const w = String(raw || '').toLowerCase().replace(/[^a-z0-9 '-]/g, '').trim().slice(0, 20);
+  if (!w || w === 'not' || w === 'um') return w === 'um' ? 'umm' : null;
+  const have = soundWords().map(x => x[0]);
+  if (!have.includes(w)) { try { localStorage.setItem('reel.umwords', JSON.stringify([...have.filter(x => !FILLERS.has(x)), w])); } catch { /* fine */ } }
+  return w;
+}
 
 /** A filler from t0 to t1 on a track (overlapping ones on the same track become one). */
 export function addFiller(app, t0, t1, track) {
@@ -86,17 +105,18 @@ export async function teachFillers(app, fillers, onStatus) {
 /** Right-click on a filler. */
 export function fillerMenu(app, f, x, y) {
   const one = async word => {
+    if (word === 'new') { word = await newSoundWord(); if (!word) return; }
     try {
       const n = await teachFillers(app, [{ ...f, word }]);
       if (word !== 'not' && word !== f.word) setFillerWord(app, f.id, word);
-      toast(n ? (word === 'not' ? 'Reel won’t take that for an um again.' : `Learned that ${word === 'uh' ? 'uh' : 'um'}. 💬 UMS › LISTEN AGAIN uses it.`) : 'Nothing was learned (teach a few ums first for “not an um”).', 4500);
+      toast(n ? (word === 'not' ? 'Reel won’t take that for an um again.' : `Learned that ${soundLabel(word)}. 💬 UMS › LISTEN AGAIN uses it.`) : 'Nothing was learned (teach a few ums first for “not an um”).', 4500);
     } catch (e) { toast(e.message, 5000); }
   };
   popMenu(x, y, [
     ['▶ Play it', () => playRange(app, f.t0, f.t1)],
     null,
-    ['🎙 Teach it as an um', () => one('umm')],
-    ['🎙 Teach it as an uh', () => one('uh')],
+    ...soundWords().map(([w, l]) => [`🎙 Teach it as ${/^[aeiou]/.test(l) ? 'an' : 'a'} ${l}`, () => one(w)]),
+    ['🎙 Teach it as another sound…', () => one('new')],
     ['✗ Teach that this isn’t an um', () => one('not')],
     null,
     ['✂ Cut this filler from the recording', () => cutFillers(app, [f.id])],

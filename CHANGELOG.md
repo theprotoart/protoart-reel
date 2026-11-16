@@ -16,6 +16,13 @@
 - 〰 FILLER: right-click › ✂ Cut this filler (or all of them) cuts the sound out of the recording, keeping what
   Reel learned from it; Unmark keeps the sound. Fillers now move with the clip they were marked on (moved,
   trimmed, re-timed or split).
+- **No more clicks at cuts**: every clip's sound starts and ends with a tiny 6 ms fade (in playback and export), and
+  in playback a clip leaving the playhead fades out in a few ms instead of stopping dead.
+- **Teach Reel other sounds**: besides um and uh, name your own (breath, sneeze, cough, lip smack…) in the
+  trainer's list or a filler's right-click menu. They're listed in 💬 UMS as KEEP; Auto Edit still only cuts ums.
+- **Long recordings come back faster**: STOP brings the editor back at once with "Saving your N-minute
+  recording…", and the recording is rewritten in large reads (a few hundred, not one per frame).
+- The tape reels turn counterclockwise, as on a real deck.
 - A sound-only export now says which mixer made it: "mixed by the Rust core", or "mixed the usual way" and why
   (a loudness target, track effects…).
 - **Fixed**: a stray "null" under the export Preset (and, in some cases, in the voice list and the title writer).

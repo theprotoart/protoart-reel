@@ -258,6 +258,11 @@ export function gainAt(doc, c, local) {
   if (tr && !tr.solo && doc.tracks.some(t => t.solo)) return 0;
   let g = (a.volume ?? 1) * (tr ? trackGainAt(tr, c.start + local) : 1);
   const lc = clamp(local, 0, c.duration); // fades work on the clip itself, not its crossfade handles
+  // every cut gets a tiny fade (6 ms, too short to hear as a fade) so the sound never jumps mid-wave: no click
+  // where a clip starts or stops, even with no fade on it (where it crossfades, the crossfade does this)
+  const EDGE = 0.006;
+  if (!(c.xfadeIn > 0) && lc < EDGE) g *= lc / EDGE;
+  if (!(c.xfadeOut > 0) && lc > c.duration - EDGE) g *= Math.max(0, c.duration - lc) / EDGE;
   if (a.fadeIn > 0 && lc < a.fadeIn) g *= fadeShape(lc / a.fadeIn, a.fadeInCurve || 0);
   if (a.fadeOut > 0 && lc > c.duration - a.fadeOut) g *= fadeShape((c.duration - lc) / a.fadeOut, a.fadeOutCurve || 0);
   // crossfades: equal-power, so the sound doesn't dip in the middle

@@ -30,7 +30,7 @@ async function listen(app, { locale, track }, onStatus) {
   if (trained) {
     const yours = await findYourUms(app, clips, onStatus);
     const heard = findUms(words, null);
-    found = [...heard, ...yours.filter(y => !heard.some(h => h.t < y.end && h.end > y.t)).map(y => ({ t: y.t, end: y.end, text: y.word, kind: 'voice', cut: y.sure }))];
+    found = [...heard, ...yours.filter(y => !heard.some(h => h.t < y.end && h.end > y.t)).map(y => ({ t: y.t, end: y.end, text: y.word === 'umm' ? 'um' : y.word, kind: 'voice', cut: y.sure && (y.word === 'umm' || y.word === 'uh') }))];
   } else {
     const sources = await Promise.all(clips.map(async clip => ({ clip, peaks: await peaksFor(app, mediaById(app.doc, clip.media)).catch(() => null) })));
     found = findUms(words, levelOnTimeline(sources));

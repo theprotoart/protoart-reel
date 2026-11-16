@@ -101,7 +101,7 @@ export class Timeline {
       const r = rows.get(f.track); if (!r) continue;
       const tag = el('span', { class: 'filler-tag' },
         el('button', { text: '▶', title: 'Play this filler', onclick: e => { e.stopPropagation(); playRange(this.app, f.t0, f.t1); } }),
-        el('b', { text: (f.taught ? '✓ ' : '') + (f.word === 'uh' ? 'UH' : f.word === 'not' ? 'NOT' : 'UM') }),
+        el('b', { text: (f.taught ? '✓ ' : '') + (f.word === 'umm' || !f.word ? 'UM' : f.word === 'not' ? 'NOT' : f.word.toUpperCase().slice(0, 10)) }),
         el('button', { text: '×', title: 'Remove this filler', onclick: e => { e.stopPropagation(); removeFiller(this.app, f.id); } }));
       const hl = el('div', { class: 'filler-h l', title: 'Drag to change where it starts' }), hr = el('div', { class: 'filler-h r', title: 'Drag to change where it ends' });
       const box = el('div', { class: 'filler' + (f.taught ? ' taught' : ''), 'data-filler': f.id,

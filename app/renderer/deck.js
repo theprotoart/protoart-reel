@@ -222,7 +222,7 @@ export class Deck {
     if (this.last !== null) {
       let dt = t - this.last;
       if (Math.abs(dt) > 2) dt = Math.sign(dt) * 0.4; // a jump (seek): just a short whirr
-      const deg = dt * 140;
+      const deg = -dt * 140; // both reels turn counterclockwise in play, as on a real deck (negative = counterclockwise in SVG)
       this.supply.turn(deg / Math.max(0.3, this.supply.r));
       this.takeup.turn(deg / Math.max(0.3, this.takeup.r));
     }

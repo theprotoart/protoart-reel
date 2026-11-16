@@ -460,10 +460,22 @@ async function remuxRecording(src, dst) {
     const t0 = Math.min(...[v, a].filter(Boolean).map(t => sampleTime(t, t.samples[0])));
     const body = path.join(path.dirname(dst), `.${path.basename(dst)}.body`);
     const out = await fs.promises.open(body, 'w', 0o644);
+    // samples are read through a 32 MB window: frames and sound sit close together in the file, so a long recording
+    // is read in a few hundred large reads instead of one small read per frame (minutes saved on a 40-minute take)
+    const WIN = 32 << 20;
+    let win0 = 0, win = Buffer.alloc(0);
+    const readSample = async (offset, size) => {
+      if (offset < win0 || offset + size > win0 + win.length) {
+        const n = Math.max(size, Math.min(WIN, r.size - offset));
+        win = Buffer.alloc(n); win0 = offset;
+        if (n) await r.fh.read(win, 0, n, offset);
+      }
+      return win.subarray(offset - win0, offset - win0 + size);
+    };
     try {
       let batch = [], batchBytes = 0;
       for (const { t, s } of items) {
-        const data = await r.read(s.offset, s.size);
+        const data = await readSample(s.offset, s.size);
         const meta = { timestamp: (sampleTime(t, s) - t0) * 1e6, duration: (s.duration / t.timescale) * 1e6, key: s.sync };
         batch.push(Buffer.from(t === v ? m.addVideo(data, meta) : m.addAudio(data, meta)));
         batchBytes += s.size;
@@ -1209,6 +1221,8 @@ on('rec:chunk', (id, data) => {
 
 handle('rec:end', async (ids, meta, stayHidden) => {
   setRecordingUi(false);
+  // the editor comes back now, showing that the recording is being saved (a long take takes a little while)
+  if (win && !win.isDestroyed() && stayHidden !== true) { win.show(); win.focus(); }
   const cursor = stopCursorTrack();
   recording.active = false;
   const p = recording.project;

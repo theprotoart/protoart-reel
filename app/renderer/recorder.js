@@ -408,8 +408,10 @@ async function record(app, st, part = 1) {
     const first = Math.min(...Object.values(starts));
     const offsets = {};
     for (const [k, v] of Object.entries(starts)) offsets[k] = (v - first) / 1000;
-    toast('Finishing the recording…');
+    const mins = Math.round((performance.now() - tBegin) / 60000);
+    toast(mins >= 5 ? `Saving your ${mins}-minute recording… it’ll be on the timeline in a moment.` : 'Finishing the recording…', 600000);
     const res = await api.recEnd(Object.values(ids), offsets, carryOn && !!st.hide); // carrying on: the editor stays hidden
+    toast('Recording saved.', 2500);
     // pointer track starts when the files are opened; the screen picture a moment later
     const cursorOffset = ((starts.screen ?? first) - tBegin) / 1000;
     app.addRecording(res, { cursorOffset, appLead: (first - tBegin) / 1000, source: st.source, pointerSeparate, keys: !!st.keys, marks: res.marks || [] });

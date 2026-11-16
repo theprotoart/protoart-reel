@@ -7,7 +7,7 @@ import { train, findInSamples, packModel, unpackModel, to16k, RATE, addTake, add
 import { openAudio } from './lib/sources.js';
 import { soundOf, speechClips } from './transcript.js';
 import { fmtTime as fmt } from './model.js';
-import { playRange, setFillerWord, teachFillers } from './fillers.js';
+import { playRange, setFillerWord, teachFillers, soundWords, newSoundWord } from './fillers.js';
 
 const KEY = 'reel.umvoice';
 let cached;
@@ -111,8 +111,12 @@ export function teachUms(app, { onDone } = {}) {
     const rows = fs.map(f => {
       const tr = app.doc.tracks.find(t => t.id === f.track);
       const word = el('select', { class: 'umt-word', title: 'What this one is' },
-        ...[['umm', 'um'], ['uh', 'uh'], ['not', 'not an um']].map(([v, l]) => el('option', { value: v, text: l, selected: (f.word || 'umm') === v })));
-      word.onchange = () => { setFillerWord(app, f.id, word.value); picked.add(f.id); drawFillers(); };
+        ...[...soundWords(), ['new', '＋ another sound…'], ['not', 'not an um']].map(([v, l]) => el('option', { value: v, text: l, selected: (f.word || 'umm') === v })));
+      word.onchange = async () => {
+        let w = word.value;
+        if (w === 'new') { w = await newSoundWord(); if (!w) { drawFillers(); return; } }
+        setFillerWord(app, f.id, w); picked.add(f.id); drawFillers();
+      };
       const tick = el('input', { type: 'checkbox', checked: picked.has(f.id) });
       tick.onchange = () => { if (tick.checked) picked.add(f.id); else picked.delete(f.id); syncSend(); };
       return el('label', { class: 'umt-fill' + (f.taught ? ' taught' : '') }, tick,

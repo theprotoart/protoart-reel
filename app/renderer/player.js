@@ -247,6 +247,16 @@ export class Player {
       return r;
     } catch { this._noWebAudio = true; return null; }
   }
+  /** Stops a clip's sound that has left the playhead with a few-ms fade first: a sudden stop is a click. */
+  _softStop(el) {
+    const ro = this._route(el);
+    if (!ro || !this.actx) { el.pause(); return; }
+    if (el._leaving) return;
+    el._leaving = true;
+    ro.gain.gain.setTargetAtTime(0, this.actx.currentTime, 0.004);
+    el._g = undefined;
+    setTimeout(() => { if (el._leaving) { el._leaving = false; el.pause(); } }, 30);
+  }
   _drive(e, gain, pan, force) {
     const r = this._route(e);
     if (r && r.track !== e._trackId) { // the clip moved to another track: follow it to that track's bus
@@ -597,6 +607,9 @@ export class Player {
       const pan = m.hasAudio || m.kind === 'audio' ? panAt(this.doc, c, this.time + shift - c.start) : 0;
       const keep = c.audio?.keepPitch !== false;
       const drive = (e, gain, audible) => {
+        e._leaving = false; // wanted again: a soft stop on its way is called off
+        // starting up: from silence, then up to its level in a few ms (an instant start is a click)
+        if (e.paused && !force) { const ro = this._route(e); if (ro) { ro.gain.gain.setValueAtTime(0, this.actx.currentTime); e._g = undefined; } }
         // only touch the sound graph when something changed (60 updates a second per clip piled up)
         if (force || e._g === undefined || Math.abs(e._g - gain) > 0.002 || e._pan !== pan) { this._drive(e, gain, pan, force); e._g = gain; e._pan = pan; }
         if (e.playbackRate !== speed) e.playbackRate = speed;
@@ -621,7 +634,7 @@ export class Player {
     }
     this._lead = lead;
     if (force || !this._fxTick || performance.now() - this._fxTick > 250) { this._fxTick = performance.now(); this._applyTrackFx(); }
-    for (const [id, r] of this.els) if (!active.has(id) && !r.el.paused) r.el.pause();
+    for (const [id, r] of this.els) if (!active.has(id) && !r.el.paused) this._softStop(r.el);
     if (force || Math.abs(this.time - (this._lastTrim ?? -9)) > 2) { this._lastTrim = this.time; this._trimElements(active); }
     this._preload(this.time);
   }
