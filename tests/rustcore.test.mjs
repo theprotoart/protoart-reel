@@ -672,7 +672,7 @@ test('reel-core writes an MP4 head (ftyp, moov, mdat) byte for byte as the JavaS
 });
 
 // ------------------------------------------------------------------ drawing a frame (1.3)
-import { framePlan } from '../app/renderer/lib/frameplan.js';
+import { framePlan, encodeFrame } from '../app/renderer/lib/frameplan.js';
 
 const frameDoc = (clips, media) => ({ canvas: { width: 64, height: 36, background: '#102030' }, media, tracks: clips.map((_, i) => ({ id: 't' + i })).reverse(),
   clips: clips.map((c, i) => ({ id: 'c' + i, type: 'media', media: c.media, track: 't' + i, start: 0, in: 0, duration: 5, props: { x: 0.5, y: 0.5, scale: 1, rotation: 0, opacity: 1, crop: [0, 0, 0, 0], ...c.props } })) });
@@ -688,21 +688,10 @@ function quarters(w, h) {
 async function drawFrame(doc, pics, W = doc.canvas.width, H = doc.canvas.height) {
   const plan = framePlan(doc, 1, W, H);
   assert.ok(!plan.why, plan.why);
-  const ids = Object.keys(pics), parts = [Buffer.from('RCORE1\nframe\n')];
-  const u32 = v => { const b = Buffer.alloc(4); b.writeUInt32LE(v); parts.push(b); }, f64 = v => { const b = Buffer.alloc(8); b.writeDoubleLE(v); parts.push(b); };
-  u32(W); u32(H); parts.push(Buffer.from(plan.bg));
-  u32(ids.length);
-  for (const id of ids) { const m = doc.media.find(x => x.id === id); u32(m.width); u32(m.height); parts.push(Buffer.from(pics[id])); }
-  u32(plan.layers.length);
-  for (const l of plan.layers) {
-    if (l.fill) { u32(0xffffffff); f64(l.alpha); parts.push(Buffer.from(l.fill)); continue; }
-    u32(ids.indexOf(l.media)); f64(l.alpha); l.m.forEach(f64); l.rect.forEach(f64);
-    if (!l.look) parts.push(Buffer.from([0])); else {
-    const k = l.look; parts.push(Buffer.from([1])); k.b.forEach(f64); [k.w, k.h, k.radius, k.border].forEach(f64); parts.push(Buffer.from(k.borderColor)); [k.shadow, k.dy].forEach(f64); parts.push(Buffer.from([k.cut ? 1 : 0])); }
-    if (l.filter) { parts.push(Buffer.from([1])); [l.filter.blur, l.filter.bright, l.filter.sat].forEach(f64); } else parts.push(Buffer.from([0]));
-  }
+  const ids = Object.keys(pics);
   const out = path.join(fs.mkdtempSync(path.join(os.tmpdir(), 'reel-frame-')), 'f.rgba');
-  const pb = Buffer.from(out); u32(pb.length); parts.push(pb);
+  const body = encodeFrame(plan, W, H, ids, ids.map(id => { const m = doc.media.find(x => x.id === id); return { w: m.width, h: m.height, rgba: pics[id] }; }), out);
+  const parts = [Buffer.from('RCORE1\nframe\n'), Buffer.from(body)];
   await core.run(Buffer.concat(parts));
   const px = fs.readFileSync(out); fs.rmSync(path.dirname(out), { recursive: true });
   return (x, y) => [...px.subarray((y * W + x) * 4, (y * W + x) * 4 + 3)];
@@ -789,8 +778,8 @@ test('a frame that needs more than pictures says why, for the JavaScript to draw
   const media = [{ id: 'scr', kind: 'video', width: 128, height: 72 }];
   const fr = frameDoc([{ media: 'scr' }], media); fr.clips[0].frame = { type: 'phone' };
   assert.match(framePlan(fr, 1, 64, 36).why, /device frames/);
-  const d = frameDoc([{ media: 'scr' }], media); d.clips[0].filters = [{ type: 'blur' }];
-  assert.match(framePlan(d, 1, 64, 36).why, /filters/);
+  const d = frameDoc([{ media: 'scr' }], media); d.clips[0].filters = [{ type: 'lut', file: 'look.cube' }];
+  assert.match(framePlan(d, 1, 64, 36).why, /LUT/);
   d.clips[0].filters = []; d.clips.push({ id: 't', type: 'text', track: 't0', start: 0, duration: 5, props: {} });
   assert.match(framePlan(d, 1, 64, 36).why, /titles/);
 });

@@ -29,6 +29,7 @@
 mod analyze;
 mod mp4;
 mod frame;
+mod grade;
 mod media;
 mod mix;
 mod stretch;
@@ -237,7 +238,23 @@ fn frame_job(inp: &mut Input) -> Result<String, String> {
             if !(0.0..=500.0).contains(&blur) || !(0.0..=20.0).contains(&bright) || !(0.0..=20.0).contains(&sat) { return Err("bad layer filter".into()); }
             Some(frame::Filter { blur, bright, sat })
         } else { None };
-        layers.push(frame::Layer { src, alpha, m, rect, look, fill: None, filter });
+        // 1.7: its filters (the GPU pass's colour work): u8 1, then the size it's graded at (w, h u32), exposure,
+        // contrast, saturation, vibrance, temperature, tint, highlights, shadows, in black, in white, gamma, out black,
+        // out white, brightness, sharpen, vignette, b&w, aberration f64, key u8 (1: r, g, b, tolerance, softness,
+        // spill f64), colour match × 3, add × 3, lift × 3, gamma × 3, gain × 3 f64; 0, none
+        let grade = if inp.u8()? == 1 {
+            let (gw, gh) = (inp.u32()?, inp.u32()?);
+            if gw == 0 || gh == 0 || gw > 16384 || gh > 16384 { return Err("bad grade size".into()); }
+            let mut v = [0.0; 18]; for x in v.iter_mut() { *x = inp.f64()?; }
+            let key = if inp.u8()? == 1 { let mut k = [0.0; 6]; for x in k.iter_mut() { *x = inp.f64()?; } Some(([k[0], k[1], k[2]], k[3], k[4], k[5])) } else { None };
+            let mut t = [0.0; 15]; for x in t.iter_mut() { *x = inp.f64()?; }
+            if v.iter().chain(t.iter()).any(|x| !x.is_finite()) { return Err("bad grade".into()); }
+            let three = |i: usize| [t[i], t[i + 1], t[i + 2]];
+            Some(grade::Grade { gw, gh, exposure: v[0], contrast: v[1], saturation: v[2], vibrance: v[3], temperature: v[4], tint: v[5], highlights: v[6], shadows: v[7],
+                in_black: v[8], in_white: v[9], gamma_v: v[10], out_black: v[11], out_white: v[12], brightness: v[13], sharpen: v[14], vignette: v[15], bw: v[16], aberr: v[17],
+                key, m_mul: three(0), m_add: three(3), lift: three(6), gam: three(9), gain: three(12) })
+        } else { None };
+        layers.push(frame::Layer { src, alpha, m, rect, look, fill: None, filter, grade });
     }
     let out = inp.path()?;
     let px = frame::draw(w, h, bg, &pictures, &layers);
