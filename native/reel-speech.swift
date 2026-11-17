@@ -81,11 +81,33 @@ func recognise(_ samples: [Float]) -> [[Any]] {
     return words
 }
 
-// ---------------------------------------------------------------- go, in stretches of about a minute,
+/// The recogniser sometimes stops part way through a stretch (it hears an utterance end and gives up on the rest),
+/// leaving many seconds of speech with no words. So whatever's after the last word it gave, when there's still
+/// sound there, is listened to again on its own, until the stretch is done (a few goes at most).
+func recogniseAll(_ samples: [Float]) -> [[Any]] {
+    var all: [[Any]] = [], from = 0
+    for _ in 0..<6 {
+        let words = recognise(Array(samples[from...])).map { w -> [Any] in [(w[0] as! Double) + Double(from) / RATE, w[1], w[2], w[3]] }
+        all += words
+        let lastEnd = words.last.map { ($0[0] as! Double) + ($0[1] as! Double) } ?? Double(from) / RATE
+        let next = Int((lastEnd + 0.15) * RATE)
+        // less than 1.5 s left, or nothing but quiet in it: done
+        if next >= samples.count - Int(RATE * 1.5) { break }
+        var loud = 0, k = next
+        let w = Int(RATE * 0.05)
+        while k + w <= samples.count { var e: Float = 0; for i in k..<(k + w) { e += samples[i] * samples[i] }; if e / Float(w) > 1e-5 { loud += 1 }; k += w }
+        if loud < 6 { break } // under 0.3 s of anything above a whisper
+        if words.isEmpty && from > 0 { break } // it heard nothing more: don't go round again
+        from = next
+    }
+    return all
+}
+
+// ---------------------------------------------------------------- go, in stretches of about half a minute,
 // cut at the quietest moment near each minute so words aren't split
 let span = max(0.01, to - from)
 var pending: [Float] = [], base = from
-let CHUNK = Int(RATE * 55), SEARCH = Int(RATE * 5)
+let CHUNK = Int(RATE * 30), SEARCH = Int(RATE * 5)
 func flush(_ final: Bool) {
     while pending.count >= CHUNK + SEARCH || (final && !pending.isEmpty) {
         var cut = min(pending.count, CHUNK)
@@ -102,7 +124,7 @@ func flush(_ final: Bool) {
         }
         let part = Array(pending[0..<cut])
         pending.removeFirst(cut)
-        let words = recognise(part).map { w -> [Any] in [(w[0] as! Double) + base, w[1], w[2], w[3]] }
+        let words = recogniseAll(part).map { w -> [Any] in [(w[0] as! Double) + base, w[1], w[2], w[3]] }
         if !words.isEmpty { out(["type": "words", "words": words]) }
         base += Double(cut) / RATE
         out(["type": "progress", "value": min(1, (base - from) / span)])

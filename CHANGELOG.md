@@ -2,6 +2,8 @@
 
 ## 1.11.0 — 2026-11-16
 
+- Speech: the Mac's recogniser sometimes gave up part way through a stretch and left up to half a minute of speech with no words (in Video 3, 29 s after “…floating in the air” had none, the “uh” there included). The speech helper now listens again from where it stopped, in half-minute stretches; transcripts made before are made again once. Fixes missed fillers and missing captions there.
+
 - Fillers with your ums taught: the sounds in the pauses your voice didn't match are listed too (kept until you choose CUT). Before, teaching Reel turned that search off, so an um said into the next word or on another mic wasn't found at all.
 - Reel remembers where you stopped: a project opens with the playhead where it was when you last left it (Home goes to the start).
 

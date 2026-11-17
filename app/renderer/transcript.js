@@ -23,7 +23,9 @@ let progressHooked = false; const listeners = new Map();
 let listening = null;
 export function stopListening(app) { if (listening) { listening.stopped = true; if (listening.job) app.api.speechCancel?.(listening.job); } }
 async function mediaWords(app, m, locale, onProgress, span = null) {
-  if (m.transcript && m.transcript.locale === locale) {
+  // (v 2: made since the speech helper listens again past where the recogniser gave up; older ones can have long
+  // stretches of speech with no words, so they're made again once)
+  if (m.transcript && m.transcript.locale === locale && m.transcript.v >= 2) {
     try { return (await app.api.readJson(app.token, m.transcript.file)).words || []; } catch { /* make it again */ }
   }
   if (!progressHooked && app.api.onSpeechProgress) { progressHooked = true; app.api.onSpeechProgress((id, msg) => listeners.get(id)?.(msg)); }
@@ -42,7 +44,7 @@ async function mediaWords(app, m, locale, onProgress, span = null) {
     if (!r || !Array.isArray(r.words)) throw new Error('Speech recognition isn’t available on this Mac right now.');
     const file = await app.api.writeJson(app.token, `${String(m.file).replace(/\.[^.]+$/, '')}-words`, { locale, words: r.words, onDevice: r.onDevice });
     const live = app.doc?.media.find(x => x.id === m.id);
-    if (live) { live.transcript = { file, locale, onDevice: r.onDevice }; app.setDirty(true); }
+    if (live) { live.transcript = { file, locale, onDevice: r.onDevice, v: 2 }; app.setDirty(true); }
     return r.words;
   } finally { listeners.delete(job); }
 }
@@ -66,7 +68,7 @@ export async function timelineWords(app, { locale, track = '', clipIds = null },
       for (const [i, c] of clips.entries()) {
         const m = soundOf(doc, c), sp = c.speed || 1, a = Math.max(0, (c.in || 0) - 0.5), b = (c.in || 0) + c.duration * sp + 0.5;
         onStatus?.(`Listening to “${c.name || m.name}” (${i + 1} of ${clips.length})…`, i / clips.length);
-        const w = await mediaWords(app, m, locale, v => onStatus?.(`Listening to “${c.name || m.name}” (${i + 1} of ${clips.length})… ${Math.round(v * 100)}%`, (i + v) / clips.length), m.transcript?.locale === locale ? null : [a, b]);
+        const w = await mediaWords(app, m, locale, v => onStatus?.(`Listening to “${c.name || m.name}” (${i + 1} of ${clips.length})… ${Math.round(v * 100)}%`, (i + v) / clips.length), m.transcript?.locale === locale && m.transcript.v >= 2 ? null : [a, b]);
         if (listening.stopped) throw new Error('Stopped.');
         byMedia.set(c.id, w);
       }
