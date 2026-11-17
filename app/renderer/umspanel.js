@@ -35,7 +35,7 @@ const CATS = [['all', 'All'], ['um', 'Um · uh'], ['phrase', 'Like · you know']
 
 /**
  * Listens to the speech and replaces the project's list of ums (words you looked for stay). With ums you taught
- * Reel (🎙), it also listens for those in your voice, and the guessed "sounds between words" are left out.
+ * Reel (🎙), it also listens for those in your voice; sounds in the pauses it didn't match are listed too, kept.
  */
 async function listen(app, { locale, track, ranges = null, clipIds = null, stop = null }, onStatus) {
   app.deck?.tally(0, 'filler words found', { done: false });
@@ -44,23 +44,26 @@ async function listen(app, { locale, track, ranges = null, clipIds = null, stop 
   onStatus?.('Looking for ums between the words…', 1);
   const clips = speechClips(app.doc, track).filter(c => !clipIds || clipIds.includes(c.id));
   const trained = !!umModel();
+  // the sounds in the pauses between words (and at a clip's very start or end, where a cut often leaves an um),
+  // from the waveform: the ums the speech recogniser didn't write down
+  const sources = await Promise.all(clips.map(async clip => ({ clip, peaks: await peaksFor(app, mediaById(app.doc, clip.media)).catch(() => null) })));
+  const edges = [];
+  for (const c of clips) {
+    const inside = words.filter(w => w.t >= c.start - 0.01 && w.end <= c.start + c.duration + 0.01);
+    if (!inside.length) { edges.push([c.start, c.start + c.duration]); continue; }
+    edges.push([c.start, inside[0].t], [inside[inside.length - 1].end, c.start + c.duration]);
+  }
+  const guessed = findUms(words, levelOnTimeline(sources), { edges });
   let found = [];
   if (trained) {
     const heard = findUms(words, null);
     app.deck?.tally(heard.length, 'filler words found', { done: false });
     const yours = await findYourUms(app, clips, onStatus);
     found = [...heard, ...yours.filter(y => !heard.some(h => h.t < y.end && h.end > y.t)).map(y => ({ t: y.t, end: y.end, text: y.word === 'umm' ? 'um' : y.word, kind: 'voice', cut: y.sure }))]; // every sound you taught (ums, breaths, sneezes…) is marked CUT when Reel is sure
-  } else {
-    const sources = await Promise.all(clips.map(async clip => ({ clip, peaks: await peaksFor(app, mediaById(app.doc, clip.media)).catch(() => null) })));
-    // the start of each clip before its first word, and its end after its last: a cut often leaves an um there
-    const edges = [];
-    for (const c of clips) {
-      const inside = words.filter(w => w.t >= c.start - 0.01 && w.end <= c.start + c.duration + 0.01);
-      if (!inside.length) { edges.push([c.start, c.start + c.duration]); continue; }
-      edges.push([c.start, inside[0].t], [inside[inside.length - 1].end, c.start + c.duration]);
-    }
-    found = findUms(words, levelOnTimeline(sources), { edges });
-  }
+    // what your voice didn't match is still listed from the pauses (kept until you choose CUT): a taught voice can
+    // miss an um said into the next word, or on another mic, and it used to mean those weren't listed at all
+    for (const g of guessed) if (g.kind === 'sound' && !found.some(f => f.t < g.end && f.end > g.t)) found.push(g);
+  } else found = guessed;
   const trackAt = t => clips.find(c => t >= c.start - 0.01 && t < c.start + c.duration)?.track;
   // just some clips (the selected ones): what's found in them replaces what was listed there, the rest stays
   const within = u => !ranges || ranges.some(([a, b]) => u.t >= a - 0.01 && u.t < b);

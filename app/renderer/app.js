@@ -144,7 +144,7 @@ class App {
       this.showTime(fmtTime(t, this.doc?.canvas.fps || 30, true));
       $('#t-play .kl').textContent = this.player.playing ? '❚❚' : '▶';
       this.timeline.updatePlayhead(t);
-      if (!this.player.playing) { this.overlay.update(); this.inspector.onTime(); }
+      if (!this.player.playing) { this.overlay.update(); this.inspector.onTime(); this._keepPlace(t); }
     });
     api.onMenu(cmd => this.cmd(cmd));
     if (api.onOpenProject) api.onOpenProject(p => this.open(Promise.resolve(p)));
@@ -348,6 +348,18 @@ class App {
       this.renderAll();
       requestAnimationFrame(() => this.timeline.fit());
       this.player.seek(0);
+      // back where you left off: the playhead as it was when you last stopped (kept on this Mac as you go, and in
+      // the project when it's saved)
+      {
+        let at = null;
+        try { at = Number(localStorage.getItem('reel.playhead:' + this.doc.name)); } catch { /* none */ }
+        if (!(at > 0)) at = Number(this.doc.playhead) || 0;
+        const end = duration(this.doc);
+        if (at > 0.5 && at < end - 0.05) {
+          this.player.seek(at);
+          setTimeout(() => toast(`Back where you left off: ${fmtTime(at).replace(/\.\d+$/, '')}. Home goes to the start.`, 4000), 700);
+        }
+      }
       this._fixOldScreenflowColour(); // before proxies: it may replace them
       setTimeout(() => this.proxies.kick(), 1500); // after the first frames are up
       setTimeout(() => { if (this.doc) labelNudge(this); }, 5000); // ask once to colour-label the sound tracks
@@ -474,9 +486,18 @@ class App {
           poster = new Uint8Array(await (await new Promise(r => c.toBlob(r, 'image/jpeg', 0.8))).arrayBuffer());
         } catch { /* poster is optional */ }
       }
+      this.doc.playhead = +this.player.time.toFixed(3); // where you were, for next time (doesn't count as a change)
       await api.save(this.token, this.doc, poster);
       this.setDirty(false);
     } catch (e) { toast(`Couldn’t save: ${e.message}`, 6000); }
+  }
+
+  /** Notes where the playhead stopped (for the next time this project is opened), a moment after it settles. */
+  _keepPlace(t) {
+    clearTimeout(this._placeT);
+    const name = this.doc?.name;
+    if (!name) return;
+    this._placeT = setTimeout(() => { try { localStorage.setItem('reel.playhead:' + name, String(+t.toFixed(3))); } catch { /* fine */ } }, 600);
   }
 
   setDirty(d) { this.dirty = d; api.setDirty(d); this.setLamp('saved', !d && !!this.doc); }

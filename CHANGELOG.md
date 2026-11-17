@@ -2,6 +2,9 @@
 
 ## 1.11.0 — 2026-11-16
 
+- Fillers with your ums taught: the sounds in the pauses your voice didn't match are listed too (kept until you choose CUT). Before, teaching Reel turned that search off, so an um said into the next word or on another mic wasn't found at all.
+- Reel remembers where you stopped: a project opens with the playhead where it was when you last left it (Home goes to the start).
+
 - Fillers: the ums the speech recogniser leaves out of its words are found more often: softly said ones (a third of the speech level, not half), longer ones, ones in slightly longer pauses, and the one a cut often leaves at the very start or end of a clip.
 
 - SNAP: a clip moved along the timeline snaps by its end too (a callout's end onto the end of the clip under it). It used to snap only by its start, unless the start happened to be nearer something.
