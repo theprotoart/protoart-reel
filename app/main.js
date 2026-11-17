@@ -1267,17 +1267,23 @@ handle('core:watch', async (id, token, name, o) => {
   const ended = new Promise(res => dec.on('close', c => res(c)));
   coreWatches.set(id, () => { ctl.abort(); try { dec.kill(); } catch { /* gone */ } });
   const send = t => { if (win && !win.isDestroyed()) win.webContents.send('core:progress', id, t); };
+  // a watchdog: a file the decoder gets stuck on (a damaged recording) mustn't hold everything up. 15 s without a
+  // frame and it's stopped; the editor then watches that clip by playing it, which has its own time limit
+  let last = Date.now(), stalled = false;
+  dec.stdout.on('data', () => { last = Date.now(); });
+  const dog = setInterval(() => { if (Date.now() - last > 15000) { stalled = true; ctl.abort(); try { dec.kill('SIGKILL'); } catch { /* gone */ } } }, 2000);
   try {
     const r = await core.watch({ gw: o.gw, gh: o.gh, pw: o.pw || 0, ph: o.ph || 0, giveUp: o.giveUp || 0 }, dec.stdout, { onProgress: send, signal: ctl.signal });
     const code = await ended;
     // the decoder gave up on the file: the editor watches it by playing instead
-    if (code !== 0) return null;
+    if (code !== 0 || stalled) return null;
     return r;
   } catch (e) {
+    if (stalled) { console.warn(`reel-frames stalled on ${name}; watching it by playing instead`); return null; }
     if (ctl.signal.aborted) throw new Error('Cancelled');
     if (why) return null;
     throw e;
-  } finally { coreWatches.delete(id); try { dec.kill(); } catch { /* gone */ } }
+  } finally { clearInterval(dog); coreWatches.delete(id); try { dec.kill(); } catch { /* gone */ } }
 });
 handle('core:watchStop', async id => { coreWatches.get(id)?.(); });
 

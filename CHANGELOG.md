@@ -1,6 +1,8 @@
 # Changelog
 
 ## 1.11.0 — 2026-11-16
+
+- Make Vertical and Auto Edit no longer stall on a recording the Mac's decoder gets stuck on: after 15 s with no frames it's stopped and that clip is watched by playing, and Make Vertical gives each clip a time limit, framing it from what was seen.
 - ★ Recommended export presets at the top of the list: **YouTube 1080p** (up to 60 fps), **YouTube 4K** (HEVC), **TikTok · Reels · Shorts** (vertical 1080p, 30 fps) and **Instagram feed** (1080p, 30 fps). Each uses Apple's hardware encoder (the fastest) at a high bitrate (the sites re-encode, so starting sharp matters) with high-bitrate sound, and says so under the menu. Choosing the vertical one on a wide project offers Make Vertical first.
 - Exports drawn by the Rust core now include still pictures (photos, logos, screenshots: read the right way up by the Mac's image reader); SVG and GIF pictures still export the usual way.
 - 🎵 Remix (Fit the music, and the ♪ handle on a music clip) rebuilt so an extension sounds like the song, not a section pasted back to back: Reel now follows the song's beat as it drifts and finds its bars; a join is only made between bar starts whose two bars either side match in sound **and** chords (and loudness); a search picks several different joins spread through the song (playing whole sections again, not one short stretch over and over), never fewer than two bars between joins; and each join is lined up to the sample (the waveforms matched within ±25 ms) with a 40–80 ms crossfade instead of up to half a second, so drums at a join hit once. When the song only repeats in whole phrases and can't land exactly, it plays to the target and fades out over the last bars rather than adding a messy join.

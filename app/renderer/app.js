@@ -1901,7 +1901,9 @@ class App {
             for (let t = 0; t <= c.duration; t += 0.2) { const p = data && cursorAt(data, m.cursorOffset || 0, (c.in || 0) + t * (c.speed || 1), 0.3); if (p && p.x >= -0.02 && p.x <= 1.02 && p.y >= -0.02 && p.y <= 1.02) focus.push({ t, x: p.x, y: p.y, w: p.click != null ? 3 : 1 }); }
           }
           if (!focus.length && m.kind === 'video') {
-            const res = await zoomAnalyse(this, c, m, { signal: ctl.signal, onProgress: v => { bar.firstChild.style.width = Math.round(((k + v) / clips.length) * 100) + '%'; } });
+            // a time limit (as Auto Edit has): a clip that won't play smoothly stops there and is framed from what was
+            // seen, so one stubborn recording can't hold up the rest
+            const res = await zoomAnalyse(this, c, m, { budget: Math.max(25, c.duration * 0.4), signal: ctl.signal, onProgress: v => { bar.firstChild.style.width = Math.round(((k + v) / clips.length) * 100) + '%'; } });
             focus = res.samples.map(s => s.motion > 0.01 ? { t: s.t, x: s.cx, y: s.cy, w: 0.3 + s.motion * 4 } : { t: s.t, x: s.detail?.x ?? 0.5, y: s.detail?.y ?? 0.5, w: 0.15 });
           }
           if (this.token !== token) return;
