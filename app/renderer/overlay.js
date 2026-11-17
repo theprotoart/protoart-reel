@@ -30,6 +30,7 @@ export class Overlay {
 
   update() {
     this.app.markup?.draw(); // the markup bar shows the selected shape's line and colours
+    this.app.updateTape?.(); // the cassette lights when there's a remixed song to try again
     if (this.dragging) return; // the box being dragged follows the pointer itself
     const app = this.app, doc = this.doc;
     this.root.replaceChildren();

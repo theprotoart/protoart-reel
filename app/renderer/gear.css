@@ -2652,3 +2652,15 @@ html[data-theme="light"] .lib-item .lsound.on { color: #1d1a14; }
 .remix-toggle:has(input:checked) .boombox .bb-spk { animation: bb-thump 1.2s ease-in-out infinite; transform-origin: center; transform-box: fill-box; }
 @keyframes bb-thump { 50% { transform: scale(1.08); } }
 @media (prefers-reduced-motion: reduce) { .remix-toggle .boombox .bb-spk { animation: none !important; } }
+
+/* the cassette beside it: lit when there's a remixed song to try again (one click, another variation) */
+.tool.remix-tape { padding: 0 7px; min-width: 0; }
+.remix-tape .cassette { width: 26px; height: 18px; display: block; overflow: visible; }
+.remix-tape .cassette * { fill: none; stroke: #6a6256; stroke-width: 1.3; stroke-linecap: round; transition: stroke .15s, fill .15s; }
+.remix-tape:disabled { opacity: .55; cursor: default; }
+.remix-tape:not(:disabled) .cassette * { stroke: #ffc24a; }
+.remix-tape:not(:disabled) .cassette .cs-label { fill: rgba(255, 180, 60, .14); }
+.remix-tape:not(:disabled) .cassette { filter: drop-shadow(0 0 4px rgba(255, 180, 60, .5)); }
+.remix-tape.spinning .cs-reel { animation: cs-spin .8s linear infinite; transform-origin: center; transform-box: fill-box; stroke-dasharray: 3 1.5; }
+@keyframes cs-spin { to { transform: rotate(360deg); } }
+@media (prefers-reduced-motion: reduce) { .remix-tape .cs-reel { animation: none !important; } }

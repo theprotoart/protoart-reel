@@ -24,7 +24,7 @@ import { Library } from './library.js';
 import { Overlay } from './overlay.js';
 import { Markup } from './markup.js';
 import { openRecorder } from './recorder.js';
-import { openMusicFit } from './musicfit.js';
+import { openMusicFit, tryAnother } from './musicfit.js';
 import { openGhost } from './ghost.js';
 import { openExport } from './exporter.js';
 import { openThumbnailStudio } from './thumbs.js';
@@ -155,6 +155,13 @@ class App {
     new ResizeObserver(() => this.player.resize()).observe($('#stage'));
     makeResizable(() => this.player.resize());
     // 🎵 REMIX (next to SNAP): a music clip's end re-fits the song seamlessly, or trims as normal when off
+    // the cassette: another variation of the remixed song, in one click
+    document.getElementById('remix-tape')?.addEventListener('click', async e => {
+      const b = e.currentTarget, c = this.remixTarget();
+      if (!c || b.classList.contains('spinning')) return;
+      b.classList.add('spinning');
+      try { await tryAnother(this, c); } finally { b.classList.remove('spinning'); this.updateTape(); }
+    });
     document.getElementById('remix')?.addEventListener('change', e => {
       setPref('remix', e.target.checked);
       this.timeline?.render();
@@ -1133,6 +1140,24 @@ class App {
   showWindowAfterFailure() { /* the main process shows the window when recording ends */ }
 
   // ---------------------------------------------------------------- commands
+  /** The remixed song the cassette works on: the selected one, else the project's only one. */
+  remixTarget() {
+    const d = this.doc;
+    if (!d) return null;
+    const sel = d.clips.find(c => c.musicFit && this.selection.clips.includes(c.id));
+    if (sel) return sel;
+    const groups = new Set(d.clips.filter(c => c.musicFit).map(c => c.group));
+    return groups.size === 1 ? d.clips.find(c => c.musicFit) : null;
+  }
+  /** Lights the cassette when there's a remixed song to try again. */
+  updateTape() {
+    const b = document.getElementById('remix-tape');
+    if (!b) return;
+    const c = this.remixTarget();
+    b.disabled = !c;
+    b.title = c ? `Try another remix of “${(c.name || 'the song').replace(/ \(\d+\)$/, '')}”: the same length, joined at other places (⌘Z goes back)` : 'Try another remix: select a remixed song (fit one with the ♪ end or 🎵 Fit the music first). Lights up when there’s one to try.';
+  }
+
   cmd(name, arg) {
     const doc = this.doc, t = this.player.time, sel = this.selection.clips;
     const needDoc = !['new', 'open', 'templates', 'home', 'about', 'settings', 'stop-recording', 'pause-recording', 'discard-recording', 'record', 'sound', 'toggle-smpte', 'explain', 'track-small', 'track-regular', 'track-large', 'toggle-scrub'].includes(name);
