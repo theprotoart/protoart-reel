@@ -2,6 +2,12 @@
 
 ## 1.11.0 — 2026-11-16
 
+- Teaching Reel your fillers now makes it find more, not fewer:
+  - What you taught is matched all along your speech, so an um or uh said straight into the next word (no pause around it) is found. Before, only sounds with a pause either side were ever compared with what you taught.
+  - A filler marked on the timeline is learned from exactly what you marked (its quiet ends trimmed), not from a nearby "burst" that could take in part of the next word.
+  - Each teaching used to make Reel stricter about ordinary speech (it kept the lowest it had ever seen), so the more you taught, the less it found. It now goes by the middle, and it's never stricter than your own taught fillers are with each other.
+  - Which filler it is (um or uh…) is decided by the nearest few of each you taught, not the single nearest, so one stray take doesn't mislabel the rest.
+
 - Speech: the Mac's recogniser sometimes gave up part way through a stretch and left up to half a minute of speech with no words (in Video 3, 29 s after “…floating in the air” had none, the “uh” there included). The speech helper now listens again from where it stopped, in half-minute stretches; transcripts made before are made again once. Fixes missed fillers and missing captions there.
 
 - Fillers with your ums taught: the sounds in the pauses your voice didn't match are listed too (kept until you choose CUT). Before, teaching Reel turned that search off, so an um said into the next word or on another mic wasn't found at all.

@@ -1,6 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { RATE, to16k, fingerprint, dtw, bursts, train, findInSamples, packModel, unpackModel, addTake, addNot } from '../app/renderer/lib/umvoice.js';
+import { RATE, to16k, fingerprint, dtw, bursts, train, findInSamples, findInSequence, packModel, unpackModel, addTake, addNot } from '../app/renderer/lib/umvoice.js';
 
 // A tiny voice: a glottal pulse train through formant resonators (source-filter), so vowels sound like vowels.
 let seed = 7; const rnd = () => ((seed = (seed * 16807) % 2147483647) / 2147483647);
@@ -151,4 +151,33 @@ test('takes taught by mistake can be taken back, newest first, or the sound forg
   assert.equal(dropTakes(m, 'yawning', Infinity).words.length, 1);
   assert.equal(dropTakes(m, 'not', 1).nots.length, 1);
   assert.equal(dropTakes({ ...m, words: [m.words[1]] }, 'yawning', 1), null, 'nothing left: null');
+});
+
+test('an um or uh said straight into the next word (no pause either side) is found by matching what was taught', () => {
+  const takes = [
+    { word: 'umm', samples: cat([quiet(0.3), voice(0.7, UMM, { f0: 108 }), quiet(0.3)]) },
+    { word: 'umm', samples: cat([quiet(0.3), voice(0.45, UMM, { f0: 120 }), quiet(0.3)]) },
+    { word: 'uh', samples: cat([quiet(0.3), voice(0.55, UH, { f0: 112 }), quiet(0.3)]) },
+    { word: 'uh', samples: cat([quiet(0.3), voice(0.35, UH, { f0: 124 }), quiet(0.3)]) },
+  ];
+  const model = train({ takes, speech: sentence(6) });
+  // no pauses at all: sentence, uh, sentence, umm, sentence
+  const parts = [sentence(2), voice(0.45, UH, { f0: 118 }), sentence(2.2), voice(0.5, UMM, { f0: 114 }), sentence(1.8)];
+  const startOf = i => parts.slice(0, i).reduce((s, p) => s + p.length, 0) / RATE;
+  const x = cat(parts);
+  const t0 = Date.now();
+  const found = findInSequence(model, x);
+  const at = t => found.find(f => f.t <= t + 0.15 && f.end >= t + 0.25);
+  assert.equal(at(startOf(1))?.word, 'uh', JSON.stringify(found));
+  assert.equal(at(startOf(3))?.word, 'umm', JSON.stringify(found));
+  assert.ok(found.length <= 4, `the two, and few if any others: ${JSON.stringify(found)}`);
+  assert.ok(Date.now() - t0 < 4000, 'quick enough for a clip');
+});
+
+test('teaching from the timeline makes it find more, not fewer: ordinary speech is judged by the middle of what was heard', () => {
+  let m = null;
+  for (let i = 0; i < 6; i++) m = addTake(m, 'umm', cat([quiet(0.2), voice(0.4 + i * 0.05, UMM, { f0: 105 + i * 4 }), quiet(0.2)]), sentence(3), { exact: true });
+  const same = m.same;
+  assert.ok(m.threshold >= same * 0.999, `still finds its own takes (${m.threshold} vs ${same})`);
+  assert.equal(m.nears.length, 6);
 });

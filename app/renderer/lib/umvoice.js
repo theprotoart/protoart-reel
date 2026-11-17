@@ -163,6 +163,9 @@ export function retune(m) {
   const s = sameHi ?? nearLo * 0.6; // one take of each: a margin under ordinary speech
   // between the two: closer to your ums than nearly all ordinary speech
   m.threshold = nearLo > s ? s + (nearLo - s) * 0.45 : Math.min(s, nearLo) * 0.95;
+  // never stricter than your own takes are with each other: if the ums you taught can't find each other, the ones in
+  // your recordings won't be found either (the old way of keeping "ordinary speech" could squeeze it under that)
+  if (sameHi != null) m.threshold = Math.max(m.threshold, sameHi);
   m.same = s;
   return m;
 }
@@ -178,18 +181,38 @@ function burstOf(x) {
  * 16 kHz samples, and optionally some of the same person's ordinary speech around it (sets how strict to be when
  * there's no sentence yet). Starts a model if there isn't one. Returns the model.
  */
-export function addTake(model, word, samples, context) {
-  const fp = fingerprint(burstOf(samples));
+export function addTake(model, word, samples, context, { exact = false } = {}) {
+  // exact: the piece is just the sound (marked by hand on the timeline): only its quiet ends come off. Looking for a
+  // "burst" in it would take a piece of the word next to it when there's no pause between them
+  const fp = fingerprint(exact ? trimQuiet(samples) : burstOf(samples));
   if (fp.length < 8) throw new Error('Too short to learn from: pick the whole um, with a little silence either side.');
   const m = model || { version: 1, words: [], nots: [], near: null };
   let w = m.words.find(x => x.word === word);
   if (!w) m.words.push(w = { word, prints: [] });
   w.prints.push(fp);
+  // how close ordinary speech comes: the middle of what each teaching's surroundings said (it used to keep the
+  // lowest ever, so every um taught made Reel stricter and it found fewer, not more)
   if (context?.length) {
     const n = nearOf(m.words, context);
-    if (n != null) m.near = m.near == null ? n : Math.min(m.near, n);
+    if (n != null) {
+      m.nears = [...(m.nears || (m.near != null ? [m.near] : [])), n].slice(-40);
+      const s = [...m.nears].sort((a, b) => a - b);
+      m.near = s[Math.floor(s.length / 2)];
+    }
   }
   return retune(m);
+}
+
+/** The sound with its quiet ends taken off (below a tenth of its loudest 10 ms). */
+export function trimQuiet(x) {
+  const win = Math.round(RATE * 0.01), n = Math.floor(x.length / win);
+  if (n < 3) return x;
+  const env = Array.from({ length: n }, (_, i) => { let s = 0; for (let k = i * win; k < (i + 1) * win; k++) s += x[k] * x[k]; return Math.sqrt(s / win); });
+  const top = Math.max(...env), bar = top * 0.1;
+  let a = 0, b = n;
+  while (a < n - 1 && env[a] < bar) a++;
+  while (b > a + 1 && env[b - 1] < bar) b--;
+  return x.subarray(Math.max(0, a - 2) * win, Math.min(n, b + 2) * win);
 }
 
 /**
@@ -217,9 +240,17 @@ export function addNot(model, samples) {
 
 /** How close a fingerprint is to your ums: { word, d } (the nearest take). */
 export function score(model, fp) {
-  let best = { word: null, d: Infinity };
-  for (const w of model.words) for (const p of w.prints) { const d = dtw(fp, p); if (d < best.d) best = { word: w.word, d }; }
-  return best;
+  // d: the nearest take of any sound (how sure it is an um at all). word: the sound whose nearest few takes are
+  // nearest on average, so one stray take of "uh" doesn't call an "umm" an "uh"
+  let d = Infinity, word = null, wbest = Infinity;
+  for (const w of model.words) {
+    const ds = w.prints.map(p => dtw(fp, p)).sort((a, b) => a - b);
+    if (!ds.length) continue;
+    d = Math.min(d, ds[0]);
+    const k = ds.slice(0, 3), avg = k.reduce((s, v) => s + v, 0) / k.length;
+    if (avg < wbest) { wbest = avg; word = w.word; }
+  }
+  return { word, d };
 }
 
 /**
@@ -254,10 +285,87 @@ export function findInSamples(model, x) {
   return out;
 }
 
+/**
+ * Your sounds said straight into the next word (no pause either side, so never a "burst"): every one of your takes
+ * is slid along the recording's fingerprint (dynamic time warping with a free start and end), and where one fits as
+ * closely as your ums fit each other it's a hit. Returns [{ t, end, word, d, sure }] in seconds, not overlapping.
+ */
+export function findInSequence(model, x, { strict = 0.9 } = {}) {
+  const F = fingerprint(x), n = F.length;
+  if (n < 8 || !model?.words?.length) return [];
+  // where there's sound at all (the quiet between sentences isn't searched)
+  const loud = new Float32Array(n);
+  for (let i = 0; i < n; i++) { let s = 0; for (let k = i * HOP; k < i * HOP + FRAME && k < x.length; k++) s += x[k] * x[k]; loud[i] = Math.sqrt(s / FRAME); }
+  const sorted = Float32Array.from(loud).sort(), floor = sorted[Math.floor(n * 0.1)] || 0, top = sorted[Math.floor(n * 0.95)] || 0;
+  const on = Math.max(floor * 2.5, floor + (top - floor) * 0.1, 1e-4);
+  const thr = model.threshold * strict, cands = [];
+  for (const w of model.words) {
+    // the most recent takes (up to 12) of each sound
+    for (const P of w.prints.slice(-12)) {
+      const m = P.length;
+      if (m < 8) continue;
+      // each of the take's frames matched to one frame of the recording, in order, the recording moving on one or two
+      // frames a step or (never twice running) staying put: every path adds up the same number of frames, so their
+      // costs compare fairly and a short stretch isn't favoured. Row by row: the cost arriving by a step on (N) or by
+      // staying put (V), and where the path started
+      const INF = Infinity;
+      let pN = new Float64Array(n), pV = new Float64Array(n), pS = new Int32Array(n), pSV = new Int32Array(n);
+      let cN = new Float64Array(n), cV = new Float64Array(n), cS = new Int32Array(n), cSV = new Int32Array(n);
+      const dist = (i, j) => { const p = P[i], f = F[j]; let dd = 0; for (let k = 0; k < p.length; k++) { const v = p[k] - f[k]; dd += v * v; } return Math.sqrt(dd); };
+      for (let jj = 0; jj < n; jj++) { pN[jj] = dist(0, jj); pS[jj] = jj; pV[jj] = INF; pSV[jj] = jj; }
+      for (let i = 1; i < m; i++) {
+        for (let jj = 0; jj < n; jj++) {
+          const dij = dist(i, jj);
+          let c = INF, st = jj;
+          for (const q of [jj - 1, jj - 2]) {
+            if (q < 0) continue;
+            if (pN[q] < c) { c = pN[q]; st = pS[q]; }
+            if (pV[q] < c) { c = pV[q]; st = pSV[q]; }
+          }
+          cN[jj] = dij + c; cS[jj] = st;
+          cV[jj] = dij + pN[jj]; cSV[jj] = pS[jj];
+        }
+        [pN, cN] = [cN, pN]; [pV, cV] = [cV, pV]; [pS, cS] = [cS, pS]; [pSV, cSV] = [cSV, pSV];
+      }
+      const norm = new Float64Array(n).fill(INF), from = new Int32Array(n);
+      for (let jj = 0; jj < n; jj++) { const useV = pV[jj] < pN[jj]; norm[jj] = (useV ? pV[jj] : pN[jj]) / m; from[jj] = useV ? pSV[jj] : pS[jj]; }
+      // where it fits best (the lowest points), checked with the same measure your takes were compared with
+      for (let jj = 0; jj < n; jj++) {
+        if (!isFinite(norm[jj])) continue;
+        let isMin = true;
+        for (let k = Math.max(0, jj - 5); k <= Math.min(n - 1, jj + 5) && isMin; k++) if (norm[k] < norm[jj]) isMin = false;
+        if (!isMin) continue;
+        const a = from[jj], b = jj + 1;
+        if (b - a < 8) continue;
+        // mostly sound, not the quiet around it
+        let lit = 0; for (let k = a; k < b; k++) if (loud[k] >= on) lit++;
+        if (lit < (b - a) * 0.6) continue;
+        const d = dtw(F.slice(a, b), P);
+        if (d <= thr) cands.push({ a, b, d, word: w.word });
+      }
+    }
+  }
+  // the best first; one per stretch of sound
+  cands.sort((p, q) => p.d - q.d);
+  const out = [];
+  for (const c of cands) {
+    if (out.some(o => o.a < c.b && o.b > c.a)) continue;
+    const t = (c.a * HOP) / RATE, end = (c.b * HOP + FRAME) / RATE;
+    if (end - t < 0.12 || end - t > 1.6) continue;
+    // nearer something you said isn't an um than to any um: not one
+    const fp = F.slice(c.a, c.b);
+    const no = (model.nots || []).reduce((dmin, q) => Math.min(dmin, dtw(fp, q)), Infinity);
+    if (no < c.d) continue;
+    const s = score(model, fp);
+    out.push({ a: c.a, b: c.b, t, end, word: s.word || c.word, d: c.d, sure: c.d <= model.threshold * 0.7 });
+  }
+  return out.sort((p, q) => p.t - q.t).map(({ t, end, word, d, sure }) => ({ t, end, word, d, sure, joined: true }));
+}
+
 /** A model made safe to store as JSON (fingerprints as plain arrays) and back. */
 const packPrint = p => p.map(f => Array.from(f, v => Math.round(v * 1000) / 1000));
 const readPrint = p => p.filter(Array.isArray).map(f => Float32Array.from(f.slice(0, COEFS).map(Number)));
-export const packModel = m => JSON.stringify({ ...m, words: m.words.map(w => ({ word: w.word, prints: w.prints.map(packPrint) })), nots: (m.nots || []).map(packPrint) });
+export const packModel = m => JSON.stringify({ ...m, nears: m.nears || undefined, words: m.words.map(w => ({ word: w.word, prints: w.prints.map(packPrint) })), nots: (m.nots || []).map(packPrint) });
 export function unpackModel(s) {
   try {
     const m = typeof s === 'string' ? JSON.parse(s) : s;

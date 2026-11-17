@@ -3,7 +3,7 @@
 // including the ones speech recognition doesn't write down. Everything stays on this Mac (the model is kept in
 // Reel's own storage here, never uploaded).
 import { el, modal, drawer, toast, ask, popMenu } from './ui.js';
-import { train, findInSamples, packModel, unpackModel, to16k, RATE, addTake, addNot, dropTakes } from './lib/umvoice.js';
+import { train, findInSamples, findInSequence, packModel, unpackModel, to16k, RATE, addTake, addNot, dropTakes } from './lib/umvoice.js';
 import { openAudio } from './lib/sources.js';
 import { soundOf, speechClips } from './transcript.js';
 import { fmtTime as fmt } from './model.js';
@@ -311,10 +311,11 @@ export const _wordOf = wordOf; // for tests
  * speech a few seconds either side to tell it apart from ordinary words.
  */
 export async function teachFromTimeline(app, t0, t1, text = 'umm', track = '') {
-  const piece = await soundAt(app, Math.max(0, t0 - 0.12), t1 + 0.12, track);
+  // just what you marked (its quiet ends trimmed): an um said into the next word has no pause to find it by
+  const piece = await soundAt(app, Math.max(0, t0), t1, track);
   if (!piece) throw new Error('No sound there to learn from.');
   const around = await soundAt(app, Math.max(0, t0 - 4), t0 - 0.2, track).catch(() => null);
-  const m = addTake(umModel(), wordOf(text), piece.samples, around?.samples);
+  const m = addTake(umModel(), wordOf(text), piece.samples, around?.samples, { exact: true });
   saveModel(m);
   return m;
 }
@@ -342,7 +343,12 @@ export async function findYourUms(app, clips, onStatus) {
     // the Rust helper when this build has it (faster, and the editor doesn't stall); the same answers either way
     let hits = null;
     try { hits = await app.api.coreUmFind?.(JSON.parse(packModel(model)), x); } catch { hits = null; }
-    for (const h of hits || findInSamples(model, x)) out.push({ t: c.start + h.t / speed, end: c.start + h.end / speed, word: h.word, sure: h.sure, track: c.track });
+    const found = [...(hits || findInSamples(model, x))];
+    // and the ones said straight into the next word (no pause around them, so never a "burst")
+    onStatus?.(`Matching what you taught in “${c.name || 'clip'}” (${i + 1} of ${clips.length})…`, (i + 0.5) / clips.length);
+    await new Promise(r => setTimeout(r, 0));
+    for (const h of findInSequence(model, x)) if (!found.some(f => f.t < h.end && f.end > h.t)) found.push(h);
+    for (const h of found) out.push({ t: c.start + h.t / speed, end: c.start + h.end / speed, word: h.word, sure: h.sure, joined: !!h.joined, track: c.track });
   }
   return out.sort((a, b) => a.t - b.t);
 }

@@ -59,7 +59,9 @@ async function listen(app, { locale, track, ranges = null, clipIds = null, stop 
     const heard = findUms(words, null);
     app.deck?.tally(heard.length, 'filler words found', { done: false });
     const yours = await findYourUms(app, clips, onStatus);
-    found = [...heard, ...yours.filter(y => !heard.some(h => h.t < y.end && h.end > y.t)).map(y => ({ t: y.t, end: y.end, text: y.word === 'umm' ? 'um' : y.word, kind: 'voice', cut: y.sure }))]; // every sound you taught (ums, breaths, sneezes…) is marked CUT when Reel is sure
+    // one found inside a word the recogniser heard clearly (a long one: "people", "floating") is that word, not a filler
+    const inWord = y => y.joined && words.some(w => String(w.text).replace(/[^\p{L}]/gu, '').length >= 4 && Math.min(w.end, y.end) - Math.max(w.t, y.t) > (y.end - y.t) * 0.8);
+    found = [...heard, ...yours.filter(y => !heard.some(h => h.t < y.end && h.end > y.t) && !inWord(y)).map(y => ({ t: y.t, end: y.end, text: y.word === 'umm' ? 'um' : y.word, kind: 'voice', cut: y.sure }))]; // every sound you taught (ums, breaths, sneezes…) is marked CUT when Reel is sure
     // what your voice didn't match is still listed from the pauses (kept until you choose CUT): a taught voice can
     // miss an um said into the next word, or on another mic, and it used to mean those weren't listed at all
     for (const g of guessed) if (g.kind === 'sound' && !found.some(f => f.t < g.end && f.end > g.t)) found.push(g);
