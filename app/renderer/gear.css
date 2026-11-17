@@ -2527,3 +2527,12 @@ html[data-theme="light"] #inspector .insp-section .row > label { color: #4a443a;
 .tl-row.rh-tiny .clip .strip { opacity: .55; }
 html[data-theme="light"] .tl-head .th-size button { color: #4a443a; }
 .tl-head { padding-left: 15px; }
+/* the look a title has, with its star */
+#inspector .look-row { display: flex; align-items: center; flex-wrap: wrap; gap: 6px; margin: 0 0 10px; padding: 7px 8px; border-radius: 6px; background: rgba(255,194,74,.08); border: 1px solid rgba(255,194,74,.25); }
+#inspector .look-row .lr-label { font: 500 12px/1.2 var(--font-ui, system-ui); color: #a8a090; }
+#inspector .look-row .lr-name { flex: 1 1 auto; font: 600 12.5px/1.2 var(--font-ui, system-ui); color: #f2ead8; min-width: 0; }
+#inspector .look-row .lr-star { border: 0; background: none; font-size: 18px; line-height: 1; color: #d8cfbd; cursor: pointer; padding: 0 2px; }
+#inspector .look-row .lr-star.on { color: #ffc24a; }
+.pl-tile.pl-reveal, .pl-sound.pl-reveal { outline: 2px solid #ffc24a; box-shadow: 0 0 0 4px rgba(255,194,74,.35), 0 0 22px rgba(255,194,74,.55); animation: plReveal .6s ease-in-out 3; }
+@keyframes plReveal { 50% { box-shadow: 0 0 0 7px rgba(255,194,74,.15), 0 0 30px rgba(255,194,74,.75); } }
+html[data-theme="light"] #inspector .look-row .lr-name { color: #26221b; }

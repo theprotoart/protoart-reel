@@ -13,7 +13,7 @@ import { openTransitions, transName } from './transpicker.js';
 import { TRANSITIONS } from './inspector.js';
 import { pref } from './prefs.js';
 import { outOfSync } from './lib/sync.js';
-import { dropPreset } from './fxlibrary.js';
+import { dropPreset, lookOf, lookName, isFav, toggleFav, revealPreset } from './fxlibrary.js';
 import { dial } from './gear.js';
 import { fxRack, fxRackH } from './fxrack.js';
 import { roleButton, tint } from './automix.js';
@@ -322,6 +322,10 @@ export class Timeline {
       [c.disabled ? 'Enable clip' : 'Disable clip', () => app.cmd('disable'), 'V'],
       [c.locked ? 'Unlock' : 'Lock', () => app.cmd('lock')],
       [c.group ? 'Ungroup' : 'Group', () => app.cmd(c.group ? 'ungroup' : 'group')],
+      ...(c.type === 'text' ? (() => {
+        const id = lookOf(c.text), name = id && lookName(id);
+        return name ? [[`${isFav('title', id) ? '★ Favorite' : '☆ Add to favorites'}: “${name}”`, () => { const on = toggleFav('title', id); toast(on ? `★ “${name}” is in your favorites (★ FAVS).` : `“${name}” taken out of your favorites.`, 2400); }], [`Find “${name}” in Presets`, () => revealPreset(app, 'title', id)]] : [];
+      })() : []),
       ['Rename…', () => app.cmd('rename-clip')],
       null,
       m && ['video', 'image'].includes(m.kind) && !c.audioOnly ? ['▣ Picture in picture (corner; again: next corner)', () => app.cmd('pip')] : null,

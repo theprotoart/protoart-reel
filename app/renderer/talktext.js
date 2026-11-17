@@ -17,6 +17,9 @@ const LINE_LOOKS = {
   clean: () => ({ anim: 'karaoke', font: 'Avenir Next', weight: 700, size: 70, stroke: 0, shadow: 0, bg: '#000000', bgOpacity: 0.55, padding: 20, accent: 'color', accentColor: '#ffb02a', hiColor: '#ffb02a', width: 0.8 }),
 };
 
+/** Which ready-made look each spoken-words look is (the clean one is its own). */
+const LINE_LOOK_IDS = { green: 'lookSpoken', yellow: 'lookSpokenYellow', box: 'lookSpokenBox', one: 'lookOneWord' };
+
 /** Puts the plan on the timeline: { lines, pops } from planTalkingText. Replaces what an earlier run put there. */
 export function placeTalkingText(doc, plan, { look = 'green', tall = false } = {}) {
   doc.clips = doc.clips.filter(c => !c.autoTalk);
@@ -31,7 +34,7 @@ export function placeTalkingText(doc, plan, { look = 'green', tall = false } = {
     for (const l of plan.lines) {
       const c = newTextClip(tr.id, l.t, upper ? l.text.toUpperCase() : l.text);
       c.duration = l.dur; c.autoTalk = true; c.name = l.text;
-      c.text = { ...c.text, ...L, wordTimes: l.wordTimes, animDur: 0.3, size: Math.round((L.size || 90) * (one ? (tall ? 0.95 : 0.8) : tall ? 0.86 : 0.78)), width: tall ? 0.88 : 0.82 };
+      c.text = { ...c.text, ...L, look: LINE_LOOK_IDS[look], wordTimes: l.wordTimes, animDur: 0.3, size: Math.round((L.size || 90) * (one ? (tall ? 0.95 : 0.8) : tall ? 0.86 : 0.78)), width: tall ? 0.88 : 0.82 };
       c.props.y = one ? 0.5 : tall ? 0.7 : 0.83; // under the middle, over the screen's lower edge (and above captions' usual place on a tall video)
       doc.clips.push(c); made.lines++;
     }
@@ -42,7 +45,7 @@ export function placeTalkingText(doc, plan, { look = 'green', tall = false } = {
       const { name, content, ...L } = TITLE_LOOKS[p.look] || TITLE_LOOKS.lookBigPop; void name; void content;
       const c = newTextClip(tr.id, p.t, p.text);
       c.duration = p.dur; c.autoTalk = true; c.name = p.text.replace(/[*\n]/g, ' ').trim();
-      c.text = { ...c.text, ...L, size: Math.round((L.size || 100) * (tall ? 0.8 : 0.85)), width: tall ? 0.86 : 0.7 };
+      c.text = { ...c.text, ...L, look: TITLE_LOOKS[p.look] ? p.look : 'lookBigPop', size: Math.round((L.size || 100) * (tall ? 0.8 : 0.85)), width: tall ? 0.86 : 0.7 };
       c.props.y = tall ? 0.38 : 0.4;
       doc.clips.push(c); made.pops++;
       if (p.emoji && fx) {

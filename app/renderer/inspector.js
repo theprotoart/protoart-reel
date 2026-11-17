@@ -1,6 +1,6 @@
 // Inspector: properties of the selected clip (or the project when nothing is selected).
 // When a zoom & pan action is selected, position/scale/crop edits change that action's target.
-import { el, section, slider, selectRow, colorRow, checkRow, toast } from './ui.js';
+import { el, section, slider, selectRow, colorRow, checkRow, toast, promptText } from './ui.js';
 import { retimeSection } from './retimeui.js';
 import { applyCut, OVERLAP_CUTS, clipEnd, mediaById, fmtTime, ANIMATABLE, propsAt, paramAt, setParam, putKey, removeKey, keysOf, hasKeys, anyKeys, clamp, KEY_EASES, LABELS, setSpeed, SPEED_MIN, SPEED_MAX } from './model.js';
 import { effectsSection, addPluginToClip } from './fx.js';
@@ -15,6 +15,7 @@ import { MOTION_PRESETS, applyMotion, clearMotion } from './motion.js';
 import { hasDynZoom, getDynZoom, setDynZoomEase, swapDynZoom, removeDynZoom, DZ_EASES, setDynZoomTimes, addZoomBackOut, hasZoomBackOut, zoomMoves, shotOf } from './lib/dynzoom.js';
 import { ELEMENTS } from './lib/elements.js';
 import { pref } from './prefs.js';
+import { lookOf, lookName, isFav, toggleFav, saveMyLook, revealPreset } from './fxlibrary.js';
 import { addPush, pushOf, pushAt, setPush, removePush, PUSH_DEFAULTS } from './lib/push.js';
 import { cursorAt } from './cursor.js';
 import { frameFraction } from './autozoom.js';
@@ -597,7 +598,7 @@ export class Inspector {
     area.addEventListener('input', () => { if (!started) { started = true; this.app.beginChange(); } tx.content = area.value; this.app.changed({ light: true, keepInspector: true }); });
     area.addEventListener('change', () => { started = false; this.app.endChange({ keepInspector: true }); });
     this.textArea = area;
-    this.root.append(section('Text', withKeys(area),
+    this.root.append(section('Text', lookRow(this.app, tx), withKeys(area),
       selectRow('Font', tx.font, FONTS.map(f => [f, f]), v => this.edit(() => { tx.font = v; })),
       selectRow('Weight', tx.weight, [[300, 'Light'], [400, 'Regular'], [600, 'Semibold'], [700, 'Bold'], [800, 'Heavy'], [900, 'Black']], v => this.edit(() => { tx.weight = Number(v); })),
       checkRow('Italic', tx.italic, v => this.edit(() => { tx.italic = v; })),
@@ -848,4 +849,30 @@ function pushSection(app, ins, c, m) {
         el('button', { class: 'tool', text: 'Remove', title: 'Take this push out (both halves)', onclick: () => { app.commit(() => removePush(c, id)); app.select([c.id], null); } })));
   }
   return sec;
+}
+
+/**
+ * Which look a title has (a ready-made one, or one of yours), with ☆ to keep it in ★ FAVS and FIND to show it in
+ * Presets; and SAVE AS MY LOOK to keep this title's exact style (colours, font, size…) to use again.
+ */
+function lookRow(app, tx) {
+  const id = lookOf(tx), name = id ? lookName(id) : null;
+  const row = el('div', { class: 'look-row' });
+  const draw = () => {
+    const on = id && isFav('title', id);
+    row.replaceChildren(
+      el('span', { class: 'lr-label', text: 'Look' }),
+      el('span', { class: 'lr-name', text: name || 'Its own style', title: name ? `This title uses “${name}” (Presets › TITLES)` : 'Not one of the ready-made looks: save it as yours to use it again' }),
+      id ? el('button', { class: 'lr-star' + (on ? ' on' : ''), type: 'button', text: on ? '★' : '☆', title: on ? `Take “${name}” out of your favorites` : `Keep “${name}” in your favorites (★ FAVS)`, onclick: () => { const now = toggleFav('title', id); toast(now ? `★ “${name}” is in your favorites (★ FAVS).` : `“${name}” taken out of your favorites.`, 2400); draw(); } }) : null,
+      id ? el('button', { class: 'tool', type: 'button', text: 'Find it', title: 'Show it in Presets › TITLES', onclick: () => revealPreset(app, 'title', id) }) : null,
+      el('button', { class: 'tool', type: 'button', text: 'Save as my look', title: 'Keep this title’s exact style (font, colours, size, animation) as your own look, in ★ FAVS and first on TITLES', onclick: async () => {
+        const n = await promptText('Save as my look', 'A name for this look (its style is kept, not its words):', name ? `${name} (mine)` : 'My look', 'Save');
+        if (n == null) return;
+        const mine = saveMyLook(n.trim() || 'My look', tx);
+        app.commit(() => { tx.look = mine; });
+        toast(`★ “${n.trim() || 'My look'}” saved: in ★ FAVS, and first on TITLES.`, 3500);
+      } }));
+  };
+  draw();
+  return row;
 }

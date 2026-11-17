@@ -128,18 +128,56 @@ export const TITLE_LOOKS = {
 };
 /** The text settings a title tile stands for (a look, or just an animation with words that suit it). */
 const BIG_TITLES = new Set(['slam', 'smear', 'slice', 'shatter', 'neon', 'punch', 'oneWord', 'sticker', 'split', 'karaoke']);
+// ------------------------------------------------------------------ my looks: a title's own style, kept to use again
+// (on this Mac, for every project). Each: { id: 'my…', name, style }; they show first on TITLES and in ★ FAVS.
+const MY_KEY = 'reel.myLooks';
+export const myLooks = () => { try { const v = JSON.parse(localStorage.getItem(MY_KEY) || '[]'); return Array.isArray(v) ? v.filter(x => x && typeof x.id === 'string' && x.style) : []; } catch { return []; } };
+const STYLE_KEYS = ['anim', 'font', 'weight', 'size', 'color', 'stroke', 'strokeColor', 'shadow', 'bg', 'bgOpacity', 'padding', 'accent', 'accentColor', 'hiColor', 'width', 'align', 'italic', 'animDur', 'spacing', 'lineHeight'];
+/** Keeps a title's style (not its words) as one of my looks, and in ★ FAVS. Returns its id. */
+export function saveMyLook(name, text) {
+  const style = Object.fromEntries(STYLE_KEYS.filter(k => text[k] != null).map(k => [k, text[k]]));
+  const id = 'my' + Math.random().toString(36).slice(2, 9);
+  const list = [{ id, name: String(name || 'My look').slice(0, 40), style }, ...myLooks()].slice(0, 100);
+  try { localStorage.setItem(MY_KEY, JSON.stringify(list)); } catch { /* not kept */ }
+  if (!isFav('title', id)) toggleFav('title', id);
+  return id;
+}
+export function removeMyLook(id) {
+  try { localStorage.setItem(MY_KEY, JSON.stringify(myLooks().filter(x => x.id !== id))); } catch { /* fine */ }
+  if (isFav('title', id)) toggleFav('title', id);
+}
+/** A look's name: a ready-made one's, one of mine, or a text animation's. */
+export const lookName = id => TITLE_LOOKS[id]?.name || myLooks().find(x => x.id === id)?.name || TEXT_ANIMS.find(a => a[0] === id)?.[1] || null;
+/**
+ * The look a title has: the one it was made with (text.look), or, for one made before titles remembered it, the
+ * ready-made look it matches (same animation, font and colours). null when it's a style of its own.
+ */
+export function lookOf(text) {
+  if (!text) return null;
+  if (text.look && lookName(text.look)) return text.look;
+  let best = null, score = 0;
+  for (const [id, L] of Object.entries(TITLE_LOOKS)) {
+    if (L.anim !== text.anim) continue;
+    const sc = 1 + ['font', 'accentColor', 'hiColor', 'accent', 'weight', 'stroke'].filter(k => L[k] != null && String(L[k]).toLowerCase() === String(text[k] ?? '').toLowerCase()).length;
+    if (sc > score) { score = sc; best = id; }
+  }
+  return score >= 3 ? best : null;
+}
+
 export function titleLook(id) {
   const L = TITLE_LOOKS[id];
   if (L) { const { name, ...t } = L; return t; }
+  const mine = myLooks().find(x => x.id === id);
+  if (mine) return { ...mine.style };
   const sample = { slam: { content: 'AND BEFORE\nYOU *ASK*', weight: 900, accentColor: '#ff2d3c' }, smear: { content: 'THIS *ISN’T*', weight: 900 }, slice: { content: 'LAYERS.', weight: 900 }, shatter: { content: 'LYING.', weight: 900 }, neon: { content: 'MOTION GRAPHICS', weight: 800, accentColor: '#ff6a1a' }, karaoke: { content: 'WATCH WHAT HAPPENS NEXT', weight: 900, stroke: 6, accentColor: '#3dff6e' }, oneWord: { content: 'STOP DOING *THIS*', weight: 900, stroke: 7, accentColor: '#ffe600' }, punch: { content: 'THIS CHANGES *EVERYTHING*', weight: 900, stroke: 6, accentColor: '#ffe600' }, sticker: { content: 'PRO *TIP*', weight: 900, color: '#121212', stroke: 0, accentColor: '#ffe600' }, split: { content: 'CHAPTER *ONE*', weight: 700 }, maskUp: { content: 'Simple.\n*Fast. Yours.*', weight: 700 } }[id];
   return { anim: id, ...(sample || {}) };
 }
 function applyTitle(app, anim, at = null, track = null) {
   const list = at == null ? selected(app).filter(c => c.type === 'text') : [];
   const look = titleLook(anim), { content, ...style } = look;
-  if (list.length) { app.commit(() => { for (const c of list) c.text = { ...c.text, ...style }; }); return; } // their own words stay
+  if (list.length) { app.commit(() => { for (const c of list) c.text = { ...c.text, ...style, look: anim }; }); return; } // their own words stay
   const c = newTextClip(null, at ?? app.player.time, content || 'Your title');
-  c.text = { ...c.text, ...look };
+  c.text = { ...c.text, ...look, look: anim };
   if (BIG_TITLES.has(look.anim) || TITLE_LOOKS[anim]) c.props.y = 0.5; // the big kinetic ones sit in the middle
   place(app, c, track);
 }
@@ -200,7 +238,7 @@ function wordsOf(c) {
   return [String(e.text ?? ''), String(e.sub ?? '')];
 }
 const nameOfClip = c => (c.type === 'text' ? `“${String(c.text?.content || 'Title').replace(/[*\n]+/g, ' ').trim().slice(0, 40)}”` : ELEMENTS[c.element?.kind]?.name || 'Element');
-const presetName = (kind, id) => (kind === 'title' ? TITLE_LOOKS[id]?.name || TEXT_ANIMS.find(a => a[0] === id)?.[1] || id : ELEMENTS[id]?.name || id);
+const presetName = (kind, id) => (kind === 'title' ? lookName(id) || id : ELEMENTS[id]?.name || id);
 
 /**
  * Turns clip c into the preset, in place: same track, start, length, place and size, keyframes and transitions; the
@@ -211,10 +249,10 @@ export function swapClip(doc, c, kind, id) {
   const [main, sub] = wordsOf(c);
   if (kind === 'title') {
     const { content, ...style } = titleLook(id); void content;
-    if (c.type === 'text') { c.text = { ...c.text, ...style }; return c; }
+    if (c.type === 'text') { c.text = { ...c.text, ...style, look: id }; return c; }
     const words = main && sub ? `${main}\n${sub}` : main || sub || 'Your title';
     const fresh = newTextClip(c.track, c.start, words);
-    c.type = 'text'; c.text = { ...fresh.text, ...style, content: words };
+    c.type = 'text'; c.text = { ...fresh.text, ...style, content: words, look: id };
     if (c.element?.color && c.element.color !== ELEMENTS[c.element.kind]?.defaults?.color) c.text.color = c.element.color; // their own colour carries
     delete c.element; c.name = words.replace(/\n/g, ' ').slice(0, 24);
     return c;
@@ -424,7 +462,7 @@ export function openPresetBrowser(app, page = 'cut', host = null) {
   const PAGES = PRESET_PAGES;
   const tabs = el('div', { class: 'pl-tabs' }, ...PAGES.map(([k, l]) => el('button', { class: 'cs-tab', 'data-k': k, text: l, onclick: () => show(k) })));
   // one tile of a kind (null when that preset no longer exists), with its star
-  const nameOf = (kind, id) => kind === 'title' ? (TITLE_LOOKS[id]?.name || TEXT_ANIMS.find(a => a[0] === id)?.[1]) : kind === 'element' ? ELEMENTS[id]?.name
+  const nameOf = (kind, id) => kind === 'title' ? lookName(id) : kind === 'element' ? ELEMENTS[id]?.name
     : kind === 'motion' ? MOTION_PRESETS[id]?.name : kind === 'cut' ? CUT_TRANSITIONS.find(c => c[0] === id)?.[1] : kind === 'trans' ? TRANSITIONS.find(c => c[0] === id)?.[1] : kind === 'sound' ? SFX[id]?.name : null;
   const make = (kind, id) => {
     const n = nameOf(kind, id); if (!n) return null;
@@ -476,7 +514,7 @@ export function openPresetBrowser(app, page = 'cut', host = null) {
       for (const id of favFirst('trans', TRANSITIONS.filter(([id, n]) => id !== 'none' && !CUT_TRANSITIONS.some(c => c[0] === id) && match(n)).map(c => c[0]))) grid.append(make('trans', id));
     } else if (k === 'title') {
       note.textContent = 'Text animations. Click to use it on the selected titles, or to add a new title at the playhead; drag one onto the timeline. Put a word between stars (*like this*) to make it the accent.';
-      const ids = [...Object.entries(TITLE_LOOKS).filter(([, L]) => match(L.name)).map(([id]) => id), ...TEXT_ANIMS.filter(([id, n]) => id !== 'none' && match(n)).map(([id]) => id)];
+      const ids = [...myLooks().filter(L => match(L.name)).map(L => L.id), ...Object.entries(TITLE_LOOKS).filter(([, L]) => match(L.name)).map(([id]) => id), ...TEXT_ANIMS.filter(([id, n]) => id !== 'none' && match(n)).map(([id]) => id)];
       for (const id of favFirst('title', ids)) grid.append(make('title', id));
     } else if (k === 'motion') {
       note.textContent = 'Moves made of keyframes you can adjust afterwards. Click to put it on the selected clips.';
@@ -697,4 +735,18 @@ export function openStyle(app, id) {
     } },
   ]);
   void mainTrack;
+}
+
+/** Opens Presets on the page of a preset and points it out (scrolled to, lit up for a moment). */
+export function revealPreset(app, kind, id) {
+  const page = kind === 'element' ? 'element' : kind;
+  openPresetBrowser(app, page);
+  const name = kind === 'title' ? lookName(id) : ELEMENTS[id]?.name;
+  if (!name) return;
+  setTimeout(() => {
+    const t = [...document.querySelectorAll('.pl-tile, .pl-sound')].find(x => x.getAttribute('aria-label') === name && x.offsetParent);
+    if (!t) return;
+    t.scrollIntoView({ block: 'center', behavior: 'smooth' });
+    t.classList.add('pl-reveal'); setTimeout(() => t.classList.remove('pl-reveal'), 2400);
+  }, 120);
 }
