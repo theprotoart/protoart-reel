@@ -34,6 +34,11 @@ async function coreWatch(app, m, o, { onProgress, signal } = {}) {
   finally { off?.(); signal?.removeEventListener('abort', stop); }
 }
 
+// what the core last read of a few videos (their motion samples, in media seconds), so Smart Zoom's picture watching
+// can use the pass the pointer search already made
+const watchedFiles = new Map();
+const keepWatch = (key, w) => { watchedFiles.delete(key); watchedFiles.set(key, w); while (watchedFiles.size > 4) watchedFiles.delete(watchedFiles.keys().next().value); };
+
 /** Samples the part of the media a clip uses. Resolves to { samples, gw, gh, aspect }. */
 export async function analyse(app, c, m, { onProgress, signal: outer, budget = Infinity } = {}) {
   // budget: seconds this clip may take. A clip that won't play smoothly (a stalled decoder, a slow drive) stops there
@@ -44,11 +49,17 @@ export async function analyse(app, c, m, { onProgress, signal: outer, budget = I
   if (outer?.aborted) ctl.abort(); else outer?.addEventListener('abort', stop);
   const speed = c.speed || 1, from = c.in || 0, to = from + c.duration * speed;
   const gh = Math.max(12, Math.round((GW * (m.height || 1080)) / (m.width || 1920)));
-  // the fast way first: every frame decoded on the Mac's media engine, so each cut is found to the frame as well
+  // the fast way first: every frame decoded on the Mac's media engine, so each cut is found to the frame as well. A
+  // video the pointer search just read (findPointer) isn't read again: the core measured it on the same pass
   try {
-    const r = await coreWatch(app, m, { from, to, step: 0.2 * speed, gw: GW, gh }, { onProgress, signal: outer });
+    const key = previewFile(m), had = watchedFiles.get(key);
+    const r = had && speed === 1 && had.from <= from + 0.05 && had.to >= to - 0.05 ? had
+      : await coreWatch(app, m, { from, to, step: 0.2 * speed, gw: GW, gh }, { onProgress, signal: outer });
     if (r && r.samples.length) {
-      const samples = r.samples.map(s => ({ t: (s.t - from) / speed, diff: s.diff, motion: s.motion, cx: s.cx, cy: s.cy, box: s.box, detail: s.detail, jump: s.jump }));
+      const samples = r.samples.filter(s => s.t >= from - 1e-6 && s.t <= to + 1e-6)
+        .map(s => ({ t: (s.t - from) / speed, diff: s.diff, motion: s.motion, cx: s.cx, cy: s.cy, box: s.box, detail: s.detail, jump: s.jump }));
+      // the first sample has nothing before it (as when the clip's part is read on its own)
+      if (samples.length) samples[0] = { ...samples[0], diff: 0, motion: 0, cx: 0.5, cy: 0.5, box: 1, jump: null };
       const cuts = findCuts(samples).slice(0, 60).map(ct => {
         const s = samples.find(x => x.t === ct);
         return Math.max(0, (s && s.jump != null ? (s.jump - from) / speed : ct) - 0.035); // a frame early: never a zoomed frame of the new shot
@@ -117,6 +128,7 @@ export async function findPointer(app, m, { onProgress, signal: outer } = {}) {
     const to = m.duration || 0;
     const gh = Math.max(12, Math.round((GW * vh) / vw));
     const r = to > 0 && PW >= 64 && PH >= 64 ? await coreWatch(app, m, { from: 0, to, step: 0.2, gw: GW, gh, pw: PW, ph: PH, giveUp: 60 }, { onProgress, signal: outer }) : null;
+    if (r && r.samples.length && gh === Math.max(12, Math.round((GW * (m.height || 1080)) / (m.width || 1920)))) keepWatch(previewFile(m), { from: 0, to, samples: r.samples });
     if (r && r.pointer !== undefined) {
       if (r.pointer === null) return null; // a minute in without a sign of it
       const tr = new PointerTracker(PW, PH, vw, vh);
