@@ -2393,3 +2393,16 @@ html[data-theme="light"] .sp-place { background: rgba(0,0,0,.07); }
 #timeline.th-tiny .clip .cname { font-size: 10px; line-height: 1; padding-top: 1px; }
 #timeline.th-tiny .clip .strip { opacity: .55; }
 #timeline.th-tiny .xfade { transform: scale(.6); }
+
+/* ▶ listen to a file in the media panel before placing it */
+.lib-item .lthumb { position: relative; }
+.lib-item .lplay { position: absolute; inset: 50% auto auto 50%; transform: translate(-50%, -50%); width: 30px; height: 30px; padding: 0; border: 0; border-radius: 50%;
+  display: grid; place-items: center; font: 700 12px/1 system-ui, sans-serif; cursor: pointer; color: rgba(30,18,4,.92);
+  background: radial-gradient(ellipse at 50% 45%, var(--lit-hi, #ffe7a8) 0%, var(--lit-mid, #ffb02a) 50%, var(--lit-lo, #c76b00) 100%);
+  box-shadow: 0 0 0 1px #000, 0 2px 6px rgba(0,0,0,.6); opacity: .9; transition: transform .1s, opacity .1s; }
+.lib-item .lplay:hover { transform: translate(-50%, -50%) scale(1.12); opacity: 1; }
+.lib-item .lplay.on { box-shadow: 0 0 0 1px #000, 0 0 12px rgba(255,176,42,.75); opacity: 1; letter-spacing: -1px; }
+.lib-item.hearing { box-shadow: 0 0 0 1px var(--lit-mid, #ffb02a), 0 2px 4px rgba(0,0,0,.5); }
+.lscrub { position: relative; height: 16px; margin-top: 5px; border-radius: 3px; background: rgba(0,0,0,.55); box-shadow: inset 0 0 0 1px rgba(255,255,255,.08); cursor: pointer; overflow: hidden; }
+.lscrub > i { position: absolute; left: 0; top: 0; bottom: 0; width: 0; background: linear-gradient(90deg, rgba(255,176,42,.35), rgba(255,176,42,.75)); border-right: 2px solid #ffd27a; }
+.lscrub-t { position: absolute; right: 6px; top: 50%; transform: translateY(-50%); font: 600 10px/1 var(--font-mono, monospace); color: #f6eedb; text-shadow: 0 1px 2px #000; pointer-events: none; }

@@ -1,6 +1,7 @@
 # Changelog
 
 ## 1.11.0 — 2026-11-16
+- ▶ Listen before you place: every sound (and video with sound) in the media panel has a ▶ on its picture. It plays right there, with a bar under the name to jump around in it (click or drag) and the time; click again to pause. Starting another one, playing the timeline or leaving the MEDIA page stops it. Nothing goes on the timeline until you drag it there.
 - ↕ TRACKS, the timeline's vertical zoom (beside ZOOM): − / slider / + make every track shorter or taller (22 to 160 px); FIT puts every track in view at once, and a second click goes back. Also ⌘-scroll (or pinch) over the track names, and ⌥⌘− / ⌥⌘= / ⌥⌘0 (View menu). Short tracks fold their headers down to the name and keys, and their clips to just the name. Remembered for next time; Settings › Track height still sets it.
 - Auto Edit no longer seems to freeze on “Adding zooms”: it says which clip it's on (“clip 49 of 140”), STOP stops it straight away, a clip that won't play smoothly gets a time limit (its zooms come from what was seen in time) and one that can't be read is skipped instead of stopping the rest. Each recording's pointer file is read once instead of once per clip.
 - Swap a title or callout for another: drag a title or element from Presets onto one already on the timeline. “Swap it?” asks first: SWAP keeps your words (both lines), its place, size, timing, length and your own colours; ADD AS NEW INSTEAD puts it beside as before. ⌘Z undoes a swap. Tick “Don’t ask again” to skip the question (Settings › SHOW TIPS AGAIN brings it back).

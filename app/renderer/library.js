@@ -70,6 +70,7 @@ export class Library {
     const lib = $('#library');
     if (page && lib.classList.contains('folded')) this.setFolded?.(false); // asked for presets: open the panel
     this.presetPage = page;
+    if (page && this._aud) this.stopAudition(); // what was being heard stops when its list goes
     for (const b of this.tabs.children) b.classList.toggle('on', b.dataset.k === (page || 'media'));
     lib.classList.toggle('presets', !!page);
     for (const n of [this.tools, this.list, lib.querySelector('.lib-hint')]) n?.classList.toggle('hidden', !!page);
@@ -81,7 +82,9 @@ export class Library {
 
   render() {
     const doc = this.app.doc;
-    if (!doc) return;
+    if (!doc || this.presetPage) { if (this._aud) this.stopAudition(false); if (!doc) return; } // (the file being heard stops with its page or project)
+    if (this._aud && !doc.media.some(m => m.id === this._aud.id)) this.stopAudition(false);
+    this._audRow = null;
     // never redraw under a drag in progress: the item being dragged would be replaced and the drop could be lost
     if (this._dragging) { this._renderLater = true; return; }
     this.chips.replaceChildren(...FILTERS.map(([k, t]) => el('button', { class: 'chip' + (this.filter === k ? ' on' : ''), text: t, title: `Show ${t.toLowerCase()} media`, onclick: () => { this.filter = k; this.render(); } })));
@@ -156,13 +159,31 @@ export class Library {
     const status = gone ? el('span', { class: 'lstat bad', text: 'MISSING FILE', title: `${m.file} isn’t in the project folder. Right-click › Replace file… to point Reel at it again.` })
       : used ? el('span', { class: 'lstat ok', text: n === 1 ? 'ON TIMELINE' : `ON TIMELINE ×${n}`, title: `Used by ${n} clip${n === 1 ? '' : 's'}. Right-click › Select clips using it.` })
       : el('span', { class: 'lstat', text: 'NOT USED', title: 'Not on the timeline yet' });
+    // ▶ listen to it here, before putting it anywhere (sounds, and videos with sound); a bar under the name to jump about
+    const canHear = !gone && (m.kind === 'audio' || (m.kind === 'video' && m.hasAudio !== false));
+    const on = canHear && this._aud?.id === m.id;
+    const play = canHear ? el('button', { class: 'lplay' + (on && !this._aud.el.paused ? ' on' : ''), type: 'button', text: on && !this._aud.el.paused ? '❚❚' : '▶', title: on && !this._aud.el.paused ? 'Pause' : `Listen to “${m.name}” (it doesn’t go on the timeline)` }) : null;
+    if (play) {
+      play.addEventListener('click', e => { e.stopPropagation(); this.audition(m); });
+      play.addEventListener('dblclick', e => e.stopPropagation());
+      play.draggable = false; play.addEventListener('dragstart', e => { e.preventDefault(); e.stopPropagation(); });
+      thumb.append(play);
+    }
+    const scrub = on ? el('div', { class: 'lscrub', title: 'Click or drag to jump; the clip isn’t changed' }, el('i'), el('span', { class: 'lscrub-t' })) : null;
+    if (scrub) {
+      const seek = ev => { const r = scrub.getBoundingClientRect(), a = this._aud?.el; if (!a || !isFinite(a.duration)) return; a.currentTime = Math.max(0, Math.min(1, (ev.clientX - r.left) / r.width)) * a.duration; this._audTick(); };
+      scrub.addEventListener('pointerdown', ev => { ev.stopPropagation(); ev.preventDefault(); scrub.setPointerCapture(ev.pointerId); seek(ev); const mv = e2 => seek(e2); scrub.addEventListener('pointermove', mv); scrub.addEventListener('pointerup', () => scrub.removeEventListener('pointermove', mv), { once: true }); });
+      scrub.addEventListener('click', ev => ev.stopPropagation());
+      scrub.draggable = false; scrub.addEventListener('dragstart', ev => { ev.preventDefault(); ev.stopPropagation(); });
+      this._audRow = { scrub, play };
+    }
     const item = el('div', {
-      class: 'lib-item' + (this.selected === m.id ? ' selected' : '') + (used ? '' : ' unused') + (gone ? ' missing' : ''), draggable: true,
+      class: 'lib-item' + (this.selected === m.id ? ' selected' : '') + (used ? '' : ' unused') + (gone ? ' missing' : '') + (on ? ' hearing' : ''), draggable: true, 'data-media': m.id,
       title: `${m.name}\n${info}\nFile: ${m.file}\nDouble-click to add at the playhead. Right-click for more.`,
     }, thumb,
     el('div', { class: 'lmeta' },
       el('div', { class: 'lname', text: m.name }),
-      el('div', { class: 'linfo' }, ROLE[m.role] ? el('span', { class: 'lrole', text: ROLE[m.role], 'data-role': m.role }) : null, status, el('span', { class: 'ldur', text: info }))),
+      el('div', { class: 'linfo' }, ROLE[m.role] ? el('span', { class: 'lrole', text: ROLE[m.role], 'data-role': m.role }) : null, status, el('span', { class: 'ldur', text: info })), scrub),
     more,
     isNew ? el('span', { class: 'lnew', text: 'NEW', title: 'Just added' }) : null);
     item.addEventListener('dragstart', e => { e.dataTransfer.setData('application/x-reel-media', m.id); e.dataTransfer.effectAllowed = 'copy'; this._dragging = true; });
@@ -174,6 +195,43 @@ export class Library {
     more.addEventListener('click', e => { e.stopPropagation(); const r = more.getBoundingClientRect(); menu(r.left, r.bottom + 4); });
     more.addEventListener('dblclick', e => e.stopPropagation());
     return item;
+  }
+
+  /**
+   * ▶ on a file: plays it here, on its own (another one stops it, so does playing the timeline). Click again to pause;
+   * a third click goes on from there. Nothing is added or changed.
+   */
+  audition(m) {
+    const a0 = this._aud;
+    if (a0?.id === m.id) { if (a0.el.paused) { this.app.player?.playing && this.app.player.pause?.(); a0.el.play().catch(() => {}); } else a0.el.pause(); this.render(); return; }
+    this.stopAudition(false);
+    const a = new Audio(`app://reel/m/${this.app.token}/${encodeURIComponent(m.file)}`);
+    a.preload = 'auto';
+    this._aud = { id: m.id, el: a };
+    if (this.app.player?.playing) this.app.player.pause?.();
+    a.addEventListener('ended', () => { a.currentTime = 0; this.render(); });
+    a.addEventListener('error', () => { toast(`“${m.name}” can’t be played here.`, 3500); this.stopAudition(); });
+    a.play().catch(() => {});
+    this.render();
+    const tick = () => {
+      if (this._aud?.el !== a) return;
+      if (this.app.player?.playing && !a.paused) { a.pause(); this.render(); } // the timeline started: it wins
+      this._audTick();
+      requestAnimationFrame(tick);
+    };
+    requestAnimationFrame(tick);
+  }
+  _audTick() {
+    const a = this._aud?.el, row = this._audRow;
+    if (!a || !row?.scrub.isConnected) return;
+    const d = isFinite(a.duration) ? a.duration : 0;
+    row.scrub.firstChild.style.width = d ? (a.currentTime / d * 100).toFixed(2) + '%' : '0';
+    row.scrub.lastChild.textContent = `${fmtTime(a.currentTime).replace(/\.\d+$/, '')} / ${fmtTime(d).replace(/\.\d+$/, '')}`;
+  }
+  stopAudition(redraw = true) {
+    if (this._aud) { this._aud.el.pause(); this._aud.el.removeAttribute('src'); this._aud.el.load(); }
+    this._aud = null; this._audRow = null;
+    if (redraw) this.render();
   }
 
   /** Asks (once per project, and again when files change) which media files aren't in the project folder. */
