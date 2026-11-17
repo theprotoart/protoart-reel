@@ -84,7 +84,7 @@ input[type=checkbox]:checked { background: radial-gradient(ellipse at 50% 45%, v
 .app-row > input:checked { background: radial-gradient(ellipse at 50% 45%, #ffe0d6 0%, #ff6a48 45%, #c0261a 100%); box-shadow: 0 0 0 1px #000, 0 0 7px rgba(255,80,50,.6); }
 
 /* ================================================================ glass windows: inputs, selects, displays */
-select, input[type=text], input[type=number], textarea, .row select, .row input[type=text], textarea.big, .ts-side input[type=text], .ts-side select,
+select, input[type=text], input[type=search], input[type=number], textarea, .row select, .row input[type=text], textarea.big, .ts-side input[type=text], .ts-side select,
 .mx-top select, .mx-eq select, .insp-section select, .mod select, #transport select, .modal input[type=text], .row input[type=number] {
   background: var(--glass); border: 0; border-radius: 4px; box-shadow: var(--glass-shadow); color: #f1e6cf; }
 select { padding: 5px 8px; }
@@ -2676,3 +2676,5 @@ html[data-theme="light"] .lib-item .lsound.on { color: #1d1a14; }
 .mk-toggle.mk-mag { top: 186px; font-size: 15px; }
 .export .vert-auto { display: flex; flex-wrap: wrap; align-items: center; gap: 6px; }
 .export .vert-auto label { display: inline-flex; align-items: center; gap: 6px; }
+#library .pl-grid .pl-elsewhere, .pl-grid .pl-elsewhere { grid-column: 1 / -1; display: flex; align-items: center; justify-content: space-between; margin: 10px 0 2px; }
+input[type=search] { padding: 6px 10px; }

@@ -541,6 +541,22 @@ export function openPresetBrowser(app, page = 'cut', host = null) {
       grid.append(el('label', { class: 'row pl-scan' }, scan, el('span', { text: 'Find shot changes inside clips first (scans the video)' })));
       grid.append(el('div', { class: 'pl-scan' }, randomRow()));
     }
+    // searching finds things on the other pages too: "subscribe" from Motion shows the Subscribe graphic
+    if (q) {
+      const kinds = [['element', ([, p]) => match(p.name) || match(p.group), ELEMENTS], ['title', ([, L]) => match(L.name), TITLE_LOOKS], ['motion', ([, p]) => match(p.name) || match(p.group), MOTION_PRESETS], ['sound', ([, s]) => match(s.name) || match(s.hint), SFX]];
+      const lists = [...kinds.map(([kind, ok, all]) => [kind, Object.entries(all).filter(ok).map(([id]) => id)]),
+        ['cut', CUT_TRANSITIONS.filter(([, n]) => match(n)).map(c => c[0])],
+        ['trans', TRANSITIONS.filter(([id, n]) => id !== 'none' && !CUT_TRANSITIONS.some(c => c[0] === id) && match(n)).map(c => c[0])]]
+        .filter(([kind, ids]) => kind !== k && ids.length);
+      const here = [...grid.children].filter(n => !n.classList.contains('pl-scan')).length;
+      for (const [i, [kind, ids]] of lists.entries()) {
+        const label = PAGES.find(([pk]) => pk === kind)?.[1] || kind;
+        grid.append(el('div', { class: 'pl-elsewhere engr', text: `${!here && i === 0 ? 'Not on this page · found in ' : 'Also in '}${label} · ${ids.length}` },
+          el('button', { class: 'mini', text: 'Show all', onclick: () => show(kind) })));
+        for (const id of ids.slice(0, 8)) { const n = make(kind, id); if (n) grid.append(n); }
+      }
+      if (!here && !lists.length) grid.append(el('p', { class: 'note', text: `Nothing called “${search.value.trim()}” in Presets.` }));
+    }
   };
   search.addEventListener('input', () => show(page));
   const tools = el('div', { class: 'row pl-tools' }, search, el('label', { class: 'chk', title: 'Add matching sound effects with transitions and film cuts' }, soundCb, el('span', { text: 'Sound effects' })));
