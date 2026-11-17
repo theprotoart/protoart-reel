@@ -12,10 +12,22 @@ function sampleAt(pts, ms) {
 }
 
 /** data: cursor JSON; offset: seconds between cursor start and media time 0; smooth: seconds. */
+/** Where the recorded window was at ms (a recording of one window): { x, y, width, height } in points, or null. */
+function windowAt(w, ms) {
+  const f = w && Array.isArray(w.frames) ? w.frames : null;
+  if (!f || !f.length) return null;
+  let i = 0;
+  while (i + 1 < f.length && f[i + 1][0] <= ms) i++;
+  const [, x, y, width, height] = f[i];
+  return width > 0 && height > 0 ? { x, y, width, height } : null;
+}
+
 export function cursorAt(data, offset, t, smooth = 0) {
-  if (!data || !data.display || !data.points || !data.points.length) return null;
-  const b = data.display.bounds;
+  if (!data || !data.points || !data.points.length) return null;
   const ms = (t + (offset || 0)) * 1000;
+  // a screen recording: its display; one window: where that window was then
+  const b = data.display ? data.display.bounds : windowAt(data.window, ms);
+  if (!b) return null;
   let x = 0, y = 0;
   const n = smooth > 0 ? 7 : 1;
   for (let i = 0; i < n; i++) {
@@ -74,19 +86,21 @@ export function keysAt(data, offset, t, { hold = 1.5, modsOnly = false } = {}) {
  * Suggests zoom-and-pan actions for a screen clip: wherever the pointer settles in one area for a
  * while, zoom in there; zoom back out when it moves away. Returns actions in clip-local time.
  */
-export function autoZoom(data, offset, clip, { zoom = 1.8, minHold = 1.2, transition = 0.6 } = {}) {
+export function autoZoom(data, offset, clip, { zoom = 1.8, minHold = 1.2, transition = 0.6, fw = 1, fh = 1 } = {}) {
   if (!data || !data.points || data.points.length < 10) return [];
   const step = 0.25, out = [];
   const dur = clip.duration, speed = clip.speed || 1;
   let holdStart = null, anchor = null, zoomed = false, lastEnd = -Infinity;
   for (let lt = 0; lt <= dur; lt += step) {
-    const p = cursorAt(data, offset, (clip.in || 0) + lt * speed, 0.3);
+    let p = cursorAt(data, offset, (clip.in || 0) + lt * speed, 0.3);
     if (!p) continue;
+    // off the recorded picture (another screen, or outside the recorded window): nothing to zoom to here
+    if (p.x < -0.02 || p.x > 1.02 || p.y < -0.02 || p.y > 1.02) p = { x: -9, y: -9 };
     const near = anchor && Math.hypot(p.x - anchor.x, p.y - anchor.y) < 0.12;
     if (near) {
       if (!zoomed && lt - holdStart >= minHold && holdStart - lastEnd > transition) {
         const t = Math.max(0, holdStart - transition * 0.5);
-        out.push({ t, dur: transition, ease: 'ease', props: zoomProps(anchor, zoom) });
+        out.push({ t, dur: transition, ease: 'ease', props: zoomProps(anchor, zoom, fw, fh) });
         zoomed = true;
       }
     } else {
@@ -95,16 +109,20 @@ export function autoZoom(data, offset, clip, { zoom = 1.8, minHold = 1.2, transi
         lastEnd = lt + transition;
         zoomed = false;
       }
-      anchor = p; holdStart = lt;
+      anchor = p.x < -1 ? null : p; holdStart = lt;
     }
   }
   if (zoomed) out.push({ t: Math.max(0, dur - transition - 0.1), dur: transition, ease: 'ease', props: { x: 0.5, y: 0.5, scale: 1 } });
   return out;
 }
 
-/** Position/scale that zooms into point (fx, fy) of the frame while keeping the frame covering the canvas. */
-export function zoomProps(pt, zoom) {
-  const half = 0.5 / zoom;
-  const fx = Math.min(1 - half, Math.max(half, pt.x)), fy = Math.min(1 - half, Math.max(half, pt.y));
-  return { scale: zoom, x: 0.5 - (fx - 0.5) * zoom, y: 0.5 - (fy - 0.5) * zoom };
+/**
+ * Position/scale that zooms into point (x, y) of the picture (0..1 of it) without showing past its edges. fw, fh: how
+ * much of the canvas the picture fills unzoomed (a window recording that isn't 16:9 has bars beside it: fw < 1).
+ */
+export function zoomProps(pt, zoom, fw = 1, fh = 1) {
+  // how much of the picture the canvas shows across, zoomed: its middle can go no nearer an edge than half that
+  const hx = Math.min(0.5, 0.5 / (zoom * fw)), hy = Math.min(0.5, 0.5 / (zoom * fh));
+  const fx = Math.min(1 - hx, Math.max(hx, pt.x)), fy = Math.min(1 - hy, Math.max(hy, pt.y));
+  return { scale: zoom, x: 0.5 - (fx - 0.5) * fw * zoom, y: 0.5 - (fy - 0.5) * fh * zoom };
 }

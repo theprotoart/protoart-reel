@@ -389,3 +389,30 @@ test('Console: fader law, strip EQ and system-sound filter', async () => {
   assert.ok(!isSystemSound({ key: 'com.apple.Music', name: 'Music', icon: 'x' }));
   assert.ok(!isSystemSound({ key: 'com.spotify.client', name: 'Spotify', icon: 'x' }));
 });
+
+test('Cursor: a window recording follows the window as it moves, and skips the pointer outside it', () => {
+  // the window at (100, 50) 800 × 400, moved right by 200 after 2 s
+  const data = { display: null, window: { id: 7, frames: [[0, 100, 50, 800, 400], [2000, 300, 50, 800, 400]] }, points: [[0, 500, 250], [1000, 500, 250], [3000, 700, 250]] };
+  const a = cursorAt(data, 0, 0.5), b = cursorAt(data, 0, 3);
+  assert.ok(Math.abs(a.x - 0.5) < 1e-9 && Math.abs(a.y - 0.5) < 1e-9);
+  assert.ok(Math.abs(b.x - 0.5) < 1e-9, 'placed on where the window had moved to');
+  assert.strictEqual(cursorAt({ display: null, points: [[0, 1, 1]] }, 0, 0), null, 'old window recordings: no place');
+  // resting outside the window (another app) makes no zoom; resting inside does
+  const outside = { display: null, window: { id: 7, frames: [[0, 0, 0, 1000, 500]] }, points: Array.from({ length: 200 }, (_, i) => [i * 33, 1500, 250]) };
+  assert.strictEqual(autoZoom(outside, 0, { in: 0, duration: 6.6, speed: 1 }).length, 0);
+  const inside = { ...outside, points: outside.points.map(([t]) => [t, 800, 250]) };
+  assert.ok(autoZoom(inside, 0, { in: 0, duration: 6.6, speed: 1 }).length >= 2);
+});
+
+test('Cursor: zooming a picture with bars beside it lands the pointer in the middle', () => {
+  const fw = 0.6, fh = 1, zoom = 2, pt = { x: 0.55, y: 0.4 };
+  const p = zoomProps(pt, zoom, fw, fh);
+  // where that point of the picture ends up on the canvas
+  assert.ok(Math.abs(p.x + (pt.x - 0.5) * fw * p.scale - 0.5) < 1e-9);
+  assert.ok(Math.abs(p.y + (pt.y - 0.5) * fh * p.scale - 0.5) < 1e-9);
+  // near the edge it stops where the picture's edge meets the canvas's edge
+  const e = zoomProps({ x: 1, y: 0.5 }, zoom, fw, fh);
+  assert.ok(Math.abs(e.x + 0.5 * fw * e.scale - 1) < 1e-9);
+  // too narrow to fill the canvas even zoomed: it stays centred across
+  assert.strictEqual(zoomProps({ x: 0.9, y: 0.5 }, 1.5, 0.5, 1).x, 0.5);
+});

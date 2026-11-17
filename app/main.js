@@ -254,7 +254,7 @@ async function closeHandle(id) {
 // ------------------------------------------------------------------ recording
 
 const recording = {
-  active: false, sourceId: null, systemAudio: false, cursor: null, cursorTimer: null,
+  active: false, sourceId: null, systemAudio: false, cursor: null, cursorTimer: null, windowTimer: null,
   started: 0, blocker: null, project: null,
   marks: [], // ⌥⇧⌘M while recording: ms of recorded time
   paused: false, pausedMs: 0, pauseAt: 0, // pause: nothing is recorded, and the pointer track skips the gap
@@ -291,6 +291,26 @@ function startCursorTrack(sourceId) {
     const pts = recording.cursor.points;
     if (pts.length < 30 * 60 * 60 * 4) pts.push([recordedMs(t0), p.x, p.y]);
   }, 33);
+  // a single window: where it is on screen, so the pointer can be placed on its picture (Smart Zoom and Auto Edit
+  // follow it). Checked twice a second; kept only when it moves or changes size: [ms, x, y, width, height].
+  const wm = /^window:(\d+)/.exec(sourceId);
+  if (wm) {
+    const wid = Number(wm[1]), cur = recording.cursor;
+    cur.window = { id: wid, frames: [] };
+    let busy = false;
+    const look = async () => {
+      if (busy || recording.cursor !== cur || recording.paused) return;
+      busy = true;
+      try {
+        const b = await audio.windowBounds(wid);
+        const f = cur.window.frames, last = f[f.length - 1];
+        if (b && recording.cursor === cur && f.length < 20000 && !(last && last[1] === b.x && last[2] === b.y && last[3] === b.width && last[4] === b.height))
+          f.push([recordedMs(t0), b.x, b.y, b.width, b.height]);
+      } finally { busy = false; }
+    };
+    look();
+    recording.windowTimer = setInterval(look, 500);
+  }
 }
 // clicks and keys from the audio helper's listen-only event tap land in the cursor track
 let inputUnsub = null;
@@ -312,7 +332,8 @@ function stopInputTrack() { if (inputUnsub) { inputUnsub(); inputUnsub = null; a
 function stopCursorTrack() {
   stopInputTrack();
   clearInterval(recording.cursorTimer);
-  recording.cursorTimer = null;
+  clearInterval(recording.windowTimer);
+  recording.cursorTimer = recording.windowTimer = null;
   const c = recording.cursor;
   recording.cursor = null;
   return c;

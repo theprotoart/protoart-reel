@@ -1,6 +1,8 @@
 # Changelog
 
 ## 1.11.0 — 2026-11-16
+- Smart Zoom and Auto Edit follow your pointer in recordings of a single window too. Reel now notes where the window is on screen while it records (twice a second, only its position and size, never its picture or title), so the pointer lands on the right spot of the window's picture even if you move the window. Before, a window recording had no pointer to follow and the zooms were guessed from the picture, often drifting to the left. Recordings made before this still use the guess.
+- Zooms into a recording that doesn't fill the frame (a window that isn't 16:9, with bars beside it) now land on the pointer instead of overshooting past it.
 - 🎯 Zoom moves you can see and steer: select a clip with push-ins or pans (like Auto Edit's) and click 🎯 N ZOOM MOVES · EDIT on the picture (or the Zoom moves list in the ACTIONS tab). Each move is a numbered frame on the picture with an arrow from where it was looking to where it goes, its zoom and time; drag a frame to aim it at what matters, drag a corner to zoom in or out. ◀ ▶ step between moves, with its length, ease, ＋ ADD a move at the playhead and 🗑. DONE or Esc to finish.
 - Redo only some of Auto Edit: tick “Redo only these parts” and pick the chips (zooms and moves, ums and pauses, transitions, captions, talking text, graphics, call to action, voice). Only those are done again; the rest of your edit stays as it is. Handy after teaching Reel new ums: redo just the cleanup and it finds them.
 - Delete every zoom move on every clip, or every action on every clip, from the right-click menu of a clip or an action. It says how many first and asks; ⌘Z brings them back. Removing only the zoom moves keeps your fades and other actions.

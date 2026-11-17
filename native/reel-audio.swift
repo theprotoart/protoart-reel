@@ -700,6 +700,18 @@ func handle(_ m: [String: Any]) {
     case "inputStart":
         let ok = input.start(keys: (m["keys"] as? Bool) ?? false)
         send(["type": "inputStarted", "id": id ?? NSNull(), "ok": ok])
+    case "windowBounds":
+        // where a window is on screen (points, the same coordinates as the pointer), for following the pointer in a
+        // recording of just that window. Only the window's frame is read, never its picture or title.
+        guard let wid = m["window"] as? Int, wid > 0, wid <= Int(UInt32.max) else { return fail("windowBounds: bad request", id) }
+        var bounds: Any = NSNull()
+        if let list = CGWindowListCopyWindowInfo([.optionIncludingWindow], CGWindowID(wid)) as? [[String: Any]],
+           let info = list.first(where: { ($0[kCGWindowNumber as String] as? Int) == wid }),
+           let b = info[kCGWindowBounds as String] as? NSDictionary,
+           let r = CGRect(dictionaryRepresentation: b as CFDictionary), r.width > 0, r.height > 0 {
+            bounds = ["x": Double(r.origin.x), "y": Double(r.origin.y), "width": Double(r.width), "height": Double(r.height)]
+        }
+        send(["type": "windowBounds", "id": id ?? NSNull(), "bounds": bounds])
     case "inputStop":
         input.stop()
         send(["type": "inputStopped", "id": id ?? NSNull()])

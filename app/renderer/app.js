@@ -1833,7 +1833,7 @@ class App {
           let focus = [];
           if (m.cursor) {
             const data = await api.readJson(token, m.cursor).catch(() => null);
-            for (let t = 0; t <= c.duration; t += 0.2) { const p = data && cursorAt(data, m.cursorOffset || 0, (c.in || 0) + t * (c.speed || 1), 0.3); if (p) focus.push({ t, x: p.x, y: p.y, w: p.click != null ? 3 : 1 }); }
+            for (let t = 0; t <= c.duration; t += 0.2) { const p = data && cursorAt(data, m.cursorOffset || 0, (c.in || 0) + t * (c.speed || 1), 0.3); if (p && p.x >= -0.02 && p.x <= 1.02 && p.y >= -0.02 && p.y <= 1.02) focus.push({ t, x: p.x, y: p.y, w: p.click != null ? 3 : 1 }); }
           }
           if (!focus.length && m.kind === 'video') {
             const res = await zoomAnalyse(this, c, m, { signal: ctl.signal, onProgress: v => { bar.firstChild.style.width = Math.round(((k + v) / clips.length) * 100) + '%'; } });
@@ -1908,7 +1908,7 @@ class App {
         let actions = [];
         if (usePointer && m.cursor) {
           if (!pointers.has(m.cursor)) pointers.set(m.cursor, await api.readJson(token, m.cursor).catch(() => null));
-          actions = autoZoom(pointers.get(m.cursor), m.cursorOffset || 0, c);
+          actions = autoZoom(pointers.get(m.cursor), m.cursorOffset || 0, c, frameFraction(this.doc.canvas, m, c.props.crop || [0, 0, 0, 0]));
         }
         if (!actions.length) {
           const p = { ...c.props, crop: c.props.crop || [0, 0, 0, 0] };

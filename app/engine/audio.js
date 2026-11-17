@@ -109,9 +109,16 @@ async function conform(src, dstBase, kind, onProgress) {
   try { return await request({ cmd: 'conform', src, dst: dstBase, kind }, 6 * 60 * 60 * 1000); } finally { off(); }
 }
 async function inputStart(keys) { if (!available()) return false; const r = await request({ cmd: 'inputStart', keys: !!keys }, 8000); return !!r.ok; }
+/** Where window `id` (a CGWindowID) is on screen, in points: { x, y, width, height }, or null (gone, or no helper). */
+async function windowBounds(id) {
+  if (!available() || !(Number.isInteger(id) && id > 0)) return null;
+  const r = await request({ cmd: 'windowBounds', window: id }, 4000).catch(() => null);
+  const b = r && r.bounds;
+  return b && [b.x, b.y, b.width, b.height].every(Number.isFinite) && b.width > 0 && b.height > 0 ? { x: b.x, y: b.y, width: b.width, height: b.height } : null;
+}
 async function inputStop() { if (proc) await request({ cmd: 'inputStop' }, 4000).catch(() => {}); }
 
 function onEvent(fn) { listeners.add(fn); return () => listeners.delete(fn); }
 function stop() { if (proc) { send({ cmd: 'quit' }); const p = proc; setTimeout(() => { try { p.kill('SIGKILL'); } catch { /* gone */ } }, 3000); } }
 
-module.exports = { available, list, set, resetAll, meter, conform, recStart, recStop, recPause, inputStart, inputStop, matte, onEvent, stop, loadRules };
+module.exports = { available, list, set, resetAll, meter, conform, recStart, recStop, recPause, inputStart, inputStop, windowBounds, matte, onEvent, stop, loadRules };
