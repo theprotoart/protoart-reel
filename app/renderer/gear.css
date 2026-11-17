@@ -2749,3 +2749,6 @@ html[data-theme="light"] .proxy-chip { background: linear-gradient(#fbfbfd, #dcd
 }
 .ums-sum { display: flex; align-items: center; justify-content: space-between; gap: 8px; }
 .ums-sum-btns { display: inline-flex; gap: 6px; }
+/* the handle in the middle of an arrow or line: drag to bend it (green, like Preview's) */
+#overlay .sel-box.bend-h { background: #6fd36a; border: 2px solid #fff; box-shadow: 0 0 0 1px rgba(0,0,0,.6), 0 1px 4px rgba(0,0,0,.5); cursor: grab; z-index: 3; }
+#overlay .sel-box.bend-h:active { cursor: grabbing; }

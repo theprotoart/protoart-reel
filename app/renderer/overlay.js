@@ -4,7 +4,7 @@ import { elementBox } from './lib/elements.js';
 import { el, popMenu, dragBy, toast } from './ui.js';
 import { addPush, pushPrefs } from './lib/push.js';
 import { propsAt, mediaById, ANIMATABLE, clipEnd, TEXT_DEFAULTS, animated, paramAt, setParam, clamp, uid, fmtTime } from './model.js';
-import { mediaRect, textFont } from './compositor.js';
+import { mediaRect, textFont, bendMiddle } from './compositor.js';
 import { getDynZoom, setDynZoomFrame, swapDynZoom, setDynZoomEase, DZ_EASES, MIN_S, MAX_S, zoomMoves, shotOf, propsOfShot } from './lib/dynzoom.js';
 
 export class Overlay {
@@ -757,8 +757,10 @@ export class Overlay {
     const s = c.shape, ox = (p.x - 0.5) * W, oy = (p.y - 0.5) * H;
     {
       // the shape itself: drag it to move it (both ends, or the whole box)
-      const pad = 10, bx = Math.min(s.x1, s.x2) * W + ox - pad, by = Math.min(s.y1, s.y2) * H + oy - pad;
-      const bw = Math.abs(s.x2 - s.x1) * W + pad * 2, bh = Math.abs(s.y2 - s.y1) * H + pad * 2;
+      // round both ends, and the middle of the curve when it's bent
+      const [mx, my] = s.bend ? bendMiddle(s.x1 * W, s.y1 * H, s.x2 * W, s.y2 * H, s.bend) : [s.x1 * W, s.y1 * H];
+      const pad = 10, bx = Math.min(s.x1 * W, s.x2 * W, mx) + ox - pad, by = Math.min(s.y1 * H, s.y2 * H, my) + oy - pad;
+      const bw = Math.max(s.x1 * W, s.x2 * W, mx) + ox + pad - bx, bh = Math.max(s.y1 * H, s.y2 * H, my) + oy + pad - by;
       const body = el('div', { class: 'sel-box shape-body', title: 'Drag to move it · drag a round handle to reshape it', style: { left: bx + 'px', top: by + 'px', width: bw + 'px', height: bh + 'px' } });
       this.root.append(body);
       body.addEventListener('pointerdown', e => {
@@ -779,6 +781,35 @@ export class Overlay {
         body.addEventListener('pointermove', move); body.addEventListener('pointerup', up);
       });
     }
+    if (s.shape === 'arrow' || s.shape === 'line') {
+      // the handle in the middle (green, like Preview's): drag it to bend the arrow into a curve; double-click: straight again
+      const ends = () => [s.x1 * W + ox, s.y1 * H + oy, s.x2 * W + ox, s.y2 * H + oy];
+      const place = () => { const [mx, my] = bendMiddle(...ends(), s.bend || 0); bh.style.left = mx - 7 + 'px'; bh.style.top = my - 7 + 'px'; };
+      const bh = el('div', { class: 'sel-box bend-h', title: 'Drag to bend it into a curve · double-click to make it straight again', style: { width: '14px', height: '14px', borderRadius: '50%' } });
+      this.root.append(bh); place();
+      bh.addEventListener('dblclick', e => { e.preventDefault(); e.stopPropagation(); if (!s.bend) return; this.app.commit(() => { delete s.bend; }); this.update(); });
+      bh.addEventListener('pointerdown', e => {
+        if (e.button !== 0) return;
+        e.preventDefault(); e.stopPropagation();
+        const app = this.app, root = this.root.getBoundingClientRect();
+        let moved = false;
+        bh.setPointerCapture(e.pointerId);
+        const move = ev => {
+          if (!moved) { moved = true; this.dragging = true; app.beginChange(); }
+          const [x1, y1, x2, y2] = ends(), dx = x2 - x1, dy = y2 - y1, L2 = dx * dx + dy * dy || 1;
+          const px = ev.clientX - root.left - (x1 + x2) / 2, py = ev.clientY - root.top - (y1 + y2) / 2;
+          // how far off the line, across it, as a share of its length (a nearly straight one snaps straight)
+          let b = (px * dy - py * dx) / L2;
+          if (Math.abs(b) < 0.02) b = 0;
+          s.bend = +Math.max(-1.5, Math.min(1.5, b)).toFixed(4);
+          if (!s.bend) delete s.bend;
+          place();
+          app.changed({ light: true, keepInspector: true });
+        };
+        const up = () => { bh.removeEventListener('pointermove', move); bh.removeEventListener('pointerup', up); this.dragging = false; if (moved) { app.endChange(); this.update(); } };
+        bh.addEventListener('pointermove', move); bh.addEventListener('pointerup', up);
+      });
+    }
     for (const [kx, ky] of [['x1', 'y1'], ['x2', 'y2']]) {
       const h = el('div', { class: 'sel-box', style: { left: s[kx] * W + ox - 8 + 'px', top: s[ky] * H + oy - 8 + 'px', width: '16px', height: '16px', borderRadius: '50%' } });
       this.root.append(h);
@@ -793,7 +824,7 @@ export class Overlay {
           s[kx] = x0 + (ev.clientX - sx0) / W; s[ky] = y0 + (ev.clientY - sy0) / H;
           app.changed({ light: true, keepInspector: true });
         };
-        const up = () => { h.removeEventListener('pointermove', move); h.removeEventListener('pointerup', up); this.dragging = false; if (moved) app.endChange(); };
+        const up = () => { h.removeEventListener('pointermove', move); h.removeEventListener('pointerup', up); this.dragging = false; if (moved) { app.endChange(); this.update(); } };
         h.addEventListener('pointermove', move); h.addEventListener('pointerup', up);
       });
     }

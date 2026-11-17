@@ -1241,7 +1241,28 @@ function drawShape(ctx, c, p, local, W, H, sx) {
   if (s.dash === 'dash') ctx.setLineDash([lw * 2.4, lw * 1.8]);
   else if (s.dash === 'dot') ctx.setLineDash([0.01, lw * 2]);
   ctx.shadowColor = 'rgba(0,0,0,0.35)'; ctx.shadowBlur = 8 * sx; ctx.shadowOffsetY = 3 * sx;
-  if (s.shape === 'arrow' || s.shape === 'line') {
+  if ((s.shape === 'arrow' || s.shape === 'line') && s.bend) {
+    // bent (the handle in its middle): a curve through the point the handle sits on, drawn in along the curve
+    const X1 = s.x1 * W + ox, Y1 = s.y1 * H + oy, X2 = s.x2 * W + ox, Y2 = s.y2 * H + oy;
+    const [cx0, cy0] = bendControl(X1, Y1, X2, Y2, s.bend);
+    // the first k of the curve (de Casteljau): its own control and end
+    const qx = X1 + (cx0 - X1) * k, qy = Y1 + (cy0 - Y1) * k, rx = cx0 + (X2 - cx0) * k, ry = cy0 + (Y2 - cy0) * k;
+    const ex = qx + (rx - qx) * k, ey = qy + (ry - qy) * k;
+    const ang = Math.atan2(ey - qy, ex - qx), head = Math.max(18, (s.width || 10) * 3) * sx;
+    const len = Math.hypot(ex - X1, ey - Y1) + Math.hypot(qx - X1, qy - Y1);
+    const short = s.shape === 'arrow' && len > head;
+    ctx.beginPath(); ctx.moveTo(X1, Y1);
+    ctx.quadraticCurveTo(qx, qy, short ? ex - Math.cos(ang) * head * 0.6 : ex, short ? ey - Math.sin(ang) * head * 0.6 : ey);
+    ctx.stroke();
+    if (s.shape === 'arrow' && len > 2) {
+      ctx.setLineDash([]);
+      ctx.beginPath();
+      ctx.moveTo(ex, ey);
+      ctx.lineTo(ex - Math.cos(ang - 0.45) * head, ey - Math.sin(ang - 0.45) * head);
+      ctx.lineTo(ex - Math.cos(ang + 0.45) * head, ey - Math.sin(ang + 0.45) * head);
+      ctx.closePath(); ctx.fill();
+    }
+  } else if (s.shape === 'arrow' || s.shape === 'line') {
     const ang = Math.atan2(y2 - y1, x2 - x1), head = Math.max(18, (s.width || 10) * 3) * sx;
     const len = Math.hypot(x2 - x1, y2 - y1);
     ctx.beginPath(); ctx.moveTo(x1, y1);
@@ -1268,6 +1289,20 @@ function drawShape(ctx, c, p, local, W, H, sx) {
     ctx.stroke();
   }
   ctx.restore();
+}
+
+/**
+ * A bent arrow or line: bend is how far the middle of the curve sits off the straight line, as a share of its length
+ * (to the left going from start to end; negative: to the right). The curve's control point, and where its middle is.
+ */
+export function bendControl(x1, y1, x2, y2, bend) {
+  const mx = (x1 + x2) / 2, my = (y1 + y2) / 2, dx = x2 - x1, dy = y2 - y1;
+  // the curve's middle is halfway between the line's middle and the control point
+  return [mx + dy * bend * 2, my - dx * bend * 2];
+}
+export function bendMiddle(x1, y1, x2, y2, bend) {
+  const mx = (x1 + x2) / 2, my = (y1 + y2) / 2, dx = x2 - x1, dy = y2 - y1;
+  return [mx + dy * bend, my - dx * bend];
 }
 
 /** The outline of a box shape (rectangle, rounded, oval, star, polygon, speech or thought bubble) filling x, y, w, h. */
