@@ -8,7 +8,78 @@ pub struct Picture { pub w: usize, pub h: usize, pub rgba: Vec<u8> }
 
 /// One picture on the canvas: `m` maps its pixels to the canvas's (x' = a x + c y + e, y' = b x + d y + f), `rect`
 /// the part of it shown (x0, y0, x1, y1 in its pixels), `alpha` how solid.
-pub struct Layer { pub src: usize, pub alpha: f64, pub m: [f64; 6], pub rect: [f64; 4] }
+pub struct Layer { pub src: usize, pub alpha: f64, pub m: [f64; 6], pub rect: [f64; 4], pub look: Option<Look> }
+
+/// How the clip's box looks (1.4): the box (b maps -0.5..0.5 of it to the canvas, w × h canvas pixels), its rounded
+/// corners (radius, px), a border drawn on its edge (border px wide, in border_rgb) and a soft shadow under it (blur
+/// px as the canvas's shadowBlur, moved down dy px), as compositor.js drawMedia draws them.
+pub struct Look { pub b: [f64; 6], pub w: f64, pub h: f64, pub radius: f64, pub border: f64, pub border_rgb: [u8; 3], pub shadow: f64, pub dy: f64 }
+
+/// Signed distance (canvas px) from a point of the box (px from its middle) to its rounded edge: < 0 inside.
+fn rr_dist(x: f64, y: f64, w: f64, h: f64, r: f64) -> f64 {
+    let r = r.max(0.0).min(w / 2.0).min(h / 2.0);
+    let (qx, qy) = (x.abs() - (w / 2.0 - r), y.abs() - (h / 2.0 - r));
+    let out = (qx.max(0.0)).hypot(qy.max(0.0));
+    out + qx.max(qy).min(0.0) - r
+}
+/// The box-local point (px from its middle) under canvas pixel centre (cx, cy).
+fn box_at(lk: &Look, ib: &[f64; 6], cx: f64, cy: f64) -> (f64, f64) {
+    let (u, v) = (ib[0] * cx + ib[2] * cy + ib[4], ib[1] * cx + ib[3] * cy + ib[5]);
+    (u * lk.w, v * lk.h)
+}
+fn invert(m: &[f64; 6]) -> Option<[f64; 6]> {
+    let [a, b, c, d, e, f] = *m;
+    let det = a * d - b * c;
+    if det.abs() < 1e-12 { return None; }
+    let (ia, ib, ic, id) = (d / det, -b / det, -c / det, a / det);
+    Some([ia, ib, ic, id, -(ia * e + ic * f), -(ib * e + id * f)])
+}
+/// The canvas pixels the box covers (with `pad` more round it), clamped to the canvas: x0, x1, y0, y1.
+fn box_bounds(lk: &Look, pad: f64, w: usize, h: usize) -> (usize, usize, usize, usize) {
+    let [a, b, c, d, e, f] = lk.b;
+    let pts = [(-0.5, -0.5), (0.5, -0.5), (-0.5, 0.5), (0.5, 0.5)];
+    let (mut x0, mut x1, mut y0, mut y1) = (f64::MAX, f64::MIN, f64::MAX, f64::MIN);
+    for (u, v) in pts { let (x, y) = (a * u + c * v + e, b * u + d * v + f); x0 = x0.min(x); x1 = x1.max(x); y0 = y0.min(y); y1 = y1.max(y); }
+    let cl = |v: f64, n: usize| v.max(0.0).min(n as f64) as usize;
+    (cl((x0 - pad).floor(), w), cl((x1 + pad).ceil(), w), cl((y0 - pad).floor(), h), cl((y1 + pad).ceil(), h))
+}
+
+/// The shadow under a box: its rounded shape, softened (a Gaussian, sigma = blur / 2, as the canvas's shadowBlur),
+/// moved down dy, black at 55% of the layer's alpha, laid over acc.
+fn shadow(acc: &mut [[f64; 3]], w: usize, h: usize, lk: &Look, alpha: f64) {
+    let Some(ib) = invert(&lk.b) else { return };
+    let sigma = (lk.shadow / 2.0).max(0.01);
+    let pad = (sigma * 3.0).ceil() + 2.0;
+    let (x0, x1, y0, y1) = box_bounds(lk, pad, w, h + lk.dy.abs().ceil() as usize + pad as usize);
+    let (y0, y1) = ((y0 as f64 + lk.dy).max(0.0) as usize, ((y1 as f64 + lk.dy).min(h as f64)).max(0.0) as usize);
+    if x1 <= x0 || y1 <= y0 { return; }
+    let (bw, bh) = (x1 - x0, y1 - y0);
+    // the shape (smooth edges), at its place before it moves down
+    let mut m = vec![0f64; bw * bh];
+    for y in 0..bh { for x in 0..bw {
+        let (cx, cy) = ((x0 + x) as f64 + 0.5, (y0 + y) as f64 + 0.5 - lk.dy);
+        let (bx, by) = box_at(lk, &ib, cx, cy);
+        m[y * bw + x] = (0.5 - rr_dist(bx, by, lk.w, lk.h, lk.radius)).clamp(0.0, 1.0);
+    } }
+    // blurred: a Gaussian along each axis
+    let r = (sigma * 3.0).ceil() as i64;
+    let k: Vec<f64> = (-r..=r).map(|i| (-(i * i) as f64 / (2.0 * sigma * sigma)).exp()).collect();
+    let ks: f64 = k.iter().sum();
+    let mut t = vec![0f64; bw * bh];
+    for y in 0..bh { for x in 0..bw {
+        let mut s = 0.0;
+        for (j, kv) in k.iter().enumerate() { let xx = x as i64 + j as i64 - r; if xx >= 0 && (xx as usize) < bw { s += m[y * bw + xx as usize] * kv; } }
+        t[y * bw + x] = s / ks;
+    } }
+    for y in 0..bh { for x in 0..bw {
+        let mut s = 0.0;
+        for (j, kv) in k.iter().enumerate() { let yy = y as i64 + j as i64 - r; if yy >= 0 && (yy as usize) < bh { s += t[yy as usize * bw + x] * kv; } }
+        let a = (s / ks) * 0.55 * alpha;
+        let o = &mut acc[(y0 + y) * w + x0 + x];
+        for ch in 0..3 { o[ch] *= 1.0 - a; }
+    } }
+}
+
 
 /// Bilinear sample of premultiplied colour at (u, v) (pixel centres at .5), kept inside the shown part `r`.
 fn sample(p: &Picture, r: &[f64; 4], u: f64, v: f64) -> [f64; 4] {
@@ -45,6 +116,21 @@ pub fn draw(w: usize, h: usize, bg: [u8; 3], pictures: &[Picture], layers: &[Lay
         // how many canvas pixels one source pixel spans, along the source's two axes
         let (su, sv) = (a.hypot(b), c.hypot(d));
         let r = l.rect;
+        // the box: its shadow and the black under it first (as the canvas fills the shape with the shadow on)
+        let look = l.look.as_ref().and_then(|lk| invert(&lk.b).map(|ib| (lk, ib)));
+        if let Some((lk, ib)) = &look {
+            if lk.shadow > 0.0 {
+                shadow(&mut acc, w, h, lk, l.alpha);
+                let (x0, x1, y0, y1) = box_bounds(lk, 1.0, w, h);
+                for y in y0..y1 { for x in x0..x1 {
+                    let (bx, by) = box_at(lk, ib, x as f64 + 0.5, y as f64 + 0.5);
+                    let cov = (0.5 - rr_dist(bx, by, lk.w, lk.h, lk.radius)).clamp(0.0, 1.0) * l.alpha;
+                    let o = &mut acc[y * w + x];
+                    for ch in 0..3 { o[ch] *= 1.0 - cov; }
+                } }
+            }
+        }
+        let clip = look.as_ref().filter(|(lk, _)| lk.radius > 0.0 || lk.border > 0.0);
         let square = (b.abs() < 1e-9 && c.abs() < 1e-9) || (a.abs() < 1e-9 && d.abs() < 1e-9);
         let corners = [(r[0], r[1]), (r[2], r[1]), (r[0], r[3]), (r[2], r[3])];
         let xs = corners.iter().map(|&(u, v)| a * u + c * v + e);
@@ -71,6 +157,8 @@ pub fn draw(w: usize, h: usize, bg: [u8; 3], pictures: &[Picture], layers: &[Lay
                     (0.5 + (u - r[0]) * su).clamp(0.0, 1.0) * (0.5 + (r[2] - u) * su).clamp(0.0, 1.0)
                         * (0.5 + (v - r[1]) * sv).clamp(0.0, 1.0) * (0.5 + (r[3] - v) * sv).clamp(0.0, 1.0)
                 };
+                // rounded corners (or a border): the picture is cut to the box with smooth edges
+                let cov = match &clip { Some((lk, ib)) => { let (bx, by) = box_at(lk, ib, cx, cy); cov * (0.5 - rr_dist(bx, by, lk.w, lk.h, lk.radius)).clamp(0.0, 1.0) } None => cov };
                 if cov <= 0.0 { continue; }
                 let mut s = [0.0; 4];
                 if nu == 1 && nv == 1 { s = sample(p, &r, u, v); } else {
@@ -88,6 +176,21 @@ pub fn draw(w: usize, h: usize, bg: [u8; 3], pictures: &[Picture], layers: &[Lay
                 for ch in 0..3 { o[ch] = s[ch] * k + o[ch] * (1.0 - s[3] * k); }
             }
         }
+        // the border: a line border px wide along the box's edge, half in, half out
+        if let Some((lk, ib)) = &look {
+            if lk.border > 0.0 {
+                let half = lk.border / 2.0;
+                let (x0, x1, y0, y1) = box_bounds(lk, half + 2.0, w, h);
+                for y in y0..y1 { for x in x0..x1 {
+                    let (bx, by) = box_at(lk, ib, x as f64 + 0.5, y as f64 + 0.5);
+                    let d = rr_dist(bx, by, lk.w, lk.h, lk.radius).abs();
+                    let cov = (half - d + 0.5).clamp(0.0, 1.0).min(lk.border) * l.alpha;
+                    if cov <= 0.0 { continue; }
+                    let o = &mut acc[y * w + x];
+                    for ch in 0..3 { o[ch] = lk.border_rgb[ch] as f64 * cov + o[ch] * (1.0 - cov); }
+                } }
+            }
+        }
     }
     let mut out = vec![255u8; w * h * 4];
     for (i, c) in acc.iter().enumerate() { for ch in 0..3 { out[i * 4 + ch] = c[ch].round().clamp(0.0, 255.0) as u8; } }
@@ -101,7 +204,7 @@ mod tests {
     #[test]
     fn a_picture_placed_at_half_size_and_half_faded() {
         let pic = solid(4, 4, [200, 100, 0, 255]);
-        let out = draw(8, 8, [0, 0, 255], &[pic], &[Layer { src: 0, alpha: 0.5, m: [1.0, 0.0, 0.0, 1.0, 2.0, 2.0], rect: [0.0, 0.0, 4.0, 4.0] }]);
+        let out = draw(8, 8, [0, 0, 255], &[pic], &[Layer { src: 0, alpha: 0.5, m: [1.0, 0.0, 0.0, 1.0, 2.0, 2.0], rect: [0.0, 0.0, 4.0, 4.0], look: None }]);
         let at = |x: usize, y: usize| &out[(y * 8 + x) * 4..(y * 8 + x) * 4 + 3];
         assert_eq!(at(3, 3), &[100, 50, 128]); // half the picture over half the blue
         assert_eq!(at(0, 0), &[0, 0, 255]);
@@ -111,7 +214,7 @@ mod tests {
     fn a_straight_picture_has_hard_edges_at_pixel_centres() {
         // placed from x 0.4 to 2.4: pixels 0 and 1 have their centres inside, pixel 2 (centre 2.5) doesn't
         let pic = solid(2, 2, [255, 255, 255, 255]);
-        let out = draw(4, 1, [0, 0, 0], &[pic], &[Layer { src: 0, alpha: 1.0, m: [1.0, 0.0, 0.0, 1.0, 0.4, -0.5], rect: [0.0, 0.0, 2.0, 2.0] }]);
+        let out = draw(4, 1, [0, 0, 0], &[pic], &[Layer { src: 0, alpha: 1.0, m: [1.0, 0.0, 0.0, 1.0, 0.4, -0.5], rect: [0.0, 0.0, 2.0, 2.0], look: None }]);
         assert_eq!((out[0], out[4], out[8], out[12]), (255, 255, 0, 0));
     }
     #[test]
@@ -120,15 +223,43 @@ mod tests {
         let pic = solid(6, 6, [255, 255, 255, 255]);
         let (co, si) = (std::f64::consts::FRAC_1_SQRT_2, std::f64::consts::FRAC_1_SQRT_2);
         let m = [co, si, -si, co, 4.5 - (co * 3.0 - si * 3.0), 4.5 - (si * 3.0 + co * 3.0)];
-        let out = draw(9, 9, [0, 0, 0], &[pic], &[Layer { src: 0, alpha: 1.0, m, rect: [0.0, 0.0, 6.0, 6.0] }]);
+        let out = draw(9, 9, [0, 0, 0], &[pic], &[Layer { src: 0, alpha: 1.0, m, rect: [0.0, 0.0, 6.0, 6.0], look: None }]);
         assert_eq!(out[(4 * 9 + 4) * 4], 255);
         assert!((0..81).any(|i| out[i * 4] > 20 && out[i * 4] < 235), "some edge pixels are in between");
+    }
+    #[test]
+    fn rounded_corners_cut_the_picture_and_a_border_goes_round_it() {
+        // a 20 × 20 white picture filling a 20 × 20 box at (10, 10) on a black 40 × 40 canvas, corners 6 px, a red 2 px border
+        let pic = solid(20, 20, [255, 255, 255, 255]);
+        let lk = Look { b: [20.0, 0.0, 0.0, 20.0, 20.0, 20.0], w: 20.0, h: 20.0, radius: 6.0, border: 0.0, border_rgb: [255, 0, 0], shadow: 0.0, dy: 0.0 };
+        let out = draw(40, 40, [0, 0, 0], &[pic], &[Layer { src: 0, alpha: 1.0, m: [1.0, 0.0, 0.0, 1.0, 10.0, 10.0], rect: [0.0, 0.0, 20.0, 20.0], look: Some(lk) }]);
+        let at = |x: usize, y: usize| out[(y * 40 + x) * 4];
+        assert_eq!(at(20, 20), 255);
+        assert_eq!(at(10, 10), 0, "the corner is cut off");
+        assert_eq!(at(20, 10), 255, "the straight edge isn't");
+        let pic = solid(20, 20, [255, 255, 255, 255]);
+        let lk = Look { b: [20.0, 0.0, 0.0, 20.0, 20.0, 20.0], w: 20.0, h: 20.0, radius: 0.0, border: 2.0, border_rgb: [255, 0, 0], shadow: 0.0, dy: 0.0 };
+        let out = draw(40, 40, [0, 0, 0], &[pic], &[Layer { src: 0, alpha: 1.0, m: [1.0, 0.0, 0.0, 1.0, 10.0, 10.0], rect: [0.0, 0.0, 20.0, 20.0], look: Some(lk) }]);
+        let px = |x: usize, y: usize| [out[(y * 40 + x) * 4], out[(y * 40 + x) * 4 + 1]];
+        assert_eq!(px(9, 20), [255, 0], "the border outside the edge");
+        assert_eq!(px(10, 20), [255, 0], "and inside it");
+        assert_eq!(px(12, 20), [255, 255], "then the picture");
+    }
+    #[test]
+    fn a_shadow_falls_below() {
+        let pic = solid(10, 10, [255, 255, 255, 255]);
+        let lk = Look { b: [10.0, 0.0, 0.0, 10.0, 20.0, 15.0], w: 10.0, h: 10.0, radius: 0.0, border: 0.0, border_rgb: [0, 0, 0], shadow: 8.0, dy: 2.0 };
+        let out = draw(40, 40, [200, 200, 200], &[pic], &[Layer { src: 0, alpha: 1.0, m: [1.0, 0.0, 0.0, 1.0, 15.0, 10.0], rect: [0.0, 0.0, 10.0, 10.0], look: Some(lk) }]);
+        let at = |x: usize, y: usize| out[(y * 40 + x) * 4];
+        assert!(at(20, 22) < 170, "darker just under it: {}", at(20, 22));
+        assert!(at(20, 7) > at(20, 22), "less above than below");
+        assert_eq!(at(2, 2), 200, "nothing far away");
     }
     #[test]
     fn a_fine_pattern_made_smaller_averages_to_grey() {
         let mut pic = solid(64, 64, [0, 0, 0, 255]);
         for y in 0..64 { for x in 0..64 { if (x + y) % 2 == 0 { let o = (y * 64 + x) * 4; pic.rgba[o..o + 3].copy_from_slice(&[255, 255, 255]); } } }
-        let out = draw(16, 16, [0, 0, 0], &[pic], &[Layer { src: 0, alpha: 1.0, m: [0.25, 0.0, 0.0, 0.25, 0.0, 0.0], rect: [0.0, 0.0, 64.0, 64.0] }]);
+        let out = draw(16, 16, [0, 0, 0], &[pic], &[Layer { src: 0, alpha: 1.0, m: [0.25, 0.0, 0.0, 0.25, 0.0, 0.0], rect: [0.0, 0.0, 64.0, 64.0], look: None }]);
         for px in out.chunks(4) { assert!((px[0] as i32 - 128).abs() <= 8, "{}", px[0]); }
     }
 }

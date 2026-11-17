@@ -685,21 +685,25 @@ function quarters(w, h) {
   }
   return px;
 }
-async function drawFrame(doc, pics) {
-  const plan = framePlan(doc, 1, doc.canvas.width, doc.canvas.height);
+async function drawFrame(doc, pics, W = doc.canvas.width, H = doc.canvas.height) {
+  const plan = framePlan(doc, 1, W, H);
   assert.ok(!plan.why, plan.why);
   const ids = Object.keys(pics), parts = [Buffer.from('RCORE1\nframe\n')];
   const u32 = v => { const b = Buffer.alloc(4); b.writeUInt32LE(v); parts.push(b); }, f64 = v => { const b = Buffer.alloc(8); b.writeDoubleLE(v); parts.push(b); };
-  u32(doc.canvas.width); u32(doc.canvas.height); parts.push(Buffer.from(plan.bg));
+  u32(W); u32(H); parts.push(Buffer.from(plan.bg));
   u32(ids.length);
   for (const id of ids) { const m = doc.media.find(x => x.id === id); u32(m.width); u32(m.height); parts.push(Buffer.from(pics[id])); }
   u32(plan.layers.length);
-  for (const l of plan.layers) { u32(ids.indexOf(l.media)); f64(l.alpha); l.m.forEach(f64); l.rect.forEach(f64); }
+  for (const l of plan.layers) {
+    u32(ids.indexOf(l.media)); f64(l.alpha); l.m.forEach(f64); l.rect.forEach(f64);
+    if (!l.look) { parts.push(Buffer.from([0])); continue; }
+    const k = l.look; parts.push(Buffer.from([1])); k.b.forEach(f64); [k.w, k.h, k.radius, k.border].forEach(f64); parts.push(Buffer.from(k.borderColor)); [k.shadow, k.dy].forEach(f64);
+  }
   const out = path.join(fs.mkdtempSync(path.join(os.tmpdir(), 'reel-frame-')), 'f.rgba');
   const pb = Buffer.from(out); u32(pb.length); parts.push(pb);
   await core.run(Buffer.concat(parts));
   const px = fs.readFileSync(out); fs.rmSync(path.dirname(out), { recursive: true });
-  return (x, y) => [...px.subarray((y * doc.canvas.width + x) * 4, (y * doc.canvas.width + x) * 4 + 3)];
+  return (x, y) => [...px.subarray((y * W + x) * 4, (y * W + x) * 4 + 3)];
 }
 const near = (a, b, tol = 2) => a.every((v, i) => Math.abs(v - b[i]) <= tol);
 
@@ -729,9 +733,28 @@ test('reel-core draws a frame: pictures placed, scaled, cropped, faded and turne
   });
 });
 
+test('reel-core draws rounded corners, a border and a shadow where the editor draws them', { skip }, async () => {
+  const media = [{ id: 'scr', kind: 'video', width: 128, height: 72 }];
+  const pics = { scr: quarters(128, 72) };
+  // a 1920 × 1080 project drawn at 64 × 36 (its sizes 1/30): the picture at half size in the middle (x 16..48,
+  // y 9..27), corners 6 px, a 2 px yellow border, a shadow 4 px soft, 1 px down, over a light grey background
+  const d = frameDoc([{ media: 'scr', props: { scale: 0.5, radius: 180, border: 60, borderColor: '#ffff00', shadow: 120 } }], media);
+  d.canvas = { width: 1920, height: 1080, background: '#c8c8c8' };
+  const k = framePlan(d, 1, 64, 36).layers[0].look;
+  assert.ok(Math.abs(k.radius - 6) < 1e-9 && Math.abs(k.border - 2) < 1e-9 && Math.abs(k.shadow - 4) < 1e-9 && Math.abs(k.dy - 1) < 1e-9, JSON.stringify(k));
+  const at = await drawFrame(d, pics, 64, 36);
+  assert.ok(near(at(24, 15), [255, 0, 0], 3), 'red quarter inside: ' + at(24, 15));
+  assert.ok(near(at(32, 9), [255, 255, 0], 40), 'the border along the top edge: ' + at(32, 9));
+  const corner = at(16, 9);
+  assert.ok(corner[2] < 200 && corner[0] < 230 && !near(corner, [255, 0, 0], 40), 'the corner is cut (shadowed background): ' + corner);
+  assert.ok(at(32, 29)[0] < at(32, 6)[0], `darker below (shadow) than above: ${at(32, 29)} vs ${at(32, 6)}`);
+  assert.deepEqual(at(2, 2), [200, 200, 200], 'far away: the background');
+});
+
 test('a frame that needs more than pictures says why, for the JavaScript to draw', () => {
   const media = [{ id: 'scr', kind: 'video', width: 128, height: 72 }];
-  assert.match(framePlan({ ...frameDoc([{ media: 'scr', props: { radius: 12 } }], media) }, 1, 64, 36).why, /rounded/);
+  const fr = frameDoc([{ media: 'scr' }], media); fr.clips[0].frame = { type: 'phone' };
+  assert.match(framePlan(fr, 1, 64, 36).why, /device frames/);
   const d = frameDoc([{ media: 'scr' }], media); d.clips[0].filters = [{ type: 'blur' }];
   assert.match(framePlan(d, 1, 64, 36).why, /filters/);
   d.clips[0].filters = []; d.clips.push({ id: 't', type: 'text', track: 't0', start: 0, duration: 5, props: {} });

@@ -1,9 +1,9 @@
 // A frame for the Rust core to draw (picture export, step 5): what compositor.js drawFrame would draw at time t,
 // written down as layers instead of drawn. Each layer is one picture: which media, the part of it shown (the
 // crop, in source pixels), how its pixels land on the canvas (an affine matrix, source pixels → canvas pixels:
-// position, size, turn, and a phone video's own rotation), and how see-through it is. This is the plain case:
-// pictures placed, scaled, cropped, turned and faded. Anything more (titles, elements, filters, rounded corners,
-// shadows, transition effects, pointer effects…) answers { why } and the frame is drawn by the JavaScript as before.
+// position, size, turn, and a phone video's own rotation), how see-through it is, and its box's look (rounded corners,
+// border, shadow). Anything more (titles, elements, filters, device frames, transition effects, pointer effects…)
+// answers { why } and the frame is drawn by the JavaScript as before.
 // No DOM here, so it's tested in Node.
 
 import { activeClips, animated, propsAt, mediaById, sourceTime } from '../model.js';
@@ -45,7 +45,7 @@ export function framePlan(doc, t, W, H, size = m => ({ w: m.width || 0, h: m.hei
     if (!m || m.kind === 'audio') continue;
     if ((c.filters || []).some(f => !f.off) || (c.matte && c.matte.file && !c.matte.off) || c.levels || (m.convertedFrom === 'screenflow' && m.kind === 'video' && !m.rangeOk) || p.split > 0.02) return { why: 'filters' };
     if (p.blur || (p.bright != null && Math.abs(p.bright - 1) > 0.005) || (p.sat != null && Math.abs(p.sat - 1) > 0.005)) return { why: 'blur and exposure moves' };
-    if (p.radius || p.shadow > 0 || p.border > 0 || (c.frame && c.frame.type && c.frame.type !== 'none') || (c.stab && m.kind === 'video')) return { why: 'rounded corners, shadows, borders and device frames' };
+    if ((c.frame && c.frame.type && c.frame.type !== 'none') || (c.stab && m.kind === 'video')) return { why: 'device frames and stabilizing' };
     if ((c.cursor && c.cursor.show !== false) || m.pointerSeparate || (c.keystrokes && c.keystrokes.show)) return { why: 'pointer and keystroke effects' };
     const { w: srcW, h: srcH } = size(m);
     if (!(srcW > 0 && srcH > 0)) return { why: 'a picture whose size isn’t known' };
@@ -69,7 +69,17 @@ export function framePlan(doc, t, W, H, size = m => ({ w: m.width || 0, h: m.hei
       rect = [cl, ct, cl + cw, ct + chh];
     }
     if (!M.every(Number.isFinite) || !(Math.abs(M[0] * M[3] - M[1] * M[2]) > 1e-12)) continue; // squashed to nothing: nothing to draw
-    layers.push({ media: m.id, clip: c.id, st: sourceTime(c, t), alpha: clamp(p.opacity, 0, 1), m: M, rect });
+    // rounded corners, a border, a shadow (1.4): the clip's box as drawMedia draws it (corners and widths are set at
+    // the canvas's size: scaled to this frame's)
+    const sx = W / (doc.canvas.width || W);
+    let look = null;
+    if (p.radius > 0 || p.border > 0 || p.shadow > 0) {
+      let B = translate(r.cx, r.cy);
+      if (p.rotation) B = mul(B, rotate(p.rotation));
+      B = mul(B, scale(r.w, r.h));
+      look = { b: B, w: r.w, h: r.h, radius: Math.max(0, (p.radius || 0) * sx), border: Math.max(0, (p.border || 0) * sx), borderColor: hexRGB(p.borderColor || '#fff') || [255, 255, 255], shadow: Math.max(0, (p.shadow || 0) * sx), dy: Math.max(0, (p.shadow || 0) * sx * 0.25) };
+    }
+    layers.push({ media: m.id, clip: c.id, st: sourceTime(c, t), alpha: clamp(p.opacity, 0, 1), m: M, rect, look });
   }
   return { bg, layers };
 }
