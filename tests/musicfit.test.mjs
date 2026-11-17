@@ -46,14 +46,32 @@ test('shortening skips a whole number of phrases and keeps the ending', () => {
   assert.ok(p.seams[0].likeness > 0.55);
 });
 
-test('lengthening loops a section and lands on the target', () => {
+test('lengthening plays sections again where the song repeats, joined to the sample, and lands on the target', () => {
   const an = analyseMusic(song(32), RATE), g = beatGrid(an);
   const p = planFit(an, g, 32, 60);
   assert.ok(p.segments.length >= 3);
-  assert.ok(Math.abs(p.length * (1 / p.speed) - 60) < 1.2, `length ${p.length} speed ${p.speed}`);
-  assert.equal(p.segments.at(-1).b, 32);
-  // every seam joins alike-sounding moments
-  for (const s of p.seams) assert.ok(s.likeness > 0.55);
+  // exactly on the target: the real ending kept, or (when the song only repeats in whole 8 s phrases) faded out there
+  assert.ok(Math.abs(p.length / p.speed - 60) < 0.05, `length ${p.length} speed ${p.speed}`);
+  assert.ok(p.segments.at(-1).b === 32 || p.fadeOut > 0);
+  for (const s of p.seams) {
+    assert.ok(s.likeness > 0.9, `joins alike-sounding moments (${s.likeness})`);
+    assert.ok(s.match > 0.9 && s.xf <= 0.05, 'lined up to the sample, with a brief crossfade');
+    // the same moment of the 8 s phrase, so the jump is a whole number of phrases
+    const k = (s.from - s.to) / 8;
+    assert.ok(Math.abs(k - Math.round(k)) < 0.01, `jump ${s.from - s.to}`);
+  }
+});
+
+test('a much longer version uses different jumps, not one stretch over and over', () => {
+  const an = analyseMusic(song(64), RATE), g = beatGrid(an);
+  const p = planFit(an, g, 64, 240);
+  assert.ok(Math.abs(p.length / p.speed - 240) < 0.05);
+  const joins = p.seams.map(s => `${s.from.toFixed(1)}>${s.to.toFixed(1)}`);
+  assert.ok(new Set(joins).size >= Math.min(3, joins.length), `joins ${joins}`);
+  // never the same short stretch three times running
+  for (let i = 2; i < joins.length; i++) assert.ok(!(joins[i] === joins[i - 1] && joins[i] === joins[i - 2]), `joins ${joins}`);
+  // and every played stretch is at least a few bars long
+  for (const s of p.segments.slice(1, -1)) assert.ok(s.b - s.a >= 3.9, `stretch ${s.a}–${s.b}`);
 });
 
 test('a near fit is left alone', () => {

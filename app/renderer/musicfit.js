@@ -80,7 +80,7 @@ export function openMusicFit(app) {
   const customRow = el('div', { class: 'row', style: { display: 'none' } }, el('label', { text: 'Length (s)' }), secs);
   mode.addEventListener('change', () => { customRow.style.display = mode.value === 'custom' ? '' : 'none'; });
   const whole = el('input', { type: 'checkbox', checked: full > srcLen + 1 });
-  const note = el('p', { class: 'note', text: `The clip is ${fmtTime(srcLen).replace(/\.\d$/, '')} now${full > srcLen + 1 ? `; the whole song is ${fmtTime(full + (c.in || 0)).replace(/\.\d$/, '')}` : ''}. Reel finds where the song repeats itself on the beat and plays a section again (or skips one), joining them with short crossfades. The intro and the real ending stay.` });
+  const note = el('p', { class: 'note', text: `The clip is ${fmtTime(srcLen).replace(/\.\d$/, '')} now${full > srcLen + 1 ? `; the whole song is ${fmtTime(full + (c.in || 0)).replace(/\.\d$/, '')}` : ''}. Reel follows the song’s beat and bars, finds where it repeats itself (the same sound and the same chords either side), and plays sections again or skips them there: different ones, not one loop over and over. Each join is lined up to the sample with a crossfade of a few hundredths of a second. The intro and the real ending stay.` });
   modal('🎵 Fit the music', el('div', { class: 'mf' },
     el('div', { class: 'row' }, el('label', { text: 'Make it fit' }), mode), customRow,
     full > srcLen + 1 ? el('label', { class: 'row' }, whole, el('span', { text: ' Use the whole song (from the clip’s start to the song’s real ending)' })) : null,
@@ -99,7 +99,7 @@ export function openMusicFit(app) {
         close();
         const seamless = plan.seams.every(s => s.likeness >= 0.55);
         const n = plan.segments.length - 1;
-        toast(n ? `Music fitted to ${fmtTime(plan.length / plan.speed).replace(/\.\d$/, '')}: ${n} join${n === 1 ? '' : 's'}${seamless ? ' on the beat where the song repeats' : ' (no clean repeat found: check the join and nudge it if you hear it)'}${plan.speed !== 1 ? `, and ${Math.round(Math.abs(plan.speed - 1) * 1000) / 10}% ${plan.speed > 1 ? 'faster' : 'slower'} with the pitch kept to land exactly` : ''}. ⌘Z undoes it.` : 'The music already fits.', 8000);
+        toast(n ? `Music fitted to ${fmtTime(plan.length / plan.speed).replace(/\.\d$/, '')}: ${n} join${n === 1 ? '' : 's'}${seamless ? ' on the bar where the song repeats, lined up to the sample' : ' (no clean repeat found: check the join and nudge it if you hear it)'}${plan.speed !== 1 ? `, and ${Math.round(Math.abs(plan.speed - 1) * 1000) / 10}% ${plan.speed > 1 ? 'faster' : 'slower'} with the pitch kept to land exactly` : ''}${plan.fadeOut ? '; the song only repeats in whole phrases, so it fades out on the target instead of its own ending' : ''}. ⌘Z undoes it.` : 'The music already fits.', 9000);
       } catch (e) { note.textContent = `Couldn’t fit the music: ${e.message}`; }
     } },
   ], { wide: false });
@@ -126,11 +126,14 @@ export function place(app, c0, plan, beat, { members = [c0], srcIn = c0.in || 0,
       const k = structuredClone(c);
       delete k.retime; delete k.keys; delete k.marks;
       Object.assign(k, { id: uid('c'), track, start: at, duration: dur, in: srcIn + g.a, speed: sp === 1 ? 1 : sp, group, musicFit: true, fitSrc: { in: srcIn, len: srcLen } });
-      k.audio = { ...(k.audio || {}), keepPitch: true, fadeIn: i === 0 ? c.audio?.fadeIn || 0 : 0, fadeOut: i === plan.segments.length - 1 ? fadeOut : 0 };
+      // the end: its own fade, or (when it's played to the target rather than its real ending) a fade over the last bars
+      const lastOne = i === plan.segments.length - 1;
+      k.audio = { ...(k.audio || {}), keepPitch: true, fadeIn: i === 0 ? c.audio?.fadeIn || 0 : 0, fadeOut: lastOne ? Math.max(fadeOut, plan.fadeOut || 0) : 0 };
       delete k.xfadeIn; delete k.xfadeOut; delete k.xfAuto;
       if (i === 0 && c.xfadeIn) k.xfadeIn = c.xfadeIn; // the crossfade from the clip before stays
-      if (i > 0) k.xfadeIn = xf;
-      if (i < plan.segments.length - 1) k.xfadeOut = xf;
+      // each join's own crossfade: a few hundredths of a second where the two sides line up to the sample
+      if (i > 0) k.xfadeIn = plan.seams[i - 1]?.xf ?? xf;
+      if (!lastOne) k.xfadeOut = plan.seams[i]?.xf ?? xf;
       k.name = (c.name || 'Music').replace(/ \(\d+\)$/, '') + (i === 0 ? '' : ` (${i + 1})`);
       d.clips.push(k);
       at += dur;
