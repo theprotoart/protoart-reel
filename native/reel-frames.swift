@@ -1,0 +1,77 @@
+// reel-frames: a video's frames, read by the Mac's own decoder (AVFoundation, on the media engine) as fast as it
+// can go, made small and grey for Auto Edit and Smart Zoom to watch. Reel's main process pipes them straight into
+// reel-core (vwatch), so watching a video no longer waits on the editor playing it at 8–16×.
+//
+//   reel-frames <file> <from s> <to s> <step s> <gw> <gh> <pw> <ph>
+//
+// Writes to stdout, for every frame from..to: time f64 · flags u8 (1: a sample frame, about every step seconds) ·
+// gw × gh greyscale bytes · and on a sample frame, when pw > 0, pw × ph greyscale bytes (little-endian). The grey
+// is the picture's own brightness (luma). Reads only the file it's given; writes nothing but stdout. Exits 0 when
+// done, 2 with a reason on stderr when the file can't be read.
+import AVFoundation
+import Accelerate
+import Foundation
+
+func die(_ msg: String) -> Never { FileHandle.standardError.write((msg + "\n").data(using: .utf8)!); exit(2) }
+
+let a = CommandLine.arguments
+guard a.count == 9, a[1].hasPrefix("/"),
+      let from = Double(a[2]), let to = Double(a[3]), let step = Double(a[4]),
+      let gw = Int(a[5]), let gh = Int(a[6]), let pw = Int(a[7]), let ph = Int(a[8]),
+      from >= 0, to > from, step > 0, (3...256).contains(gw), (3...256).contains(gh), pw >= 0, pw <= 3840, ph >= 0, ph <= 2160
+else { die("usage: reel-frames file from to step gw gh pw ph") }
+signal(SIGPIPE, SIG_IGN) // Reel stopped listening: just stop
+
+let asset = AVURLAsset(url: URL(fileURLWithPath: a[1]))
+// (the older synchronous call: a command-line tool has nothing else to do while it waits)
+guard let track = asset.tracks(withMediaType: .video).first else { die("no video in this file") }
+guard let reader = try? AVAssetReader(asset: asset) else { die("this video can't be read") }
+reader.timeRange = CMTimeRange(start: CMTime(seconds: from, preferredTimescale: 600), end: CMTime(seconds: to, preferredTimescale: 600))
+// the picture's brightness plane comes first in this format: no colour conversion at all
+let out = AVAssetReaderTrackOutput(track: track, outputSettings: [kCVPixelBufferPixelFormatTypeKey as String: kCVPixelFormatType_420YpCbCr8BiPlanarFullRange])
+out.alwaysCopiesSampleData = false
+guard reader.canAdd(out) else { die("this video can't be read") }
+reader.add(out)
+guard reader.startReading() else { die(reader.error?.localizedDescription ?? "this video can't be read") }
+
+var gridBuf = [UInt8](repeating: 0, count: gw * gh)
+var bigBuf = [UInt8](repeating: 0, count: pw * ph)
+var outBuf = Data(capacity: 4 << 20)
+let output = FileHandle.standardOutput
+
+func scale(_ src: inout vImage_Buffer, into dst: inout [UInt8], _ w: Int, _ h: Int) {
+    dst.withUnsafeMutableBytes { p in
+        var d = vImage_Buffer(data: p.baseAddress, height: vImagePixelCount(h), width: vImagePixelCount(w), rowBytes: w)
+        _ = vImageScale_Planar8(&src, &d, nil, vImage_Flags(kvImageHighQualityResampling))
+    }
+}
+func flush() {
+    guard !outBuf.isEmpty else { return }
+    do { try output.write(contentsOf: outBuf) } catch { exit(0) }
+    outBuf.removeAll(keepingCapacity: true)
+}
+
+var next = from
+while reader.status == .reading, let sb = out.copyNextSampleBuffer() {
+    guard let px = CMSampleBufferGetImageBuffer(sb) else { continue }
+    let t = CMSampleBufferGetPresentationTimeStamp(sb).seconds
+    if !t.isFinite || t < from - 1e-3 { continue }
+    if t > to + 1e-3 { break }
+    let sample = t >= next - 1e-3
+    if sample { next = t + step }
+    CVPixelBufferLockBaseAddress(px, .readOnly)
+    var y = vImage_Buffer(data: CVPixelBufferGetBaseAddressOfPlane(px, 0), height: vImagePixelCount(CVPixelBufferGetHeightOfPlane(px, 0)),
+                          width: vImagePixelCount(CVPixelBufferGetWidthOfPlane(px, 0)), rowBytes: CVPixelBufferGetBytesPerRowOfPlane(px, 0))
+    scale(&y, into: &gridBuf, gw, gh)
+    if sample && pw > 0 { scale(&y, into: &bigBuf, pw, ph) }
+    CVPixelBufferUnlockBaseAddress(px, .readOnly)
+    var tt = t
+    withUnsafeBytes(of: &tt) { outBuf.append(contentsOf: $0) }
+    outBuf.append(sample ? 1 : 0)
+    outBuf.append(contentsOf: gridBuf)
+    if sample && pw > 0 { outBuf.append(contentsOf: bigBuf) }
+    if outBuf.count > 2 << 20 { flush() }
+}
+flush()
+if reader.status == .failed { die(reader.error?.localizedDescription ?? "the video stopped reading part way") }
+exit(0)

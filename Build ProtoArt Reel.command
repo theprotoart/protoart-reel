@@ -61,6 +61,10 @@ if xcrun --find swiftc >/dev/null 2>&1; then
     "$ROOT/native/reel-speech.swift" -o "$RES/app/bin/reel-speech" >"$ROOT/speech-helper-log.txt" 2>&1 \
     && codesign --force --sign - "$RES/app/bin/reel-speech" >/dev/null 2>&1 && echo "Speech helper built (auto captions)." \
     || echo "The speech helper didn't build (see speech-helper-log.txt); auto captions will be off."
+  xcrun swiftc -O -swift-version 5 -target arm64-apple-macos14.2 -framework AVFoundation -framework Accelerate -framework CoreMedia -framework CoreVideo \
+    "$ROOT/native/reel-frames.swift" -o "$RES/app/bin/reel-frames" >"$ROOT/frames-helper-log.txt" 2>&1 \
+    && codesign --force --sign - "$RES/app/bin/reel-frames" >/dev/null 2>&1 && echo "Frame reader built (fast Auto Edit and Smart Zoom watching)." \
+    || echo "The frame reader didn't build (see frames-helper-log.txt); Auto Edit watches videos by playing them, as before."
 else
   echo "Swift isn't installed (xcode-select --install); per-app audio and plug-ins will be off."
 fi

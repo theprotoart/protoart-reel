@@ -18,6 +18,22 @@ export const STYLES = {
 
 const GW = 48; // analysis grid width (height follows the aspect)
 
+/**
+ * The fast way to watch (reel-core 1.8 with reel-frames): the Mac's decoder reads the frames straight into the Rust
+ * core, no playback. Resolves to its answer, or null when this build hasn't the helpers (or the file is one the
+ * decoder won't read): then the video is watched by playing it, as before.
+ */
+async function coreWatch(app, m, o, { onProgress, signal } = {}) {
+  if (!app.api?.coreWatch || (m.rotation || 0) % 360) return null;
+  const id = 'w' + Math.random().toString(36).slice(2, 10);
+  const off = app.api.onCoreProgress?.((wid, t) => { if (wid === id) onProgress?.(clamp((t - o.from) / Math.max(0.01, o.to - o.from), 0, 1)); });
+  const stop = () => app.api.coreWatchStop(id);
+  signal?.addEventListener('abort', stop);
+  try { return await app.api.coreWatch(id, app.token, previewFile(m), o); }
+  catch (e) { if (signal?.aborted) throw new Error('Cancelled'); console.warn('watching in the core failed', e); return null; }
+  finally { off?.(); signal?.removeEventListener('abort', stop); }
+}
+
 /** Samples the part of the media a clip uses. Resolves to { samples, gw, gh, aspect }. */
 export async function analyse(app, c, m, { onProgress, signal: outer, budget = Infinity } = {}) {
   // budget: seconds this clip may take. A clip that won't play smoothly (a stalled decoder, a slow drive) stops there
@@ -26,9 +42,24 @@ export async function analyse(app, c, m, { onProgress, signal: outer, budget = I
   let slow = false;
   const stop = () => ctl.abort();
   if (outer?.aborted) ctl.abort(); else outer?.addEventListener('abort', stop);
-  const timer = isFinite(budget) ? setTimeout(() => { slow = true; ctl.abort(); }, budget * 1000) : 0;
   const speed = c.speed || 1, from = c.in || 0, to = from + c.duration * speed;
   const gh = Math.max(12, Math.round((GW * (m.height || 1080)) / (m.width || 1920)));
+  // the fast way first: every frame decoded on the Mac's media engine, so each cut is found to the frame as well
+  try {
+    const r = await coreWatch(app, m, { from, to, step: 0.2 * speed, gw: GW, gh }, { onProgress, signal: outer });
+    if (r && r.samples.length) {
+      const samples = r.samples.map(s => ({ t: (s.t - from) / speed, diff: s.diff, motion: s.motion, cx: s.cx, cy: s.cy, box: s.box, detail: s.detail, jump: s.jump }));
+      const cuts = findCuts(samples).slice(0, 60).map(ct => {
+        const s = samples.find(x => x.t === ct);
+        return Math.max(0, (s && s.jump != null ? (s.jump - from) / speed : ct) - 0.035); // a frame early: never a zoomed frame of the new shot
+      });
+      for (const s of samples) delete s.jump;
+      outer?.removeEventListener('abort', stop);
+      return { samples, cuts, slow: false, gw: GW, gh, aspect: (m.width || 1920) / (m.height || 1080), fast: true };
+    }
+  } catch (e) { outer?.removeEventListener('abort', stop); throw e; }
+  if (outer?.aborted) throw new Error('Cancelled');
+  const timer = isFinite(budget) ? setTimeout(() => { slow = true; ctl.abort(); }, budget * 1000) : 0;
   const cv = document.createElement('canvas'); cv.width = GW; cv.height = gh;
   const ctx = cv.getContext('2d', { willReadFrequently: true });
   const v = document.createElement('video');
@@ -80,6 +111,19 @@ export async function findPointer(app, m, { onProgress, signal: outer } = {}) {
   const ctl = new AbortController(), signal = ctl.signal;
   const stop = () => ctl.abort();
   if (outer?.aborted) return null;
+  // the fast way first (no playback): the same tracker, in the Rust core, on frames from the Mac's decoder
+  {
+    const vw = m.width || 1920, vh = m.height || 1080, PW = Math.min(vw, 1280), PH = Math.round((PW * vh) / vw);
+    const to = m.duration || 0;
+    const gh = Math.max(12, Math.round((GW * vh) / vw));
+    const r = to > 0 && PW >= 64 && PH >= 64 ? await coreWatch(app, m, { from: 0, to, step: 0.2, gw: GW, gh, pw: PW, ph: PH, giveUp: 60 }, { onProgress, signal: outer }) : null;
+    if (r && r.pointer !== undefined) {
+      if (r.pointer === null) return null; // a minute in without a sign of it
+      const tr = new PointerTracker(PW, PH, vw, vh);
+      tr.found = r.pointer.found; tr.frames = r.pointer.frames;
+      return tr.found.length < 20 || tr.coverage < 0.2 ? null : tr.track();
+    }
+  }
   outer?.addEventListener('abort', stop);
   const v = document.createElement('video');
   v.muted = true; v.playsInline = true; v.preload = 'auto';

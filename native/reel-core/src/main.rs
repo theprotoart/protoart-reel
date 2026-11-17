@@ -36,6 +36,7 @@ mod stretch;
 mod fx;
 mod master;
 mod umvoice;
+mod watch;
 
 use std::io::{Read, Write};
 use umvoice::{Model, Print, Word, COEFS};
@@ -419,10 +420,60 @@ fn run(b: &[u8]) -> Result<String, String> {
     }
 }
 
+/// vwatch (1.8): read as it comes, frame by frame (a long video's frames are far too many to hold), so it streams
+/// rather than reading the whole job first. Body: gw u32 · gh u32 · pw u32 · ph u32 · give up f64 (s; 0 never), then
+/// frames to the end: t f64 · flags u8 (1: a sample frame) · gw × gh bytes · on a sample frame, pw × ph bytes.
+/// Prints {"progress": t} now and then, and answers the samples and the pointer's track (watch.rs).
+fn vwatch(r: &mut impl Read) -> Result<String, String> {
+    let mut head = [0u8; 24];
+    r.read_exact(&mut head).map_err(|_| "the job ended early")?;
+    let u = |i: usize| u32::from_le_bytes(head[i..i + 4].try_into().unwrap()) as usize;
+    let (gw, gh, pw, ph) = (u(0), u(4), u(8), u(12));
+    let give_up = f64::from_le_bytes(head[16..24].try_into().unwrap());
+    if !(3..=256).contains(&gw) || !(3..=256).contains(&gh) || pw > 3840 || ph > 2160 || (pw == 0) != (ph == 0) || (pw > 0 && (pw < 64 || ph < 64)) {
+        return Err("bad watch job".into());
+    }
+    let mut w = watch::Watcher::new(watch::Watch { gw, gh, pw, ph, give_up: if give_up.is_finite() { give_up } else { 0.0 } });
+    let (mut grid, mut big) = (vec![0u8; gw * gh], vec![0u8; pw * ph]);
+    let mut fh = [0u8; 9];
+    let mut last = std::time::Instant::now();
+    let mut lt = f64::NEG_INFINITY;
+    loop {
+        // a clean end is between frames
+        match r.read(&mut fh[..1]) { Ok(0) => break, Ok(_) => {}, Err(_) => return Err("couldn't read the frames".into()) }
+        r.read_exact(&mut fh[1..]).map_err(|_| "a frame ended early")?;
+        let t = f64::from_le_bytes(fh[0..8].try_into().unwrap());
+        let sample = fh[8] & 1 != 0;
+        if !t.is_finite() || t < lt - 1e-9 { return Err("frames out of order".into()); }
+        lt = t;
+        r.read_exact(&mut grid).map_err(|_| "a frame ended early")?;
+        let p = if sample && pw > 0 { r.read_exact(&mut big).map_err(|_| "a frame ended early")?; Some(&big[..]) } else { None };
+        w.frame(t, sample, &grid, p);
+        if w.frames > 2_000_000 { return Err("too many frames".into()); }
+        if last.elapsed().as_millis() > 400 {
+            last = std::time::Instant::now();
+            let mut so = std::io::stdout().lock();
+            let _ = writeln!(so, "{{\"progress\":{t}}}");
+            let _ = so.flush();
+        }
+    }
+    Ok(w.answer())
+}
+
 fn main() {
-    let mut b = Vec::new();
-    let ok = std::io::stdin().take(MAX_INPUT as u64 + 1).read_to_end(&mut b).is_ok() && b.len() <= MAX_INPUT;
-    let out = if ok { run(&b) } else { Err("the job is too large".into()) };
+    let mut stdin = std::io::stdin().lock();
+    // the first line says the command; vwatch streams, the rest read their whole job first
+    let mut head = Vec::new();
+    let mut c = [0u8; 1];
+    while head.len() < 7 + 64 && stdin.read(&mut c).map(|n| n == 1).unwrap_or(false) {
+        head.push(c[0]);
+        if head.len() > 7 && c[0] == b'\n' { break; }
+    }
+    let out = if head == b"RCORE1\nvwatch\n" { vwatch(&mut stdin) } else {
+        let mut b = head;
+        let ok = (&mut stdin).take(MAX_INPUT as u64 + 1).read_to_end(&mut b).is_ok() && b.len() <= MAX_INPUT;
+        if ok { run(&b) } else { Err("the job is too large".into()) }
+    };
     let line = match out { Ok(s) => s, Err(e) => format!("{{\"ok\":false,\"error\":{}}}", json_str(&e)) };
     let mut so = std::io::stdout().lock();
     let _ = writeln!(so, "{}", line);

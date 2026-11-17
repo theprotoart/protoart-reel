@@ -29,6 +29,10 @@
   the main process, never by the page: checked media names inside the open project's media folder, plain files
   and not links, and a temporary file beside the export you picked, renamed into place only when complete. Every count in a job is checked against
   the job's size, so a damaged job is refused, not trusted (tested).
+- **Frame reader:** `reel-frames` is compiled from `native/reel-frames.swift` and signed with the app. It reads
+  the one video file it's given (a checked media name inside the open project's media folder, chosen by the main
+  process) with Apple's decoder and writes small greyscale frames to stdout, piped straight into `reel-core`. No
+  network, a minimal environment, and it writes no files.
 
 ## Audit, 14 November 2026
 

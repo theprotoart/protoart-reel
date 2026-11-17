@@ -783,3 +783,47 @@ test('a frame that needs more than pictures says why, for the JavaScript to draw
   d.clips[0].filters = []; d.clips.push({ id: 't', type: 'text', track: 't0', start: 0, duration: 5, props: {} });
   assert.match(framePlan(d, 1, 64, 36).why, /titles/);
 });
+
+test('reel-core watches a video (motion, cuts and the pointer) the same as the JavaScript, frame for frame', { skip }, async () => {
+  const { measure } = await import('../app/renderer/autozoom.js');
+  const { PointerTracker, arrowShape } = await import('../app/renderer/lib/pointerfind.js');
+  const { Readable } = await import('node:stream');
+  const GW = 48, GH = 27, PW = 320, PH = 180;
+  let sd = 5; const r = () => ((sd = (sd * 16807) % 2147483647) / 2147483647);
+  // a busy desktop (blocks of colour and text-like specks), a pointer moving over it, hidden for a while, a cut
+  const desk = k => { const g = new Uint8Array(PW * PH); for (let y = 0; y < PH; y++) for (let x = 0; x < PW; x++) g[y * PW + x] = (((x >> 5) + (y >> 4) + k) % 3) * 60 + 50 + ((x * 7 + y * 13 + k) % 11 === 0 ? 90 : 0); return g; };
+  const arrow = (g, tx, ty, h) => { for (const [dx, dy, v] of arrowShape(h, 0, 0).px) { const x = tx + dx, y = ty + dy; if (x >= 0 && y >= 0 && x < PW && y < PH) g[y * PW + x] = 15 + v * 230; } };
+  const small = g => { const o = new Uint8Array(GW * GH); for (let y = 0; y < GH; y++) for (let x = 0; x < GW; x++) { let s = 0; for (let j = 0; j < 6; j++) for (let i = 0; i < 6; i++) s += g[Math.min(PH - 1, Math.floor(y * PH / GH) + j) * PW + Math.floor(x * PW / GW) + i]; o[y * GW + x] = Math.round(s / 36); } return o; };
+  const parts = [], js = [], tr = new PointerTracker(PW, PH, 1920, 1080);
+  let next = 0, prev = null, jump = null, prevSample = null;
+  for (let i = 0; i < 300; i++) {
+    const t = i / 30, sample = t >= next - 1e-3;
+    const g = desk(i < 200 ? 0 : 1);
+    if (i < 90 || i > 130) arrow(g, Math.round(30 + i * 0.8 + r() * 2), Math.round(40 + Math.sin(i / 20) * 30), 16);
+    const s = small(g);
+    if (jump == null && prevSample) { let d = 0; for (let k = 0; k < s.length; k++) d += Math.abs(s[k] - prevSample[k]); if (d / s.length > 20) jump = t; }
+    const f = Buffer.alloc(9); f.writeDoubleLE(t, 0); f[8] = sample ? 1 : 0; parts.push(f, Buffer.from(s));
+    if (!sample) continue;
+    next = t + 0.2; parts.push(Buffer.from(g));
+    js.push({ t, ...measure(s, prev, GW, GH), jump }); jump = null; prev = s; prevSample = s;
+    tr.push(t, g);
+  }
+  const res = await core.watch({ gw: GW, gh: GH, pw: PW, ph: PH }, Readable.from([Buffer.concat(parts)]));
+  assert.equal(res.frames, 300);
+  assert.equal(res.samples.length, js.length);
+  const close = (a, b, what) => assert.ok(Math.abs(a - b) < 2e-5, `${what}: ${a} vs ${b}`);
+  res.samples.forEach((s, i) => {
+    const j = js[i];
+    for (const k of ['t', 'diff', 'motion', 'cx', 'cy', 'box']) close(s[k], j[k], `${k} at ${i}`);
+    close(s.detail.x, j.detail.x, 'detail x'); close(s.detail.y, j.detail.y, 'detail y');
+    assert.equal(s.jump == null, j.jump == null, `cut at ${i}`); if (j.jump != null) close(s.jump, j.jump, 'cut');
+  });
+  assert.ok(res.samples.some(s => s.jump != null), 'the cut is found');
+  assert.ok(tr.found.length > 20, 'the JavaScript follows the pointer');
+  assert.deepEqual(res.pointer.found, tr.found.map(([t, x, y]) => [+t.toFixed(5), x, y]));
+  assert.equal(res.pointer.frames, tr.frames);
+  // nothing that looks like a pointer for a minute: it stops looking and says so
+  await assert.rejects(core.watch({ gw: 2, gh: GH }, Readable.from([Buffer.alloc(0)])), /Bad watch job/);
+  const none = await core.watch({ gw: GW, gh: GH, pw: PW, ph: PH, giveUp: 0.5 }, Readable.from([Buffer.concat(Array.from({ length: 10 }, (_, i) => { const f = Buffer.alloc(9); f.writeDoubleLE(i * 0.2, 0); f[8] = 1; return Buffer.concat([f, Buffer.alloc(GW * GH, 90), Buffer.from(desk(0))]); }))]));
+  assert.equal(none.pointer, null);
+});

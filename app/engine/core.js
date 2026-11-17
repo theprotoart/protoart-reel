@@ -43,7 +43,7 @@ function encodeUmFind(model, samples) {
 
 /** Runs one job; resolves with the parsed answer or rejects with a plain reason. Lines {"progress": f} on the
  * way go to onProgress; the last other line is the answer. */
-function run(job, { timeout = 120000, maxOut = 8e6, onProgress = null } = {}) {
+function run(job, { timeout = 120000, maxOut = 8e6, onProgress = null, signal = null } = {}) {
   return new Promise((resolve, reject) => {
     if (!available()) { reject(new Error('reel-core isn’t part of this build')); return; }
     const proc = spawn(binPath, [], { stdio: ['pipe', 'pipe', 'pipe'], env: {} });
@@ -71,7 +71,9 @@ function run(job, { timeout = 120000, maxOut = 8e6, onProgress = null } = {}) {
       if (m && m.ok) finish(null, m); else finish(new Error((m && m.error) || 'reel-core failed'));
     });
     proc.stdin.on('error', () => {});
-    proc.stdin.end(job);
+    if (signal) { if (signal.aborted) finish(new Error('Cancelled')); else signal.addEventListener('abort', () => finish(new Error('Cancelled')), { once: true }); }
+    // a job is a Buffer, or (a streamed one) a function that writes it to the helper's stdin and ends it
+    if (typeof job === 'function') job(proc.stdin, e => finish(e)); else proc.stdin.end(job);
   });
 }
 
@@ -179,6 +181,36 @@ async function mix(job, out, onProgress) {
   return run(Buffer.concat(parts), { timeout: 4 * 3600000, onProgress });
 }
 
+/** The head of a vwatch job (reel-core 1.8): the grid's size, the pointer picture's (0 × 0: no pointer), when to give up looking for one. */
+function watchHead({ gw, gh, pw = 0, ph = 0, giveUp = 0 }) {
+  const ok = (v, a, b) => Number.isInteger(v) && v >= a && v <= b;
+  if (!ok(gw, 3, 256) || !ok(gh, 3, 256) || !ok(pw, 0, 3840) || !ok(ph, 0, 2160) || (pw === 0) !== (ph === 0) || (pw && (pw < 64 || ph < 64)) || !(giveUp >= 0)) throw new Error('Bad watch job');
+  const b = Buffer.alloc(24);
+  b.writeUInt32LE(gw, 0); b.writeUInt32LE(gh, 4); b.writeUInt32LE(pw, 8); b.writeUInt32LE(ph, 12); b.writeDoubleLE(giveUp, 16);
+  return Buffer.concat([Buffer.from('RCORE1\nvwatch\n'), b]);
+}
+
+/**
+ * Watches a video for Auto Edit and Smart Zoom (reel-core 1.8): frames come from `frames` (a readable stream:
+ * reel-frames' stdout, or a test's), written after the head. Answers { frames, samples: [{ t, diff, motion, cx, cy,
+ * box, detail: { x, y }, jump }], pointer: { frames, found: [[t, x, y]] } | null | undefined } (jump: the first frame
+ * after the last sample that looks a lot different, where a cut is; pointer null: none seen before giving up).
+ */
+async function watch(opts, frames, { onProgress = null, signal = null, timeout = 3 * 3600e3 } = {}) {
+  const head = watchHead(opts);
+  const m = await run((stdin, fail) => {
+    stdin.write(head);
+    frames.on('error', e => fail(e));
+    frames.pipe(stdin);
+  }, { timeout, maxOut: 64e6, onProgress, signal });
+  const n = v => (Number.isFinite(v) ? v : 0);
+  const samples = (Array.isArray(m.samples) ? m.samples : []).filter(s => Array.isArray(s) && s.length >= 9)
+    .map(s => ({ t: n(s[0]), diff: n(s[1]), motion: n(s[2]), cx: n(s[3]), cy: n(s[4]), box: n(s[5]), detail: { x: n(s[6]), y: n(s[7]) }, jump: Number.isFinite(s[8]) ? s[8] : null }));
+  const P = m.pointer;
+  const pointer = P === null ? null : P && Array.isArray(P.found) ? { frames: n(P.frames), found: P.found.filter(f => Array.isArray(f) && f.length === 3 && f.every(Number.isFinite)) } : undefined;
+  return { frames: n(m.frames), samples, pointer };
+}
+
 async function version() { try { return (await run(Buffer.from('RCORE1\nversion\n'), { timeout: 5000 })).version; } catch { return null; } }
 
-module.exports = { available, umFind, analyze, mix, mp4Info, version, encodeUmFind, run, useBinary };
+module.exports = { available, umFind, analyze, mix, mp4Info, version, encodeUmFind, run, useBinary, watch, watchHead };

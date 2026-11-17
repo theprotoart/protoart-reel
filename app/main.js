@@ -1237,6 +1237,49 @@ handle('core:analyze', async (token, name) => {
   } catch { return null; }
 });
 
+// Watching a video for Auto Edit and Smart Zoom without playing it (reel-core 1.8): the Mac's decoder reads its frames
+// (reel-frames, small and grey) straight into the Rust core, which measures the motion and finds the pointer.
+// Only a plain file in the open project's media folder. null → this build hasn't both helpers (or an older core):
+// the editor watches by playing, as before. Cancelled with core:watchStop.
+const FRAMES_BIN = path.join(__dirname, 'bin', 'reel-frames');
+const coreWatches = new Map();
+handle('core:watch', async (id, token, name, o) => {
+  if (!core.available() || typeof id !== 'string' || id.length > 64) return null;
+  try { await fs.promises.access(FRAMES_BIN, fs.constants.X_OK); } catch { return null; }
+  coreVersion ??= core.version();
+  const v = String((await coreVersion) || '0').split('.').map(Number);
+  if ((v[0] || 0) < 1 || ((v[0] || 0) === 1 && (v[1] || 0) < 8)) return null;
+  const p = projectOf(token);
+  if (!validate.mediaName(name) || !o || typeof o !== 'object') return null;
+  const num = (x, a, b) => typeof x === 'number' && Number.isFinite(x) && x >= a && x <= b;
+  const int = (x, a, b) => Number.isInteger(x) && x >= a && x <= b;
+  if (!num(o.from, 0, 1e6) || !num(o.to, 0, 1e6) || !(o.to > o.from) || !num(o.step, 0.01, 10) || !int(o.gw, 3, 256) || !int(o.gh, 3, 256)
+    || !int(o.pw || 0, 0, 3840) || !int(o.ph || 0, 0, 2160) || !num(o.giveUp || 0, 0, 1e6)) throw new Error('Bad watch');
+  const file = path.join(mediaDir(p), name);
+  const st = await fs.promises.lstat(file);
+  if (!st.isFile()) return null;
+  const ctl = new AbortController();
+  const dec = spawn(FRAMES_BIN, [file, String(o.from), String(o.to), String(o.step), String(o.gw), String(o.gh), String(o.pw || 0), String(o.ph || 0)],
+    { stdio: ['ignore', 'pipe', 'pipe'], env: { PATH: '/usr/bin:/bin', HOME: process.env.HOME || '' } });
+  let why = '';
+  dec.stderr.setEncoding('utf8'); dec.stderr.on('data', d => { why = (why + d).slice(-400); });
+  const ended = new Promise(res => dec.on('close', c => res(c)));
+  coreWatches.set(id, () => { ctl.abort(); try { dec.kill(); } catch { /* gone */ } });
+  const send = t => { if (win && !win.isDestroyed()) win.webContents.send('core:progress', id, t); };
+  try {
+    const r = await core.watch({ gw: o.gw, gh: o.gh, pw: o.pw || 0, ph: o.ph || 0, giveUp: o.giveUp || 0 }, dec.stdout, { onProgress: send, signal: ctl.signal });
+    const code = await ended;
+    // the decoder gave up on the file: the editor watches it by playing instead
+    if (code !== 0) return null;
+    return r;
+  } catch (e) {
+    if (ctl.signal.aborted) throw new Error('Cancelled');
+    if (why) return null;
+    throw e;
+  } finally { coreWatches.delete(id); try { dec.kill(); } catch { /* gone */ } }
+});
+handle('core:watchStop', async id => { coreWatches.get(id)?.(); });
+
 handle('core:umFind', async (model, samples) => {
   if (!core.available()) return null;
   if (!(samples instanceof Float32Array) || !model || typeof model !== 'object') return null;
