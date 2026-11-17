@@ -7,6 +7,11 @@ import { mediaById, uid, clipEnd, duration as docDuration, addTrack, fmtTime } f
 import { analyseMusic, beatGrid, planFit } from './lib/musicfit.js';
 
 const RATE = 22050;
+// how it remixes, as Premiere's Remix: Segments (1 fewer joins … 5 more), the variation, and what joins match on
+const PREF = 'reel.remix';
+const DEF = { segments: 3, variation: 0, focus: 'both' };
+export const remixPrefs = () => { try { return { ...DEF, ...(JSON.parse(localStorage.getItem(PREF) || '{}') || {}) }; } catch { return { ...DEF }; } };
+const saveRemix = p => { try { localStorage.setItem(PREF, JSON.stringify({ segments: p.segments, focus: p.focus })); } catch { /* fine */ } };
 const cache = new Map();
 export async function analyse(app, m, from, len, onStatus) {
   const key = `${m.file}|${from.toFixed(2)}|${len.toFixed(2)}`;
@@ -58,8 +63,9 @@ export function musicLike(doc, c) {
 export async function refitTo(app, c, target) {
   const f = fitSource(app.doc, c), m = mediaById(app.doc, f.first.media);
   const res = await analyse(app, m, f.srcIn, f.srcLen);
-  const plan = planFit(res.an, res.grid, res.length, Math.max(3, target));
-  place(app, f.first, plan, res.grid.period, { members: f.members, srcIn: f.srcIn, srcLen: res.length });
+  const opts = { ...remixPrefs(), ...(f.first.fitSrc?.opts || {}) };
+  const plan = planFit(res.an, res.grid, res.length, Math.max(3, target), opts);
+  place(app, f.first, plan, res.grid.period, { members: f.members, srcIn: f.srcIn, srcLen: res.length, opts: { ...opts, variation: plan.variation || 0 } });
   return plan;
 }
 
@@ -80,10 +86,19 @@ export function openMusicFit(app) {
   const customRow = el('div', { class: 'row', style: { display: 'none' } }, el('label', { text: 'Length (s)' }), secs);
   mode.addEventListener('change', () => { customRow.style.display = mode.value === 'custom' ? '' : 'none'; });
   const whole = el('input', { type: 'checkbox', checked: full > srcLen + 1 });
+  // Premiere's Remix controls: Segments, Variations and what the joins match on
+  const rp = { ...remixPrefs(), ...(c.fitSrc?.opts || {}) };
+  const segs = el('input', { type: 'range', min: 1, max: 5, step: 1, value: rp.segments, 'data-def': 3, title: 'Fewer joins suit a simple song; more give a busy, changing one more places to join' });
+  const segLabel = el('span', { class: 'note', text: '' });
+  const showSeg = () => { segLabel.textContent = ['Fewest joins', 'Fewer joins', 'Balanced', 'More joins', 'Most joins'][segs.value - 1]; };
+  segs.addEventListener('input', showSeg); showSeg();
+  const focus = el('select', {}, ...[['both', 'Sound and chords (balanced)'], ['melody', 'The lead (melody, vocals)'], ['harmony', 'The chords (backing, orchestra)']].map(([v, t]) => el('option', { value: v, text: t, selected: rp.focus === v })));
   const note = el('p', { class: 'note', text: `The clip is ${fmtTime(srcLen).replace(/\.\d$/, '')} now${full > srcLen + 1 ? `; the whole song is ${fmtTime(full + (c.in || 0)).replace(/\.\d$/, '')}` : ''}. Reel follows the song’s beat and bars, finds where it repeats itself (the same sound and the same chords either side), and plays sections again or skips them there: different ones, not one loop over and over. Each join is lined up to the sample with a crossfade of a few hundredths of a second. The intro and the real ending stay.` });
   modal('🎵 Fit the music', el('div', { class: 'mf' },
     el('div', { class: 'row' }, el('label', { text: 'Make it fit' }), mode), customRow,
     full > srcLen + 1 ? el('label', { class: 'row' }, whole, el('span', { text: ' Use the whole song (from the clip’s start to the song’s real ending)' })) : null,
+    el('div', { class: 'row' }, el('label', { text: 'Segments' }), segs, segLabel),
+    el('div', { class: 'row' }, el('label', { text: 'Match joins on' }), focus),
     note), [
     { label: 'Cancel', onClick: x => x() },
     { label: 'Fit', cls: 'hw amber', onClick: async close => {
@@ -93,20 +108,22 @@ export function openMusicFit(app) {
         const f = fitSource(app.doc, c);
         const from = c.musicFit ? f.srcIn : c.in || 0, span = c.musicFit ? f.srcLen : len;
         const res = await analyse(app, m, from, span, t => { note.textContent = t; });
-        const plan = planFit(res.an, res.grid, res.length, target);
+        const opts = { segments: +segs.value, focus: focus.value, variation: 0 };
+        saveRemix(opts);
+        const plan = planFit(res.an, res.grid, res.length, target, opts);
         note.textContent = 'Putting it on the timeline…';
-        place(app, f.first, plan, res.grid.period, { members: c.musicFit ? f.members : [c], srcIn: from, srcLen: res.length });
+        place(app, f.first, plan, res.grid.period, { members: c.musicFit ? f.members : [c], srcIn: from, srcLen: res.length, opts });
         close();
         const seamless = plan.seams.every(s => s.likeness >= 0.55);
         const n = plan.segments.length - 1;
-        toast(n ? `Music fitted to ${fmtTime(plan.length / plan.speed).replace(/\.\d$/, '')}: ${n} join${n === 1 ? '' : 's'}${seamless ? ' on the bar where the song repeats, lined up to the sample' : ' (no clean repeat found: check the join and nudge it if you hear it)'}${plan.speed !== 1 ? `, and ${Math.round(Math.abs(plan.speed - 1) * 1000) / 10}% ${plan.speed > 1 ? 'faster' : 'slower'} with the pitch kept to land exactly` : ''}${plan.fadeOut ? '; the song only repeats in whole phrases, so it fades out on the target instead of its own ending' : ''}. ⌘Z undoes it.` : 'The music already fits.', 9000);
+        toast(n ? `${plan.variations > 1 ? `Variation 1 of ${plan.variations} (MUSIC tab › Try another). ` : ''}Music fitted to ${fmtTime(plan.length / plan.speed).replace(/\.\d$/, '')}: ${n} join${n === 1 ? '' : 's'}${seamless ? ' on the bar where the song repeats, lined up to the sample' : ' (no clean repeat found: check the join and nudge it if you hear it)'}${plan.speed !== 1 ? `, and ${Math.round(Math.abs(plan.speed - 1) * 1000) / 10}% ${plan.speed > 1 ? 'faster' : 'slower'} with the pitch kept to land exactly` : ''}${plan.fadeOut ? '; the song only repeats in whole phrases, so it fades out on the target instead of its own ending' : ''}. ⌘Z undoes it.` : 'The music already fits.', 9000);
       } catch (e) { note.textContent = `Couldn’t fit the music: ${e.message}`; }
     } },
   ], { wide: false });
 }
 
 /** Replaces the clip with the plan's sections, joined with crossfades (on a track of their own if they'd overlap). */
-export function place(app, c0, plan, beat, { members = [c0], srcIn = c0.in || 0, srcLen = plan.length } = {}) {
+export function place(app, c0, plan, beat, { members = [c0], srcIn = c0.in || 0, srcLen = plan.length, opts = null } = {}) {
   const xf = Math.max(0.12, Math.min(0.5, beat * 0.5)), sp = plan.speed || 1;
   app.commit(d => {
     const c = d.clips.find(x => x.id === c0.id); if (!c) return;
@@ -125,7 +142,7 @@ export function place(app, c0, plan, beat, { members = [c0], srcIn = c0.in || 0,
       const dur = (g.b - g.a) / sp;
       const k = structuredClone(c);
       delete k.retime; delete k.keys; delete k.marks;
-      Object.assign(k, { id: uid('c'), track, start: at, duration: dur, in: srcIn + g.a, speed: sp === 1 ? 1 : sp, group, musicFit: true, fitSrc: { in: srcIn, len: srcLen } });
+      Object.assign(k, { id: uid('c'), track, start: at, duration: dur, in: srcIn + g.a, speed: sp === 1 ? 1 : sp, group, musicFit: true, fitSrc: { in: srcIn, len: srcLen, ...(opts ? { opts: { segments: opts.segments, focus: opts.focus, variation: opts.variation || 0, of: plan.variations || 1 } } : {}) } });
       // the end: its own fade, or (when it's played to the target rather than its real ending) a fade over the last bars
       const lastOne = i === plan.segments.length - 1;
       k.audio = { ...(k.audio || {}), keepPitch: true, fadeIn: i === 0 ? c.audio?.fadeIn || 0 : 0, fadeOut: lastOne ? Math.max(fadeOut, plan.fadeOut || 0) : 0 };
@@ -153,7 +170,7 @@ export function musicSection(app, c, section) {
   const doc = app.doc, toEnd = Math.max(1, videoEnd(doc) - c.start);
   const f = c.musicFit ? fitSource(doc, c) : null;
   const note = el('p', { class: 'note', text: f
-    ? `Fitted: ${f.members.length} section${f.members.length === 1 ? '' : 's'} joined where the song repeats. Drag the ♪ on its end to re-fit it to another length.`
+    ? `Fitted: ${f.members.length} section${f.members.length === 1 ? '' : 's'} joined where the song repeats (the zigzag marks on the clip). Drag the ♪ on its end to re-fit it to another length.`
     : `${mmss(c.duration)} long. Make it end with the video (or any length), repeating or skipping sections where the song repeats on the beat, keeping its real ending.` });
   const fitB = el('button', { class: 'hw amber', text: `🎵 FIT TO THE VIDEO (${mmss(toEnd)})`, onclick: async () => {
     fitB.disabled = true; note.textContent = 'Listening to the music…';
@@ -163,6 +180,19 @@ export function musicSection(app, c, section) {
       toast(n ? `Music fitted to ${mmss(plan.length / plan.speed)} with ${n} join${n === 1 ? '' : 's'}. ⌘Z undoes it.` : 'The music already fits.', 6000);
     } catch (e) { note.textContent = `Couldn’t fit the music: ${e.message}`; fitB.disabled = false; }
   } });
+  // Variations (as Premiere's Remix): the same length, joined at other places
+  const vo = f && f.first.fitSrc?.opts;
+  const other = f && vo && (vo.of || 1) > 1 ? el('button', { class: 'tool', text: `🔀 TRY ANOTHER (${(vo.variation || 0) + 1} of ${vo.of})`, title: 'The same length, joined at other places in the song. ⌘Z goes back.', onclick: async () => {
+    other.disabled = true;
+    try {
+      const target = f.members.reduce((t, x) => Math.max(t, clipEnd(x)), 0) - f.first.start;
+      const m = mediaById(doc, f.first.media), res = await analyse(app, m, f.srcIn, f.srcLen);
+      const opts = { ...remixPrefs(), ...vo, variation: (vo.variation || 0) + 1 };
+      const plan = planFit(res.an, res.grid, res.length, target, opts);
+      place(app, f.first, plan, res.grid.period, { members: f.members, srcIn: f.srcIn, srcLen: res.length, opts: { ...opts, variation: plan.variation || 0 } });
+      toast(`Variation ${(plan.variation || 0) + 1} of ${plan.variations || 1}: ${plan.seams.length} join${plan.seams.length === 1 ? '' : 's'}. Click a zigzag mark on the clip to play across that join.`, 5000);
+    } catch (e) { toast(`Couldn’t remix: ${e.message}`); other.disabled = false; }
+  } }) : null;
   return section('Music length', note,
-    el('div', { class: 'btn-row' }, fitB, el('button', { class: 'tool', text: 'Other length…', onclick: () => { app.select([c.id], null); openMusicFit(app); } })));
+    el('div', { class: 'btn-row' }, fitB, other, el('button', { class: 'tool', text: 'Other length…', onclick: () => { app.select([c.id], null); openMusicFit(app); } })));
 }

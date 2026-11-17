@@ -176,13 +176,16 @@ export function beatFeatures(an, grid) {
   return out;
 }
 
+/** What a join is matched on (Premiere's Remix "Variations" focus): the lead (tone colour) or the chords (harmony). */
+export const FOCUS = { both: [0.4, 0.6], melody: [0.7, 0.3], harmony: [0.2, 0.8] };
+
 /** How well beat j continues where beat i would have: the two bars before and after each, −1 … 1. */
-export function joinLikeness(bf, i, j, W = 8) {
+export function joinLikeness(bf, i, j, W = 8, [wt, wc] = FOCUS.both) {
   let s = 0, m = 0, ld = 0;
   for (let d = -W; d < W; d++) {
     const u = bf[i + d], v = bf[j + d];
     if (!u || !v) continue;
-    s += 0.4 * cos(u.t, v.t) + 0.6 * cos(u.c, v.c);
+    s += wt * cos(u.t, v.t) + wc * cos(u.c, v.c);
     ld += Math.abs(u.l - v.l); m++;
   }
   if (m < W) return -1; // too near the start or the end to judge
@@ -217,7 +220,10 @@ export function alignJoin(an, p, q, reach = 0.025) {
  * likeness, xf }] (where each join is in the source, its match, and its crossfade, s) }. The song's first and last few
  * seconds always play (its intro and real ending).
  */
-export function planFit(an, grid, length, target, { keepIntro = 2, keepOutro = 4, minLikeness = 0.55 } = {}) {
+export function planFit(an, grid, length, target, { keepIntro = 2, keepOutro = 4, minLikeness = 0.55, segments = 3, variation = 0, focus = 'both' } = {}) {
+  // Segments (1 few joins … 5 many, as Premiere's Remix): what each join costs, and how much plays between joins
+  const sg = Math.max(1, Math.min(5, Math.round(segments)));
+  const JUMP = [0.45, 0.2, 0.06, -0.1, -0.22][sg - 1], runBars = [8, 4, 2, 2, 1][sg - 1], minJumpBars = [8, 4, 2, 1, 1][sg - 1];
   const delta = target - length;
   const per = grid.period || 0.5;
   const done = (segments, seams = []) => {
@@ -231,15 +237,15 @@ export function planFit(an, grid, length, target, { keepIntro = 2, keepOutro = 4
   const T = grid.times, bf = beatFeatures(an, grid);
   const starts = (grid.bars && grid.bars.length >= 6 ? grid.bars : T.map((_, k) => k)).filter(k => T[k] >= keepIntro && T[k] <= length - keepOutro);
   const lengthen = delta > 0;
-  const minRun = Math.max(4, per * 8); // at least two bars play between joins
+  const minRun = Math.max(2, per * 4 * runBars); // at least this many bars play between joins
   let edges = [];
   for (const x of starts) for (const y of starts) {
     if (x === y) continue;
     const p = T[x], q = T[y], jump = p - q; // what it adds (back) or takes away (forward)
-    if (lengthen ? jump < Math.max(per * 8, 3) : -jump < per * 3) continue;
+    if (lengthen ? jump < Math.max(per * 4 * minJumpBars, 2) : -jump < per * 3) continue;
     if (!lengthen && -jump > -delta + per * 2) continue; // never skip more than is needed
     if (length - q < minRun) continue;
-    const like = joinLikeness(bf, x, y);
+    const like = joinLikeness(bf, x, y, 8, FOCUS[focus] || FOCUS.both);
     if (like >= minLikeness) edges.push({ p, q, like, id: `${x}>${y}` });
   }
   edges.sort((a, b) => b.like - a.like);
@@ -248,13 +254,16 @@ export function planFit(an, grid, length, target, { keepIntro = 2, keepOutro = 4
   // the search: a few hundred partial plans at a time, each a list of jumps in playing order
   const want = delta;
   const big = edges.reduce((m, e) => Math.max(m, Math.abs(e.p - e.q)), 1);
-  const JUMP = 0.06, ERR = 0.5;
+  const ERR = 0.5;
   const finish = s => { const err = want - s.added; return s.score - ERR * (Math.abs(err) / per) ** 1.5; };
   let beam = [{ pos: 0, added: 0, score: 0, jumps: [] }];
   let bestDone = { ...beam[0], final: finish(beam[0]) };
   // the best that's a little long (played to the target and faded out there), for when none lands exactly
   const overScore = s => s.score - 0.03 * ((s.added - want) / per);
   let bestOver = beam[0].added >= want ? { ...beam[0], final: overScore(beam[0]) } : null;
+  // other good arrangements that land on the target (Variations): the best few, each with its own set of joins
+  const tol = Math.max(per * 2, Math.abs(want) * 0.03);
+  const exacts = [];
   const maxJumps = Math.min(40, Math.ceil(Math.abs(want) / Math.max(per * 4, big * 0.5)) + 4);
   for (let level = 0; level < maxJumps && beam.length; level++) {
     const next = [];
@@ -285,12 +294,25 @@ export function planFit(an, grid, length, target, { keepIntro = 2, keepOutro = 4
     }
     for (const s of beam) {
       const f = finish(s); if (f > bestDone.final) bestDone = { ...s, final: f };
+      if (s.jumps.length && Math.abs(want - s.added) < tol) exacts.push({ ...s, final: f });
       if (s.added >= want) { const o = overScore(s); if (!bestOver || o > bestOver.final) bestOver = { ...s, final: o }; }
     }
   }
 
-  const exact = bestDone.jumps.length && Math.abs(want - bestDone.added) < Math.max(per * 2, Math.abs(want) * 0.03);
-  const pick = exact ? bestDone : bestOver && (bestOver.jumps.length || !lengthen) ? bestOver : null;
+  // the variations: the best exact plans, each differing from those before it in at least one join
+  exacts.sort((a, b) => b.final - a.final);
+  const kinds = [];
+  for (const e of exacts) {
+    const sig = e.jumps.map(j => j.id).join(',');
+    if (kinds.some(k => k.sig === sig)) continue;
+    const ids = new Set(e.jumps.map(j => j.id));
+    if (kinds.some(k => k.ids.size === ids.size && [...ids].every(x => k.ids.has(x)))) continue;
+    kinds.push({ sig, ids, s: e });
+    if (kinds.length >= 6) break;
+  }
+  const v = kinds.length ? ((Math.round(variation) % kinds.length) + kinds.length) % kinds.length : 0;
+  const exact = kinds.length > 0;
+  const pick = exact ? kinds[v].s : bestOver && (bestOver.jumps.length || !lengthen) ? bestOver : null;
   if (pick) {
     // each join lined up to the sample, crossfaded as briefly as it allows
     const segments = [], seams = [];
@@ -303,7 +325,7 @@ export function planFit(an, grid, length, target, { keepIntro = 2, keepOutro = 4
       a = j.q;
     }
     segments.push({ a, b: length });
-    if (exact) return done(segments, seams);
+    if (exact) return { ...done(segments, seams), variations: kinds.length, variation: v };
     // a little long: played to the target and faded out over its last bar or two
     const over = segments.reduce((t, g) => t + g.b - g.a, 0) - target;
     const last = segments[segments.length - 1];

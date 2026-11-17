@@ -1103,6 +1103,12 @@ export class Timeline {
       e.append(mk);
     }
     if (c.elastic || c.retime) this._elasticMarks(e, c);
+    // a remixed song's joins: a zigzag where each section starts (as Premiere's Remix), to play across and listen
+    if (c.musicFit && c.xfadeIn && this.doc.clips.some(o => o !== c && o.musicFit && o.group === c.group && Math.abs(clipEnd(o) - c.start) < 1e-3)) {
+      const z = el('div', { class: 'remix-seam', title: `A remix join at ${fmtTime(c.start)}: click to play across it` });
+      z.addEventListener('pointerdown', ev => { ev.stopPropagation(); this.app.seek(Math.max(0, c.start - 2)); this.app.player?.play?.(); });
+      e.append(z);
+    }
     const remix = this.remixable(c);
     if (remix) this._musicHandle(e, c);
     if (selected) {
