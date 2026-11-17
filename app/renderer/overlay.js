@@ -29,6 +29,7 @@ export class Overlay {
   }
 
   update() {
+    this.app.markup?.draw(); // the markup bar shows the selected shape's line and colours
     if (this.dragging) return; // the box being dragged follows the pointer itself
     const app = this.app, doc = this.doc;
     this.root.replaceChildren();
@@ -666,6 +667,30 @@ export class Overlay {
 
   shapeHandles(c, p, W, H) {
     const s = c.shape, ox = (p.x - 0.5) * W, oy = (p.y - 0.5) * H;
+    {
+      // the shape itself: drag it to move it (both ends, or the whole box)
+      const pad = 10, bx = Math.min(s.x1, s.x2) * W + ox - pad, by = Math.min(s.y1, s.y2) * H + oy - pad;
+      const bw = Math.abs(s.x2 - s.x1) * W + pad * 2, bh = Math.abs(s.y2 - s.y1) * H + pad * 2;
+      const body = el('div', { class: 'sel-box shape-body', title: 'Drag to move it · drag a round handle to reshape it', style: { left: bx + 'px', top: by + 'px', width: bw + 'px', height: bh + 'px' } });
+      this.root.append(body);
+      body.addEventListener('pointerdown', e => {
+        if (e.button !== 0) return;
+        e.preventDefault(); e.stopPropagation();
+        const app = this.app, sx0 = e.clientX, sy0 = e.clientY, a = { x1: s.x1, y1: s.y1, x2: s.x2, y2: s.y2 };
+        let moved = false;
+        body.setPointerCapture(e.pointerId);
+        const move = ev => {
+          const dx = (ev.clientX - sx0) / W, dy = (ev.clientY - sy0) / H;
+          if (!moved && Math.hypot(ev.clientX - sx0, ev.clientY - sy0) < 3) return;
+          if (!moved) { moved = true; this.dragging = true; app.beginChange(); }
+          s.x1 = a.x1 + dx; s.x2 = a.x2 + dx; s.y1 = a.y1 + dy; s.y2 = a.y2 + dy;
+          body.style.left = bx + dx * W + 'px'; body.style.top = by + dy * H + 'px';
+          app.changed({ light: true, keepInspector: true });
+        };
+        const up = () => { body.removeEventListener('pointermove', move); body.removeEventListener('pointerup', up); this.dragging = false; if (moved) { app.endChange(); this.update(); } };
+        body.addEventListener('pointermove', move); body.addEventListener('pointerup', up);
+      });
+    }
     for (const [kx, ky] of [['x1', 'y1'], ['x2', 'y2']]) {
       const h = el('div', { class: 'sel-box', style: { left: s[kx] * W + ox - 8 + 'px', top: s[ky] * H + oy - 8 + 'px', width: '16px', height: '16px', borderRadius: '50%' } });
       this.root.append(h);

@@ -665,13 +665,19 @@ export class Inspector {
 
   shapePanel(c) {
     const s = c.shape;
+    const fill = s.fillColor || (s.fill ? s.color : '');
+    const boxy = !['arrow', 'line'].includes(s.shape);
     this.root.append(section('Shape',
-      selectRow('Type', s.shape, [['arrow', 'Arrow'], ['line', 'Line'], ['rect', 'Box'], ['ellipse', 'Circle']], v => this.edit(() => { s.shape = v; })),
-      colorRow('Color', s.color, v => this.edit(() => { s.color = v; })),
+      selectRow('Type', s.shape, [['arrow', 'Arrow'], ['line', 'Line'], ['rect', 'Rectangle'], ['roundrect', 'Rounded rectangle'], ['ellipse', 'Oval'], ['star', 'Star'], ['polygon', 'Polygon'], ['speech', 'Speech bubble'], ['thought', 'Thought bubble']], v => this.edit(() => { s.shape = v; })),
+      s.shape === 'star' ? this.sl('Points', () => s.points || 5, v => { s.points = Math.round(v); }, { min: 3, max: 12, step: 1, fmt: v => v.toFixed(0), def: 5 }) : null,
+      s.shape === 'polygon' ? this.sl('Sides', () => s.sides || 5, v => { s.sides = Math.round(v); }, { min: 3, max: 12, step: 1, fmt: v => v.toFixed(0), def: 5 }) : null,
+      colorRow('Outline', s.color, v => this.edit(() => { s.color = v; })),
       this.ksl(c, 'shape.width', 'Thickness', { min: 2, max: 60, step: 1, fmt: v => v.toFixed(0) }),
-      checkRow('Filled', s.fill, v => this.edit(() => { s.fill = v; })),
-      s.fill ? this.sl('Fill opacity', () => s.fillOpacity ?? 0.35, v => { s.fillOpacity = v; }, { min: 0.05, max: 1, step: 0.01, fmt: v => Math.round(v * 100) + '%' }) : null,
-      el('p', { class: 'note', text: 'Drag the round handles in the preview to place it.' }),
+      selectRow('Line', s.dash || 'solid', [['solid', 'Solid'], ['dash', 'Dashed'], ['dot', 'Dotted']], v => this.edit(() => { s.dash = v; })),
+      boxy ? checkRow('Filled', !!fill, v => this.edit(() => { if (v) { s.fillColor = s.fillColor || s.color; s.fillOpacity = s.fillOpacity ?? 1; } else { s.fillColor = ''; s.fill = false; } })) : null,
+      boxy && fill ? colorRow('Fill', fill, v => this.edit(() => { s.fillColor = v; s.fill = false; })) : null,
+      boxy && fill ? this.sl('Fill opacity', () => s.fillOpacity ?? (s.fillColor ? 1 : 0.35), v => { s.fillOpacity = v; }, { min: 0.05, max: 1, step: 0.01, fmt: v => Math.round(v * 100) + '%' }) : null,
+      el('p', { class: 'note', text: 'Drag it on the picture to move it, the round handles to reshape it. ✎ Markup (top right of the picture) sketches shapes and sets their line and colours, like Preview.' }),
     ));
   }
 }

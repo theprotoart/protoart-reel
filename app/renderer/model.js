@@ -18,7 +18,10 @@ export const TEXT_DEFAULTS = Object.freeze({
 });
 
 export const CALLOUT_DEFAULTS = Object.freeze({ shape: 'rect', x: 0.5, y: 0.5, w: 0.3, h: 0.2, dim: 0.6, blur: 0, zoom: 1, feather: 0.02, radius: 0.02, outline: 0, outlineColor: '#ffb02a' });
-export const SHAPE_DEFAULTS = Object.freeze({ shape: 'arrow', x1: 0.35, y1: 0.35, x2: 0.6, y2: 0.55, color: '#ff3b30', width: 12, fill: false });
+// shape: line, arrow, rect, roundrect, ellipse, star, polygon, speech, thought (Preview's Markup shapes). color: the
+// outline; fillColor: the inside ('' none; the older fill: true fills it with the outline colour, see through);
+// dash: solid, dash or dot; sides: a polygon's; points: a star's
+export const SHAPE_DEFAULTS = Object.freeze({ shape: 'arrow', x1: 0.35, y1: 0.35, x2: 0.6, y2: 0.55, color: '#ff3b30', width: 12, fill: false, fillColor: '', fillOpacity: null, dash: 'solid', sides: 5, points: 5 });
 export const CURSOR_DEFAULTS = Object.freeze({ show: true, scale: 1.5, highlight: false, highlightColor: '#ffd60a', highlightSize: 60, clickRings: true, smooth: 0.2, hideIdle: false });
 
 export const EASES = {

@@ -8,6 +8,7 @@ import { keysAt } from './cursor.js';
 import { filterParams, needsGl } from './lib/glfx.js';
 import { stabilizeAt } from './lib/stabilize.js';
 import { drawElement, isBackgroundElement } from './lib/elements.js';
+import { polyPoints } from './lib/sketch.js';
 
 /**
  * ctx: CanvasRenderingContext2D or OffscreenCanvasRenderingContext2D sized to the output.
@@ -1174,8 +1175,12 @@ function drawShape(ctx, c, p, local, W, H, sx) {
   x2 = x1 + (x2 - x1) * k; y2 = y1 + (y2 - y1) * k;
   ctx.save();
   ctx.globalAlpha = clamp(p.opacity, 0, 1);
+  const lw = (s.width || 10) * sx;
   ctx.strokeStyle = s.color; ctx.fillStyle = s.color;
-  ctx.lineWidth = (s.width || 10) * sx; ctx.lineCap = 'round'; ctx.lineJoin = 'round';
+  ctx.lineWidth = lw; ctx.lineCap = 'round'; ctx.lineJoin = 'round';
+  // dashes (Preview's line styles): long dashes, or round dots
+  if (s.dash === 'dash') ctx.setLineDash([lw * 2.4, lw * 1.8]);
+  else if (s.dash === 'dot') ctx.setLineDash([0.01, lw * 2]);
   ctx.shadowColor = 'rgba(0,0,0,0.35)'; ctx.shadowBlur = 8 * sx; ctx.shadowOffsetY = 3 * sx;
   if (s.shape === 'arrow' || s.shape === 'line') {
     const ang = Math.atan2(y2 - y1, x2 - x1), head = Math.max(18, (s.width || 10) * 3) * sx;
@@ -1184,6 +1189,7 @@ function drawShape(ctx, c, p, local, W, H, sx) {
     ctx.lineTo(s.shape === 'arrow' && len > head ? x2 - Math.cos(ang) * head * 0.6 : x2, s.shape === 'arrow' && len > head ? y2 - Math.sin(ang) * head * 0.6 : y2);
     ctx.stroke();
     if (s.shape === 'arrow' && len > 2) {
+      ctx.setLineDash([]);
       ctx.beginPath();
       ctx.moveTo(x2, y2);
       ctx.lineTo(x2 - Math.cos(ang - 0.45) * head, y2 - Math.sin(ang - 0.45) * head);
@@ -1193,10 +1199,44 @@ function drawShape(ctx, c, p, local, W, H, sx) {
   } else {
     const x = Math.min(x1, x2), y = Math.min(y1, y2), w = Math.abs(x2 - x1), h = Math.abs(y2 - y1);
     ctx.beginPath();
-    if (s.shape === 'ellipse') ctx.ellipse(x + w / 2, y + h / 2, w / 2, h / 2, 0, 0, Math.PI * 2);
-    else if (ctx.roundRect) ctx.roundRect(x, y, w, h, 12 * sx); else ctx.rect(x, y, w, h);
-    if (s.fill) { const fo = s.fillOpacity ?? 0.35; ctx.globalAlpha *= fo; ctx.fill(); ctx.globalAlpha /= fo; }
+    shapePath(ctx, s, x, y, w, h, sx);
+    const fill = s.fillColor || (s.fill ? s.color : '');
+    if (fill) {
+      const fo = s.fillOpacity ?? (s.fillColor ? 1 : 0.35);
+      ctx.save(); ctx.fillStyle = fill; ctx.globalAlpha *= fo; ctx.fill(); ctx.restore();
+      ctx.shadowColor = 'transparent'; // one shadow, under the fill
+    }
     ctx.stroke();
   }
   ctx.restore();
+}
+
+/** The outline of a box shape (rectangle, rounded, oval, star, polygon, speech or thought bubble) filling x, y, w, h. */
+export function shapePath(ctx, s, x, y, w, h, sx = 1) {
+  const kind = s.shape;
+  if (kind === 'ellipse') { ctx.ellipse(x + w / 2, y + h / 2, w / 2, h / 2, 0, 0, Math.PI * 2); return; }
+  if (kind === 'star' || kind === 'polygon') {
+    const pts = polyPoints(kind, kind === 'star' ? s.points || 5 : s.sides || 5);
+    pts.forEach(([px, py], i) => (i ? ctx.lineTo(x + px * w, y + py * h) : ctx.moveTo(x + px * w, y + py * h)));
+    ctx.closePath(); return;
+  }
+  if (kind === 'speech') {
+    // a rounded box with a tail from its lower left
+    const bh = h * 0.78, r = Math.min(w, bh) * 0.22;
+    ctx.moveTo(x + r, y); ctx.lineTo(x + w - r, y); ctx.quadraticCurveTo(x + w, y, x + w, y + r);
+    ctx.lineTo(x + w, y + bh - r); ctx.quadraticCurveTo(x + w, y + bh, x + w - r, y + bh);
+    ctx.lineTo(x + w * 0.36, y + bh); ctx.lineTo(x + w * 0.16, y + h); ctx.lineTo(x + w * 0.22, y + bh);
+    ctx.lineTo(x + r, y + bh); ctx.quadraticCurveTo(x, y + bh, x, y + bh - r);
+    ctx.lineTo(x, y + r); ctx.quadraticCurveTo(x, y, x + r, y); ctx.closePath(); return;
+  }
+  if (kind === 'thought') {
+    // a cloud of an oval, with two little bubbles trailing to the lower left
+    const bh = h * 0.76;
+    ctx.ellipse(x + w / 2, y + bh / 2, w / 2, bh / 2, 0, 0, Math.PI * 2);
+    const r1 = Math.min(w, h) * 0.07, r2 = r1 * 0.55;
+    ctx.moveTo(x + w * 0.24 + r1, y + bh + r1 * 1.1); ctx.arc(x + w * 0.24, y + bh + r1 * 1.1, r1, 0, Math.PI * 2);
+    ctx.moveTo(x + w * 0.13 + r2, y + h - r2); ctx.arc(x + w * 0.13, y + h - r2, r2, 0, Math.PI * 2); return;
+  }
+  const rad = kind === 'roundrect' ? Math.min(w, h) * 0.18 : 12 * sx;
+  if (ctx.roundRect) ctx.roundRect(x, y, w, h, Math.min(rad, w / 2, h / 2)); else ctx.rect(x, y, w, h);
 }

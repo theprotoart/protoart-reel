@@ -22,6 +22,7 @@ import { Timeline } from './timeline.js';
 import { Inspector } from './inspector.js';
 import { Library } from './library.js';
 import { Overlay } from './overlay.js';
+import { Markup } from './markup.js';
 import { openRecorder } from './recorder.js';
 import { openMusicFit } from './musicfit.js';
 import { openGhost } from './ghost.js';
@@ -136,6 +137,7 @@ class App {
     this.deck = new Deck(this, $('#transport'));
     this.$playKey = $('#t-play');
     this.overlay = new Overlay(this);
+    this.markup = new Markup(this); // ✎ Preview's Markup bar over the picture
     this.afterDraw = () => this.overlay.update();
     this.player.onTime(t => {
       if (!this.doc) return;
@@ -1370,6 +1372,7 @@ class App {
       case 'insert-text': return this._insert(newTextClip(null, t, doc.name));
       case 'insert-callout': return this._insert(newCalloutClip(null, t));
       case 'insert-shape': return this._insert(newShapeClip(null, t));
+      case 'markup': return this.markup.toggle();
       case 'insert-action': return this.insertAction();
       case 'snapback': return this.insertSnapback();
       case 'auto-zoom': return this.autoZoom();
