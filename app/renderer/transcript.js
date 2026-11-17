@@ -40,9 +40,10 @@ async function mediaWords(app, m, locale, onProgress) {
 export const speechClips = (doc, track = '') => doc.clips.filter(c => !c.disabled && !c.audio?.mute && soundOf(doc, c) && (!track || c.track === track) && !doc.tracks.find(t => t.id === c.track)?.muted);
 
 /** The timeline's speech: words of every audible clip on the chosen track (or all tracks). */
-export async function timelineWords(app, { locale, track = '' }, onStatus) {
+export async function timelineWords(app, { locale, track = '', clipIds = null }, onStatus) {
   const doc = app.doc;
-  const clips = speechClips(doc, track);
+  // clipIds: just those clips (the selected ones), so only their recordings are listened to
+  const clips = speechClips(doc, track).filter(c => !clipIds || clipIds.includes(c.id));
   if (!clips.length) throw new Error('There’s no clip with sound to listen to.');
   const media = [...new Map(clips.map(c => [c.media, soundOf(doc, c)])).values()];
   const byMedia = new Map();

@@ -37,12 +37,12 @@ const CATS = [['all', 'All'], ['um', 'Um · uh'], ['phrase', 'Like · you know']
  * Listens to the speech and replaces the project's list of ums (words you looked for stay). With ums you taught
  * Reel (🎙), it also listens for those in your voice, and the guessed "sounds between words" are left out.
  */
-async function listen(app, { locale, track, ranges = null }, onStatus) {
+async function listen(app, { locale, track, ranges = null, clipIds = null }, onStatus) {
   app.deck?.tally(0, 'filler words found', { done: false });
-  const words = await timelineWords(app, { locale, track }, onStatus);
+  const words = await timelineWords(app, { locale, track, clipIds }, onStatus);
   ctxWords = words; ctxSig = layoutSig(app.doc);
   onStatus?.('Looking for ums between the words…', 1);
-  const clips = speechClips(app.doc, track);
+  const clips = speechClips(app.doc, track).filter(c => !clipIds || clipIds.includes(c.id));
   const trained = !!umModel();
   let found = [];
   if (trained) {
@@ -91,7 +91,10 @@ export async function scanFillers(app) {
   const doc = app.doc;
   if (!doc || scanning) return;
   const p = speechPrefs();
-  const picked = app.selection.clips.map(id => doc.clips.find(c => c.id === id)).filter(c => c && speechClips(doc).includes(c));
+  let picked = app.selection.clips.map(id => doc.clips.find(c => c.id === id)).filter(c => c && speechClips(doc).includes(c));
+  // a recording's picture and its microphone selected together: the microphone is the speech
+  const mic = picked.filter(c => mediaById(doc, c.media)?.kind === 'audio');
+  if (mic.length) picked = picked.filter(c => mediaById(doc, c.media)?.kind === 'audio' || !mic.some(x => x.group && x.group === c.group));
   // the track listened to: the selected clips', else the one you chose before (or the one that sounds like a voice)
   const voice = doc.tracks.find(t => /voice|mic|dialog|vo\b/i.test(t.name || '') && speechClips(doc, t.id).length);
   const track = picked.length ? (picked.every(c => c.track === picked[0].track) ? picked[0].track : '') : (p.track && doc.tracks.some(t => t.id === p.track) ? p.track : voice?.id || '');
@@ -101,7 +104,7 @@ export async function scanFillers(app) {
   const btn = document.getElementById('filler-scan');
   btn?.classList.add('listening');
   try {
-    const found = await listen(app, { locale: p.locale, track, ranges }, t => { if (btn) btn.title = t; });
+    const found = await listen(app, { locale: p.locale, track, ranges, clipIds: picked.length ? picked.map(c => c.id) : null }, t => { if (btn) btn.title = t; });
     const n = found.filter(u => u.cut).length;
     toast(found.length ? `${found.length} filler${found.length === 1 ? '' : 's'} found${picked.length ? ` in the ${picked.length} selected clip${picked.length === 1 ? '' : 's'}` : ''}, ${n} marked CUT. FILLERS lists them; click the counter to open it.` : `No fillers found${picked.length ? ' in the selected clips' : ''}.`, 6000);
     refreshUms();
