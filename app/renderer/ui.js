@@ -126,11 +126,11 @@ export function drawer(after, title, body, buttons = [], { onClose, cls = '' } =
   return { close, body, root: box, foot, inline: true };
 }
 
-export function ask(title, text, okLabel = 'OK') {
+export function ask(title, text, okLabel = 'OK', cancelLabel = 'Cancel') {
   return new Promise(resolve => {
-    modal(title, el('p', { text }), [
+    modal(title, el('p', { text, style: { whiteSpace: 'pre-line' } }), [
       // answer first: closing the window also reports "cancelled" through onClose
-      { label: 'Cancel', onClick: c => { resolve(false); c(); } },
+      { label: cancelLabel, onClick: c => { resolve(false); c(); } },
       { label: okLabel, cls: 'hw amber', onClick: c => { resolve(true); c(); } },
     ], { onClose: () => resolve(false) });
   });

@@ -987,7 +987,7 @@ async function importFiles(p, files) {
       }
       if (!kind) {
         const name = await copyAs();
-        out.push({ file: name, name: base, role: 'import', ...info });
+        out.push({ file: name, name: base, role: 'import', srcSize: st.size, ...info }); // srcSize: to spot the same file brought in twice
         continue;
       }
       if (!audio.available()) throw new Error('Converting this format needs the media helper, which isn’t part of this build.');
@@ -996,7 +996,7 @@ async function importFiles(p, files) {
       progress(0);
       const r = await audio.conform(src, dstBase, kind, progress);
       const file = path.basename(r.dst);
-      out.push({ file, name: base, role: 'import', convertedFrom: ext, ...(await probeMedia(r.dst)) });
+      out.push({ file, name: base, role: 'import', convertedFrom: ext, srcSize: st.size, ...(await probeMedia(r.dst)) });
     } catch (e) {
       out.push({ error: `${base}: ${e.message}` });
     }
@@ -1357,6 +1357,18 @@ handle('media:readJson', async (token, name) => {
   const raw = await fs.promises.readFile(path.join(mediaDir(p), name), 'utf8');
   if (raw.length > 64 << 20) throw new Error('Too large');
   return JSON.parse(raw);
+});
+
+// A copy Reel has just made of a file that turned out to be one already in the project (you chose to skip it): only
+// Reel's own copy, in the project's media folder, goes; the file you brought in is never touched.
+handle('media:discard', async (token, name) => {
+  const p = projectOf(token);
+  if (!validate.mediaName(name)) throw new Error('Bad name');
+  const f = path.join(mediaDir(p), name);
+  const st = await fs.promises.lstat(f).catch(() => null);
+  if (!st || !st.isFile() || Date.now() - st.mtimeMs > 60 * 60 * 1000) return false; // only a copy made just now
+  await fs.promises.unlink(f);
+  return true;
 });
 
 handle('media:delete', async (token, name) => {

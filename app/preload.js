@@ -29,6 +29,7 @@ contextBridge.exposeInMainWorld('reel', {
   importPaths: (token, paths) => invoke('media:importPaths', token, paths),
   copyIn: (token, src) => invoke('media:copyIn', token, src),
   deleteMedia: (token, name) => invoke('media:delete', token, name),
+  discardMedia: (token, name) => invoke('media:discard', token, name),
   revealMedia: (token, name) => invoke('media:reveal', token, name),
   missingMedia: (token, names) => invoke('media:missing', token, names),
   // the Mac's own spelling dictionary (nothing leaves the Mac): is a word misspelt, the likely right spellings, add one

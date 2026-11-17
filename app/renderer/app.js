@@ -728,6 +728,33 @@ class App {
     const res = await this._withConversion(() => api.importMedia(this.token));
     this._addImported(res, null);
   }
+  /**
+   * Files that look like ones already in the project (the same name and the same size, or the same name, kind and
+   * length), or brought in twice in one go: asks first. Skipping them takes out only the copies Reel just made.
+   */
+  async _skipDuplicates(res) {
+    const doc = this.doc;
+    if (!doc) return res;
+    const key = n => String(n || '').trim().toLowerCase();
+    const same = (a, b) => key(a.name) === key(b.name) && a.kind === b.kind
+      && (a.srcSize && b.srcSize ? a.srcSize === b.srcSize : Math.abs((a.duration || 0) - (b.duration || 0)) < 0.05 && (a.width || 0) === (b.width || 0));
+    const seen = [], dups = [];
+    for (const r of res) {
+      if (!r.file || r.error) continue;
+      const was = doc.media.find(m => !m.hidden && same(m, r)) || seen.find(x => same(x, r));
+      if (was) dups.push({ r, was }); else seen.push(r);
+    }
+    if (!dups.length) return res;
+    const list = dups.map(({ r, was }) => `• ${r.name}${doc.media.includes(was) ? ` (already in the media bin${doc.clips.some(c => c.media === was.id) ? ', on the timeline' : ''})` : ' (twice in what you brought in)'}`).join('\n');
+    const add = await ask(dups.length === 1 ? 'Already in the project?' : `${dups.length} files already in the project?`,
+      `${dups.length === 1 ? 'This looks like a file' : 'These look like files'} you’ve already brought in:\n${list}\n\nAdd ${dups.length === 1 ? 'it' : 'them'} again anyway?`, 'Add anyway', dups.length === 1 ? 'Skip it' : 'Skip them');
+    if (add) return res;
+    for (const { r } of dups) await api.discardMedia?.(this.token, r.file).catch(() => {});
+    const keep = res.filter(r => !dups.some(d => d.r === r));
+    toast(`Skipped ${dups.length} file${dups.length === 1 ? '' : 's'} already in the project.`, 3500);
+    return keep.length ? keep : [];
+  }
+
   /** Runs an import, showing progress while formats are converted (by macOS, then any the editor converts). */
   async _withConversion(run) {
     const dlg = conversionDialog();
@@ -754,8 +781,9 @@ class App {
       return res || [];
     } finally { this._importProg = null; dlg.close(); }
   }
-  _addImported(res, where) {
+  async _addImported(res, where) {
     if (!res || !res.length) { toast('Nothing in that could be imported. Reel takes videos, pictures, sound and ScreenFlow projects.', 5000); return; }
+    res = await this._skipDuplicates(res);
     for (const r of res.filter(x => x.screenflowBuilt)) {
       const b = r.screenflowBuilt;
       let sum = null;
