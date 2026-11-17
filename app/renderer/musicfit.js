@@ -165,6 +165,23 @@ export function canFit(doc, c) {
   const m = c && c.type === 'media' ? mediaById(doc, c.media) : null;
   return !!(m && (m.kind === 'audio' || c.audioOnly) && !c.reversed && !c.locked);
 }
+/**
+ * Variations (as Premiere's Remix): re-fits a remixed song to the same length, joined at other places. Also on the
+ * clip's right-click menu. Resolves true when it did.
+ */
+export async function tryAnother(app, c) {
+  const doc = app.doc, f = fitSource(doc, c), vo = f.first.fitSrc?.opts;
+  try {
+    const target = f.members.reduce((t, x) => Math.max(t, clipEnd(x)), 0) - f.first.start;
+    const m = mediaById(doc, f.first.media), res = await analyse(app, m, f.srcIn, f.srcLen);
+    const opts = { ...remixPrefs(), ...(vo || {}), variation: ((vo && vo.variation) || 0) + 1 };
+    const plan = planFit(res.an, res.grid, res.length, target, opts);
+    place(app, f.first, plan, res.grid.period, { members: f.members, srcIn: f.srcIn, srcLen: res.length, opts: { ...opts, variation: plan.variation || 0 } });
+    toast(`Variation ${(plan.variation || 0) + 1} of ${plan.variations || 1}: ${plan.seams.length} join${plan.seams.length === 1 ? '' : 's'}. Click a zigzag mark on the clip to play across that join; ⌘Z goes back.`, 5000);
+    return true;
+  } catch (e) { toast(`Couldn’t remix: ${e.message}`); return false; }
+}
+
 /** The MUSIC tab's section: fit to the end of the video in one click, or the full Fit the music window. */
 export function musicSection(app, c, section) {
   const doc = app.doc, toEnd = Math.max(1, videoEnd(doc) - c.start);
@@ -182,17 +199,8 @@ export function musicSection(app, c, section) {
   } });
   // Variations (as Premiere's Remix): the same length, joined at other places
   const vo = f && f.first.fitSrc?.opts;
-  const other = f && vo && (vo.of || 1) > 1 ? el('button', { class: 'tool', text: `🔀 TRY ANOTHER (${(vo.variation || 0) + 1} of ${vo.of})`, title: 'The same length, joined at other places in the song. ⌘Z goes back.', onclick: async () => {
-    other.disabled = true;
-    try {
-      const target = f.members.reduce((t, x) => Math.max(t, clipEnd(x)), 0) - f.first.start;
-      const m = mediaById(doc, f.first.media), res = await analyse(app, m, f.srcIn, f.srcLen);
-      const opts = { ...remixPrefs(), ...vo, variation: (vo.variation || 0) + 1 };
-      const plan = planFit(res.an, res.grid, res.length, target, opts);
-      place(app, f.first, plan, res.grid.period, { members: f.members, srcIn: f.srcIn, srcLen: res.length, opts: { ...opts, variation: plan.variation || 0 } });
-      toast(`Variation ${(plan.variation || 0) + 1} of ${plan.variations || 1}: ${plan.seams.length} join${plan.seams.length === 1 ? '' : 's'}. Click a zigzag mark on the clip to play across that join.`, 5000);
-    } catch (e) { toast(`Couldn’t remix: ${e.message}`); other.disabled = false; }
-  } }) : null;
+  const other = f ? el('button', { class: 'tool', text: vo && (vo.of || 1) > 1 ? `🔀 TRY ANOTHER (${(vo.variation || 0) + 1} of ${vo.of})` : '🔀 TRY ANOTHER',
+    title: 'The same length, joined at other places in the song. ⌘Z goes back.', onclick: async () => { other.disabled = true; if (!(await tryAnother(app, c))) other.disabled = false; } }) : null;
   return section('Music length', note,
     el('div', { class: 'btn-row' }, fitB, other, el('button', { class: 'tool', text: 'Other length…', onclick: () => { app.select([c.id], null); openMusicFit(app); } })));
 }

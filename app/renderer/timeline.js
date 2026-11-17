@@ -5,7 +5,7 @@ import { el, $, popMenu, toast, ask } from './ui.js';
 import { clipEnd, isFree, addTrack, snap, trim, setSpeed, SPEED_STEPS, mediaById, duration, fmtTime, keyAt, withGroups, TRACK_LANES, gainToPos, posToGain, fmtDb, fmtPan, clamp, neighbour, roll, KEY_EASES, split, tidyCrossfades, cutsOn, crossfadeOverlaps, fadeShape, putKey, emptyTracks, OVERLAP_CUTS, applyCut } from './model.js';
 import { peaksFor, posterFor } from './peaks.js';
 import { mapAt, addPoint, movePoint, removePoint, linearRetime } from './lib/retime.js';
-import { musicLike, fitSource, refitTo, canFit } from './musicfit.js';
+import { musicLike, fitSource, refitTo, canFit, tryAnother } from './musicfit.js';
 import { renderingNow } from './fx.js';
 import { openSpeedPanel } from './speedpanel.js';
 import { copyEffects, copyAction } from './clipops.js';
@@ -321,6 +321,7 @@ export class Timeline {
       c.retime ? ['Remove Elastic Wave / retime (back to an even speed)', () => app.commit(() => { delete c.retime; c.speed = Math.abs((c.speed || 1) - 1) < 1e-3 ? 1 : c.speed; })] : null,
       audioish ? ['👻 Isolate or remove a sound (describe it)…', () => { app.select([c.id], null); app.cmd('ghost'); }] : null,
       audioish ? ['🎵 Fit the music to a length (extend or shorten)…', () => { app.select([c.id], null); app.cmd('music-fit'); }] : null,
+      c.musicFit ? ['🔀 Remix: try another variation (same length)', () => tryAnother(app, c)] : null,
       audioish && (c.adrOriginal || app.selection.clips.length === 2) ? [c.adrOriginal ? 'Restore original take' : 'Align to guide (ADR)…', () => app.cmd('adr-align'), '⌥⌘A'] : null,
       audioish ? [c.spectral ? `Spectral edit… (${c.spectral.edits?.length || 0} edits)` : 'Spectral edit…', () => { app.select([c.id], null); app.cmd('spectral'); }, '⌥⌘S'] : null,
       m?.kind === 'video' && m.hasAudio && !c.audioOnly ? ['Detach audio', () => app.cmd('detach-audio')] : null,
