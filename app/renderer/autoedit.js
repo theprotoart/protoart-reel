@@ -8,6 +8,8 @@ import { el, modal, toast } from './ui.js';
 import { mediaById, removeRange, insertTime, uid, duration as docDuration, split, clipEnd, withGroups, newTextClip, newElementClip, addTrack, cutsOn, OVERLAP_CUTS } from './model.js';
 import { planGraphics, GFX_LEVELS, GFX_LOOKS } from './lib/kinetic.js';
 import { planTalkingText, TALK_MODES, TALK_LOOKS } from './lib/talktext.js';
+import { bleepWords, bleepPrefs, swearOpts } from './bleep.js';
+import { cleanWords, unbleep } from './lib/profanity.js';
 import { placeTalkingText } from './talktext.js';
 import { ELEMENTS, elementHome } from './lib/elements.js';
 import { buildCaptions, fillerRanges, pauseRanges, cutRanges, withoutSpans } from './lib/words.js';
@@ -43,7 +45,7 @@ export const RECIPES = {
   podcast: {
     name: 'Podcast clip', icon: '9:16', hint: 'A highlight from a talk or podcast: the whole picture on a blurred background, gentle zooms, big captions.',
     lengths: [[30, '30 s'], [60, '60 s'], [90, '90 s']], length: 60,
-    format: 'vertical', fit: 'blur', zoom: ['follow', 0.55], pack: 'clean', sounds: false, captions: 'big', loud: 'podcast', clean: 'tight', highlights: 1, talk: 'spoken', talkLook: 'box',
+    format: 'vertical', fit: 'blur', zoom: ['follow', 0.55], pack: 'clean', sounds: false, captions: 'big', loud: 'podcast', clean: 'tight', highlights: 1, talk: 'spoken', talkLook: 'box', bleep: 'bleep',
   },
   tutorial: {
     name: 'Tutorial', icon: '16:9', hint: 'A screen tutorial, tidied: clap signals cut out (your takes stay in ✂ TAKES), mouth clicks removed, the voice evened out, ums and long pauses cut, gentle zooms that follow your work, chapters.',
@@ -86,6 +88,8 @@ export const FIT_LEVELS = { follow: ['Crop, follow the action'], blur: ['Blurred
 export const transGap = (level, short) => ({ few: short ? 10 : 45, some: short ? 5 : 20, lots: short ? 2 : 8 }[level] ?? Infinity);
 const zoomLevelOf = r => (r.zoom[1] >= 1.3 ? 'heavy' : r.zoom[1] >= 0.9 ? 'medium' : 'subtle');
 /** How the zooms move: the recipe's own, or one picked in the dialog. */
+/** Swearing: left in, bleeped (a tone over the muted word), or muted. */
+export const BLEEP_LEVELS = { off: ['Leave it'], bleep: ['📢 Bleep'], mute: ['🔇 Mute'] };
 export const MOTION_STYLES = { punchy: ['Punchy: quick push-ins and push-outs'], follow: ['Follow the action'], kenburns: ['Ken Burns: slow, steady drifts'] };
 const recipeDefaults = r => ({
   zoom: zoomLevelOf(r), trans: r.pack ? (r.highlights ? 'some' : 'few') : 'off', pack: r.pack || 'clean', sfx: r.sounds ? 'normal' : 'off', volume: 'even',
@@ -96,6 +100,7 @@ const recipeDefaults = r => ({
   motion: r.zoom[0] in MOTION_STYLES ? r.zoom[0] : 'follow',
   claps: r.claps || 'off', voice: r.voice || 'none', noteSpeech: 'keep',
   talk: r.talk || 'off', talkLook: r.talkLook || 'green',
+  bleep: r.bleep || 'off',
 });
 /**
  * The parts to work on: the sections added with X (each an In–Out), plus the current In–Out if it isn't one of
@@ -233,6 +238,7 @@ export function openAutoEdit(app) {
       (O.gfx || 'off') !== 'off' && !['keywords', 'both'].includes(O.talk) ? `Put the punchy lines on screen as ${{ bold: 'bold kinetic titles (slam, smear, slice), with starbursts and light streaks', clean: 'clean titles with pill, serif and highlighted words', tech: 'tech titles (neon, glitch) with light streaks', mix: 'a mix of every kinetic look (slam, smear, neon, slice, shatter, pills…), with starbursts, light streaks and charts' }[O.gfxLook || 'mix']}, ${O.gfx === 'lots' ? 'often' : 'now and then'}; a chart for a percentage` : null,
       (O.talk || 'off') !== 'off' ? `Talking text: ${{ spoken: 'what you say along the bottom, each word lighting up as you say it', keywords: 'the key words popping up big in the middle (questions, numbers, tips), with an emoji now and then', both: 'what you say along the bottom (each word lighting up as you say it), and the key words popping up big in the middle with an emoji now and then' }[O.talk]}` : null,
       (O.cta || 'off') !== 'off' ? (r.format ? 'A Follow call-out near the end' : `Like · Subscribe · Bell and comment call-outs between sentences${O.cta === 'end' ? ', and an end screen' : ''}`) : null,
+      (O.bleep || 'off') !== 'off' ? `${O.bleep === 'mute' ? 'Mute' : 'Bleep'} the swearing (${bleepPrefs().level === 'all' ? 'mild words too' : 'swear words and slurs'}; AUDIO ▾ › Bleep swearing… sets the words); captions show it starred` : null,
       r.chapters ? 'Chapters as markers (they go in the export notes)' : null,
       redoOn && !redoParts.has('voice') ? null : `Loudness set for ${r.loud === 'spotify' ? 'TikTok / Reels' : r.loud === 'podcast' ? 'podcasts' : 'YouTube'}`,
     ].filter(Boolean).map(t => el('li', { text: t })));
@@ -271,6 +277,7 @@ export function openAutoEdit(app) {
         row('Graphics', seg('gfx', GFX_LEVELS)),
         row('Graphics look', seg('gfxLook', GFX_LOOKS)),
         row('Call-outs', seg('cta', CTA_LEVELS)),
+        row('Swearing', seg('bleep', BLEEP_LEVELS)),
         row('Language', lang),
         el('button', { class: 'mini ae-reset', text: 'Back to this recipe’s settings', onclick: () => { o = recipeDefaults(RECIPES[id]); draw(); } })),
       el('div', {}, el('div', { class: 'engr', text: 'Reel will' }), steps)));
@@ -289,7 +296,7 @@ export function openAutoEdit(app) {
 /** The parts of an edit Auto Edit can redo on their own (REDO ONLY): each one's setting, and what it's called. */
 export const REDO_PARTS = [
   ['zoom', 'Zooms & motion'], ['clean', 'Ums & dead air (with the words you’ve taught since)'], ['trans', 'Transitions & their sounds'],
-  ['captions', 'Captions'], ['talk', 'Talking text'], ['gfx', 'Graphics'], ['cta', 'Call-outs'], ['voice', 'Voice & volume'],
+  ['captions', 'Captions'], ['talk', 'Talking text'], ['gfx', 'Graphics'], ['cta', 'Call-outs'], ['voice', 'Voice & volume'], ['bleep', 'Bleeps (swearing)'],
 ];
 /**
  * REDO ONLY: the settings for redoing just these parts of an edit already made. The rest is left alone, and so is
@@ -305,6 +312,7 @@ export function redoSettings(r, o, parts) {
   if (!want.has('talk')) oo.talk = 'off';
   if (!want.has('gfx')) oo.gfx = 'off';
   if (!want.has('cta')) oo.cta = 'off';
+  if (!want.has('bleep')) oo.bleep = 'off';
   if (!want.has('voice')) { oo.voice = 'none'; oo.volume = 'off'; }
   return { r: { ...r, highlights: 0, format: null, chapters: false }, o: oo };
 }
@@ -556,6 +564,16 @@ export async function runAutoEdit(app, recipeId, o) {
     }
     if (!alive()) return;
 
+    // 5¾ · swearing: bleeped or muted, and starred in the captions and talking text made after this
+    if (redo?.has('bleep') && (o.bleep || 'off') === 'off') app.commit(d => { unbleep(d); d.tracks = d.tracks.filter(t => !t.bleeps || d.clips.some(c => c.track === t.id)); });
+    if ((o.bleep || 'off') !== 'off' && words.length) {
+      step(o.bleep === 'mute' ? 'Muting the swearing' : 'Bleeping the swearing');
+      const bp = { ...bleepPrefs(), mode: o.bleep };
+      const b = await bleepWords(app, words, bp);
+      if (b.n) report.push(`${b.n} swear word${b.n === 1 ? '' : 's'} ${o.bleep === 'mute' ? 'muted' : 'bleeped'}`);
+      words = cleanWords(words, swearOpts(bp));
+    }
+    if (!alive()) return;
     // 6 · captions
     if (o.captions !== 'off' && words.length) {
       step('Writing captions');
