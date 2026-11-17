@@ -595,3 +595,78 @@ test('reel-core finds the same soft sounds you taught (breaths) as the JavaScrip
   assert.ok(js.some(h => h.word === 'breath'), 'breaths found');
   assert.deepEqual(rs.map(h => [h.t, h.end, h.word, h.sure]), js.map(h => [h.t, h.end, h.word, h.sure]));
 });
+
+// ---------------------------------------------------------------- step 5 begins: the core reads video files itself
+import { execFileSync } from 'node:child_process';
+const ffmpeg = (() => { try { execFileSync('ffmpeg', ['-version'], { stdio: 'ignore' }); return true; } catch { return false; } })();
+test('reel-core reads MP4 and MOV files (H.264, HEVC, fragmented, rotated, edit lists, PCM) the same as the JavaScript, sample for sample', { skip: skip || (!ffmpeg && 'needs ffmpeg to make the test videos') }, async t => {
+  const { demux, BufferReader } = await import('../app/renderer/lib/mp4.js');
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'reel-mp4-'));
+  const src = ['-f', 'lavfi', '-i', 'testsrc2=size=320x180:rate=30:duration=3', '-f', 'lavfi', '-i', 'sine=frequency=440:duration=3'];
+  const files = {
+    'h264 aac, B-frames and an edit list.mp4': [...src, '-c:v', 'libx264', '-bf', '2', '-g', '15', '-pix_fmt', 'yuv420p', '-c:a', 'aac', '-shortest'],
+    'hevc hvc1.mp4': [...src, '-c:v', 'libx265', '-x265-params', 'log-level=none:keyint=20', '-tag:v', 'hvc1', '-pix_fmt', 'yuv420p', '-c:a', 'aac', '-shortest'],
+    'phone, turned 90 degrees, pcm.mov': ['-display_rotation', '90', ...src, '-c:v', 'libx264', '-pix_fmt', 'yuv420p', '-c:a', 'pcm_s16le', '-shortest'],
+    'fragmented.mp4': [...src, '-c:v', 'libx264', '-g', '10', '-pix_fmt', 'yuv420p', '-c:a', 'aac', '-shortest', '-movflags', 'frag_keyframe+empty_moov+default_base_moof'],
+    'started late, 48k mono.mp4': ['-f', 'lavfi', '-i', 'testsrc2=size=160x90:rate=25:duration=2', '-f', 'lavfi', '-i', 'sine=frequency=300:sample_rate=48000:duration=2', '-c:v', 'libx264', '-bf', '3', '-pix_fmt', 'yuv420p', '-c:a', 'aac', '-ac', '1', '-output_ts_offset', '0.5', '-shortest'],
+  };
+  try {
+    let samples = 0;
+    for (const [name, args] of Object.entries(files)) {
+      const file = path.join(dir, name);
+      execFileSync('ffmpeg', ['-y', '-loglevel', 'error', ...args, file], { stdio: 'ignore' });
+      if (/turned 90/.test(name)) {
+        // the turn as a phone writes it: the video track's matrix (a = 0, b = 1, c = −1, d = 0)
+        const buf = fs.readFileSync(file), at = buf.indexOf('tkhd'), m = at + 4 + (buf[at + 4] === 1 ? 52 : 40);
+        buf.writeInt32BE(0, m); buf.writeInt32BE(65536, m + 4); buf.writeInt32BE(-65536, m + 12); buf.writeInt32BE(0, m + 16);
+        fs.writeFileSync(file, buf);
+      }
+      const js = await demux(new BufferReader(fs.readFileSync(file)));
+      const rs = await core.mp4Info(file);
+      const norm = tr => ({ id: tr.id, kind: tr.kind, timescale: tr.timescale, codec: tr.codec ?? null, description: tr.description == null ? null : typeof tr.description === 'string' ? tr.description : Buffer.from(tr.description).toString('hex'), supported: !!tr.supported,
+        rotation: tr.rotation, fourcc: tr.fourcc ?? '', width: tr.width ?? 0, height: tr.height ?? 0, pixelAspect: tr.pixelAspect ?? null, channels: tr.channels ?? 0, sampleSize: tr.sampleSize ?? 0,
+        sampleRate: tr.sampleRate ?? 0, pcmBits: tr.pcm?.bits ?? tr.pcmBits ?? null, mediaTime: tr.mediaTime ?? 0, emptyLead: tr.emptyLead ?? 0, startTime: tr.startTime, duration: tr.duration, origin: tr.origin ?? 0,
+        samples: tr.samples.map(s => (Array.isArray(s) ? [s[0], s[1], s[2], s[3], s[4], !!s[5]] : [s.offset, s.size, s.dts, s.pts, s.duration, !!s.sync])) });
+      assert.equal(rs.tracks.length, js.tracks.length, name);
+      for (let i = 0; i < js.tracks.length; i++) { const a = norm(js.tracks[i]), b = norm(rs.tracks[i]); assert.deepEqual(b, a, `${name}, track ${i + 1}`); samples += a.samples.length; }
+      if (/turned 90/.test(name)) assert.equal(rs.tracks[0].rotation, 90, 'the turn is read');
+      if (/fragmented/.test(name)) assert.ok(rs.tracks[0].samples.filter(x => x[5]).length > 3, 'the fragments are read');
+      if (/edit list/.test(name)) assert.ok(rs.tracks[0].mediaTime > 0 && rs.tracks[0].samples.some(x => x[3] !== x[2]), 'the edit list and B-frame timing are read');
+      assert.equal(rs.duration, js.duration, name);
+    }
+    t.diagnostic(`${Object.keys(files).length} files, ${samples} samples: the same`);
+  } finally { fs.rmSync(dir, { recursive: true, force: true }); }
+});
+
+test('reel-core writes an MP4 head (ftyp, moov, mdat) byte for byte as the JavaScript muxer', { skip }, async t => {
+  const { Muxer } = await import('../app/renderer/lib/mp4.js');
+  const avcC = Uint8Array.from([1, 0x64, 0, 0x28, 0xff, 0xe1, 0, 4, 0x67, 0x64, 0, 0x28, 1, 0, 4, 0x68, 0xee, 0x3c, 0x80]);
+  const hvcC = Uint8Array.from({ length: 40 }, (_, i) => (i * 37 + 5) & 255);
+  const asc = Uint8Array.from([0x11, 0x90]);
+  let sd = 3; const r = () => ((sd = (sd * 16807) % 2147483647) / 2147483647);
+  const cases = {
+    'H.264 and AAC, interleaved, one keyframe in 30': { video: { codec: 'avc1.640028', width: 1920, height: 1080, description: avcC }, audio: { codec: 'mp4a.40.2', sampleRate: 48000, channels: 2, description: asc, bitrate: 256000 },
+      frames: () => { const f = []; for (let i = 0; i < 300; i++) { f.push(['v', 3000 + Math.floor(r() * 9000), (i * 1e6) / 30, 1e6 / 30, i % 30 === 0]); if (i % 2) f.push(['a', 300 + Math.floor(r() * 200), (i / 2) * (1024e6 / 48000), 1024e6 / 48000, true]); } return f; } },
+    'HEVC with B-frames out of order, no durations, starting late': { video: { codec: 'hvc1.1.6.L153.B0', width: 3840, height: 2160, description: hvcC, timescale: 600 },
+      frames: () => { const order = [0, 3, 1, 2, 6, 4, 5, 9, 7, 8, 12, 10, 11]; return order.map((k, i) => ['v', 500 + i * 11, 2e6 + (k * 1e6) / 24, 0, k % 6 === 0]); } },
+    'sound only, mono 44.1 kHz': { audio: { codec: 'mp4a.40.2', sampleRate: 44100, channels: 1, description: asc },
+      frames: () => Array.from({ length: 200 }, (_, i) => ['a', 200 + (i % 17), (i * 1024e6) / 44100, (1024e6) / 44100, true]) },
+  };
+  for (const [name, c] of Object.entries(cases)) {
+    const frames = c.frames();
+    const js = new Muxer({ video: c.video, audio: c.audio });
+    for (const [k, size, ts, dur, key] of frames) (k === 'v' ? js.addVideo : js.addAudio).call(js, new Uint8Array(size), { timestamp: ts, duration: dur, key });
+    const want = Buffer.from(js.finish()).toString('hex');
+    const parts = [Buffer.from('RCORE1\nmp4head\n')];
+    const u8 = v => parts.push(Buffer.from([v])), u32 = v => { const b = Buffer.alloc(4); b.writeUInt32LE(v >>> 0); parts.push(b); }, f64 = v => { const b = Buffer.alloc(8); b.writeDoubleLE(v); parts.push(b); };
+    const str = v => { const b = Buffer.from(v); u32(b.length); parts.push(b); };
+    if (c.video) { u8(1); str(c.video.codec); u32(c.video.width); u32(c.video.height); u32(c.video.timescale || 0); str(c.video.description); } else u8(0);
+    if (c.audio) { u8(1); str(c.audio.codec); u32(c.audio.sampleRate); u32(c.audio.channels); u32(c.audio.bitrate || 0); str(c.audio.description); } else u8(0);
+    u32(frames.length);
+    for (const [k, size, ts, dur, key] of frames) { u8(k === 'v' ? 1 : 0); u32(size); f64(ts); f64(dur); u8(key ? 1 : 0); }
+    const got = (await core.run(Buffer.concat(parts))).head;
+    assert.equal(got.length, want.length, `${name}: the head's length`);
+    assert.equal(got, want, name);
+  }
+  t.diagnostic(`${Object.keys(cases).length} files' heads: byte for byte`);
+});

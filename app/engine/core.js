@@ -97,6 +97,17 @@ async function analyze(file) {
 }
 
 /**
+ * A video file's tracks and every sample's place and timing, read by the core (reel-core 1.2), the same as
+ * lib/mp4.js demux: { duration, tracks: [{ id, kind, codec, description (hex), …, samples: [[offset, size, dts, pts,
+ * duration, sync]] }] }.
+ */
+async function mp4Info(file) {
+  if (typeof file !== 'string' || !path.isAbsolute(file) || file.includes('\0') || Buffer.byteLength(file) > 4096) throw new Error('Bad file');
+  const name = Buffer.from(file, 'utf8'), len = Buffer.alloc(4); len.writeUInt32LE(name.length);
+  return run(Buffer.concat([Buffer.from('RCORE1\nmp4info\n'), len, name]), { timeout: 120000, maxOut: 512e6 });
+}
+
+/**
  * The export's sound mixed by the core and written to `out` (a new file): job = { rate, total, mixGain, limiters, soft,
  * codec: 'wav' | 'aac', bitrate, sources: [absolute paths], plans: [{ src, first, last, s0, speed, env }] }
  * (env a Float32Array, from lib/mixplan.js), and with a loudness target `loud` = { target, ceil, rel, look, measure }
@@ -170,4 +181,4 @@ async function mix(job, out, onProgress) {
 
 async function version() { try { return (await run(Buffer.from('RCORE1\nversion\n'), { timeout: 5000 })).version; } catch { return null; } }
 
-module.exports = { available, umFind, analyze, mix, version, encodeUmFind, run, useBinary };
+module.exports = { available, umFind, analyze, mix, mp4Info, version, encodeUmFind, run, useBinary };

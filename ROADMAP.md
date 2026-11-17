@@ -38,6 +38,12 @@ JavaScript runs, as before). When little JavaScript is left, the window itself c
    map. Next: picture export (step 5), starting with the frame drawing.
 4. **Decoding:** read sound and video straight from the files through Apple's frameworks.
 5. **Picture export:** drawing every frame and encoding H.264 / HEVC (VideoToolbox) in Rust.
+   - **Done (1.2): the container.** The core reads MP4 and MOV files itself (every track, codec and decoder
+     description, and every frame's place, timing and keyframe flag; fragmented files, edit lists, B-frames, turned
+     phone videos) and writes the export's MP4. Checked against the JavaScript on real H.264, HEVC, MOV and
+     fragmented files, sample for sample, and the written file byte for byte.
+   - Next: decoding frames through VideoToolbox (on the Mac), then drawing them (placed, scaled, cropped, faded),
+     then titles and elements, then effects, and encoding; each checked frame by frame against the current export.
 6. **Recording:** screen, window and camera through ScreenCaptureKit.
 7. **The window:** a plain Rust interface (egui or Slint), once the pieces above no longer need the browser.
 

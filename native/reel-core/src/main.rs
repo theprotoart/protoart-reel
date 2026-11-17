@@ -3,7 +3,10 @@
 //! One job per run. Reel's main process (app/engine/core.js) starts it, writes the job to stdin and reads one
 //! line of JSON from stdout. Jobs are binary, little-endian, so sound needs no conversion:
 //!
-//!   "RCORE1\n" then a command line ("version\n", "umfind\n", "analyze\n", "mix\n" or "mixloud\n"), then the command's body.
+//!   "RCORE1\n" then a command line ("version\n", "umfind\n", "analyze\n", "mp4info\n", "mix\n", "mixloud\n" or "mixmaster\n"), then the command's body.
+//!
+//! mp4info body (1.2): path (u32 length + UTF-8) of one video file, which it only reads. Answers its tracks and every
+//!   sample's place and timing (the first part of picture export: the core reading video files itself).
 //!
 //! analyze body: path (u32 length + UTF-8) of one media file, which it only reads. Answers the file's sample
 //!   rate, waveform peaks (100 a second) and loudness profile (K-weighted mean square every 100 ms).
@@ -24,6 +27,7 @@
 //! all chosen by Reel's main process (the open project's media folder; the export's own temporary file).
 
 mod analyze;
+mod mp4;
 mod media;
 mod mix;
 mod stretch;
@@ -132,6 +136,53 @@ fn analyze_job(inp: &mut Input) -> Result<String, String> {
     let mut src = media::open(path)?;
     let a = analyze::analyze(src.as_mut())?;
     Ok(format!("{{\"ok\":true,\"rate\":{},\"peaks\":[{}],\"steps\":[{}]}}", a.rate, floats(&a.peaks), floats(&a.steps)))
+}
+
+/// mp4info (1.2): a video file's tracks and every sample's place and timing, as lib/mp4.js demux reads them.
+fn mp4_job(inp: &mut Input) -> Result<String, String> {
+    let len = inp.count(1)?;
+    if len == 0 || len > 4096 { return Err("bad path".into()); }
+    let path = std::str::from_utf8(inp.take(len)?).map_err(|_| "bad path")?;
+    if path.contains('\0') { return Err("bad path".into()); }
+    let mv = mp4::demux(path)?;
+    let num = |x: f64| if x.is_finite() { format!("{}", x) } else { "null".into() };
+    let hex = |v: &Vec<u8>| v.iter().map(|b| format!("{:02x}", b)).collect::<String>();
+    let tracks: Vec<String> = mv.tracks.iter().map(|t| {
+        let samples: Vec<String> = t.samples.iter().map(|s| format!("[{},{},{},{},{},{}]", s.offset, s.size, s.dts, s.pts, s.duration, s.sync as u8)).collect();
+        format!("{{\"id\":{},\"kind\":\"{}\",\"timescale\":{},\"codec\":{},\"description\":{},\"supported\":{},\"rotation\":{},\"fourcc\":{},\"width\":{},\"height\":{},\"pixelAspect\":{},\"channels\":{},\"sampleSize\":{},\"sampleRate\":{},\"pcmBits\":{},\"mediaTime\":{},\"emptyLead\":{},\"startTime\":{},\"duration\":{},\"origin\":{},\"samples\":[{}]}}",
+            t.id, if t.video { "video" } else { "audio" }, t.timescale, t.codec.as_deref().map(json_str).unwrap_or("null".into()), t.description.as_ref().map(|d| json_str(&hex(d))).unwrap_or("null".into()),
+            t.supported, t.rotation, json_str(&t.fourcc), t.width, t.height, t.pixel_aspect.map(num).unwrap_or("null".into()), t.channels, t.sample_size, num(t.sample_rate),
+            t.pcm_bits.map(|b| b.to_string()).unwrap_or("null".into()), t.media_time, num(t.empty_lead), num(t.start_time), num(t.duration), t.origin, samples.join(","))
+    }).collect();
+    Ok(format!("{{\"ok\":true,\"duration\":{},\"tracks\":[{}]}}", num(mv.duration), tracks.join(",")))
+}
+
+/// mp4head (1.2): the head (ftyp, moov, mdat header) the muxer writes for a list of encoded frames, as hex; how the
+/// writer is checked against lib/mp4.js Muxer. Body: video u8 (codec · width u32 · height u32 · timescale u32 ·
+/// description) · audio u8 (codec · sample rate u32 · channels u32 · bitrate u32 · description) · frames u32, each
+/// video u8 · size u32 · timestamp f64 µs · duration f64 µs · key u8. Strings and descriptions are u32 length + bytes.
+fn mp4head_job(inp: &mut Input) -> Result<String, String> {
+    let text = |inp: &mut Input| -> Result<String, String> { let n = inp.count(1)?; if n > 64 { return Err("bad codec".into()); } String::from_utf8(inp.take(n)?.to_vec()).map_err(|_| "bad codec".into()) };
+    let blob = |inp: &mut Input| -> Result<Vec<u8>, String> { let n = inp.count(1)?; if n > 65536 { return Err("bad description".into()); } Ok(inp.take(n)?.to_vec()) };
+    let video = if inp.u8()? != 0 {
+        let codec = text(inp)?; let (width, height, timescale) = (inp.u32()? as u32, inp.u32()? as u32, inp.u32()? as u32);
+        if width == 0 || height == 0 || width > 16384 || height > 16384 { return Err("bad picture size".into()); }
+        Some(mp4::VideoCfg { codec, width, height, timescale, description: blob(inp)? })
+    } else { None };
+    let audio = if inp.u8()? != 0 {
+        let codec = text(inp)?; let (sample_rate, channels, bitrate) = (inp.u32()? as u32, inp.u32()? as u32, inp.u32()? as u32);
+        if !(8000..=192000).contains(&sample_rate) || !(1..=8).contains(&channels) { return Err("bad sound settings".into()); }
+        Some(mp4::AudioCfg { codec, sample_rate, channels, bitrate, description: blob(inp)? })
+    } else { None };
+    let mut m = mp4::Muxer::new(video, audio);
+    let n = inp.count(22)?;
+    for _ in 0..n {
+        let v = inp.u8()? != 0; let size = inp.u32()? as u32; let (ts, dur) = (inp.f64()?, inp.f64()?); let key = inp.u8()? != 0;
+        if !ts.is_finite() || !dur.is_finite() { return Err("bad frame time".into()); }
+        m.add(v, size, ts, dur, key)?;
+    }
+    let head = m.finish();
+    Ok(format!("{{\"ok\":true,\"head\":\"{}\"}}", head.iter().map(|b| format!("{:02x}", b)).collect::<String>()))
 }
 
 fn mix_job(inp: &mut Input, loudness: bool, mastered: bool) -> Result<String, String> {
@@ -279,6 +330,8 @@ fn run(b: &[u8]) -> Result<String, String> {
         "version" => Ok(format!("{{\"ok\":true,\"version\":{}}}", json_str(env!("CARGO_PKG_VERSION")))),
         "umfind" => umfind(&mut inp),
         "analyze" => analyze_job(&mut inp),
+        "mp4info" => mp4_job(&mut inp),
+        "mp4head" => mp4head_job(&mut inp),
         "mix" => mix_job(&mut inp, false, false),
         "mixloud" => mix_job(&mut inp, true, false),
         "mixmaster" => mix_job(&mut inp, false, true),
