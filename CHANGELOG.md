@@ -2,6 +2,8 @@
 
 ## 1.11.0 — 2026-11-16
 
+- 🎙 on a selected clip listens to just that clip's few seconds of its recording, not the whole recording (much faster the first time). While it listens the button says ■ STOP: click it again to stop, and nothing changes.
+
 - 🎙 with a clip selected listens to just that clip's recording (it was listening to every recording on the track). With a recording's picture and microphone selected together, it listens to the microphone.
 - Rust-drawn exports now also cover a loudness target (the core mixes and masters the sound to it) and the keystroke display. Only master plug-ins with a loudness target still export the usual way.
 

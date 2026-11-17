@@ -5,7 +5,7 @@ import { el, toast, dragBy } from './ui.js';
 import { removeRange, mediaById, uid } from './model.js';
 import { mergeRanges } from './lib/words.js';
 import { findUms, levelOnTimeline } from './lib/ums.js';
-import { timelineWords, speechClips, speechPrefs, saveSpeechPrefs, trackSelect, LANGS } from './transcript.js';
+import { timelineWords, speechClips, speechPrefs, saveSpeechPrefs, trackSelect, LANGS, stopListening } from './transcript.js';
 import { peaksFor } from './peaks.js';
 import { umModel, teachUms, findYourUms, teachFromTimeline, notAnUm } from './umvoice.js';
 
@@ -37,7 +37,7 @@ const CATS = [['all', 'All'], ['um', 'Um · uh'], ['phrase', 'Like · you know']
  * Listens to the speech and replaces the project's list of ums (words you looked for stay). With ums you taught
  * Reel (🎙), it also listens for those in your voice, and the guessed "sounds between words" are left out.
  */
-async function listen(app, { locale, track, ranges = null, clipIds = null }, onStatus) {
+async function listen(app, { locale, track, ranges = null, clipIds = null, stop = null }, onStatus) {
   app.deck?.tally(0, 'filler words found', { done: false });
   const words = await timelineWords(app, { locale, track, clipIds }, onStatus);
   ctxWords = words; ctxSig = layoutSig(app.doc);
@@ -58,6 +58,7 @@ async function listen(app, { locale, track, ranges = null, clipIds = null }, onS
   // just some clips (the selected ones): what's found in them replaces what was listed there, the rest stays
   const within = u => !ranges || ranges.some(([a, b]) => u.t >= a - 0.01 && u.t < b);
   found = found.filter(within).sort((a, b) => a.t - b.t).map(u => ({ id: uid('um'), t: +u.t.toFixed(3), end: +u.end.toFixed(3), text: u.text, kind: u.kind, cut: u.cut, track: trackAt(u.t) }));
+  if (stop?.()) throw new Error('Stopped.'); // stopped while it listened: the list stays as it was
   app.commit(d => { d.ums = [...found, ...(d.ums || []).filter(u => u.kind === 'find' || (ranges && !within(u)))].sort((a, b) => a.t - b.t); });
   app.deck?.tally(ranges ? (app.doc.ums || []).filter(u => u.kind !== 'find').length : found.length, 'filler words found');
   return found;
@@ -86,10 +87,13 @@ async function findWord(app, { locale, track }, query) {
  * 🎙 (the shotgun mic beside the cassette): listens for fillers in the selected clips, or the whole project when
  * none with sound are selected, with the counter beside the time counting them up. The FILLERS panel lists them.
  */
-let scanning = false;
+let scanning = false, stopped = false;
 export async function scanFillers(app) {
   const doc = app.doc;
-  if (!doc || scanning) return;
+  // pressed again while it listens: stop
+  if (scanning) { stopListening(app); stopped = true; return; }
+  if (!doc) return;
+  stopped = false;
   const p = speechPrefs();
   let picked = app.selection.clips.map(id => doc.clips.find(c => c.id === id)).filter(c => c && speechClips(doc).includes(c));
   // a recording's picture and its microphone selected together: the microphone is the speech
@@ -104,14 +108,18 @@ export async function scanFillers(app) {
   const btn = document.getElementById('filler-scan');
   btn?.classList.add('listening');
   try {
-    const found = await listen(app, { locale: p.locale, track, ranges, clipIds: picked.length ? picked.map(c => c.id) : null }, t => { if (btn) btn.title = t; });
+    const found = await listen(app, { locale: p.locale, track, ranges, clipIds: picked.length ? picked.map(c => c.id) : null, stop: () => stopped }, t => { if (btn) btn.title = `${t} · click to stop`; });
+    if (stopped) throw new Error('Stopped.');
     const n = found.filter(u => u.cut).length;
     toast(found.length ? `${found.length} filler${found.length === 1 ? '' : 's'} found${picked.length ? ` in the ${picked.length} selected clip${picked.length === 1 ? '' : 's'}` : ''}, ${n} marked CUT. FILLERS lists them; click the counter to open it.` : `No fillers found${picked.length ? ' in the selected clips' : ''}.`, 6000);
     refreshUms();
-  } catch (e) { toast(e.message, 6000); app.deck?.untally(); }
+  } catch (e) {
+    if (stopped) { toast('Stopped listening for fillers. Nothing changed.', 3500); app.deck?.untally(); app.deck?.fillers((app.doc?.ums || []).filter(u => u.kind !== 'find').length); }
+    else { toast(e.message, 6000); app.deck?.untally(); }
+  }
   finally { scanning = false; btn?.classList.remove('listening'); if (btn) btn.title = SCAN_TITLE; }
 }
-export const SCAN_TITLE = 'Scan for fillers (the shotgun mic): listens to the selected clips, or the whole project, for ums, uhs and other fillers, and counts them on the counter beside the time. FILLERS lists them to keep or cut.';
+export const SCAN_TITLE = 'Scan for fillers (the shotgun mic): listens to the selected clips, or the whole project, for ums, uhs and other fillers, and counts them on the counter beside the time. Click again while it listens to stop. FILLERS lists them to keep or cut.';
 
 let panel = null;
 export function openUms(app) {

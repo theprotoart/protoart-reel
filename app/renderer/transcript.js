@@ -19,14 +19,25 @@ export const soundOf = (doc, c) => { const m = c.type === 'media' && mediaById(d
 
 let progressHooked = false; const listeners = new Map();
 /** Words of one media file (source seconds), transcribing it the first time. */
-async function mediaWords(app, m, locale, onProgress) {
+/** The listening going on now (to stop it: stopListening). */
+let listening = null;
+export function stopListening(app) { if (listening) { listening.stopped = true; if (listening.job) app.api.speechCancel?.(listening.job); } }
+async function mediaWords(app, m, locale, onProgress, span = null) {
   if (m.transcript && m.transcript.locale === locale) {
     try { return (await app.api.readJson(app.token, m.transcript.file)).words || []; } catch { /* make it again */ }
   }
   if (!progressHooked && app.api.onSpeechProgress) { progressHooked = true; app.api.onSpeechProgress((id, msg) => listeners.get(id)?.(msg)); }
   const job = uid('sp');
+  if (listening) listening.job = job;
   listeners.set(job, msg => { if (msg.value != null) onProgress?.(msg.value); });
   try {
+    // span: just part of the recording (a clip that was selected), listened to on its own and not kept as its
+    // transcript (the whole recording's is made when everything is listened to)
+    if (span) {
+      const r = await app.api.speechTranscribe(app.token, m.file, span[0], span[1], locale, job);
+      if (!r || !Array.isArray(r.words)) throw new Error('Speech recognition isn’t available on this Mac right now.');
+      return r.words;
+    }
     const r = await app.api.speechTranscribe(app.token, m.file, 0, 0, locale, job);
     if (!r || !Array.isArray(r.words)) throw new Error('Speech recognition isn’t available on this Mac right now.');
     const file = await app.api.writeJson(app.token, `${String(m.file).replace(/\.[^.]+$/, '')}-words`, { locale, words: r.words, onDevice: r.onDevice });
@@ -47,11 +58,28 @@ export async function timelineWords(app, { locale, track = '', clipIds = null },
   if (!clips.length) throw new Error('There’s no clip with sound to listen to.');
   const media = [...new Map(clips.map(c => [c.media, soundOf(doc, c)])).values()];
   const byMedia = new Map();
-  for (const [i, m] of media.entries()) {
-    onStatus?.(`Listening to “${m.name}” (${i + 1} of ${media.length})…`, i / media.length);
-    byMedia.set(m.id, await mediaWords(app, m, locale, v => onStatus?.(`Listening to “${m.name}” (${i + 1} of ${media.length})… ${Math.round(v * 100)}%`, (i + v) / media.length)));
-  }
-  return mergeWords(clips.map(c => wordsOnTimeline(byMedia.get(c.media) || [], c)));
+  listening = { stopped: false, job: null };
+  try {
+    if (clipIds) {
+      // only the selected clips: each one's own part of its recording (a few seconds, not the whole 12 minutes),
+      // unless the whole recording was listened to before (then that's used, at once)
+      for (const [i, c] of clips.entries()) {
+        const m = soundOf(doc, c), sp = c.speed || 1, a = Math.max(0, (c.in || 0) - 0.5), b = (c.in || 0) + c.duration * sp + 0.5;
+        onStatus?.(`Listening to “${c.name || m.name}” (${i + 1} of ${clips.length})…`, i / clips.length);
+        const w = await mediaWords(app, m, locale, v => onStatus?.(`Listening to “${c.name || m.name}” (${i + 1} of ${clips.length})… ${Math.round(v * 100)}%`, (i + v) / clips.length), m.transcript?.locale === locale ? null : [a, b]);
+        if (listening.stopped) throw new Error('Stopped.');
+        byMedia.set(c.id, w);
+      }
+      return mergeWords(clips.map(c => wordsOnTimeline(byMedia.get(c.id) || [], c)));
+    }
+    for (const [i, m] of media.entries()) {
+      onStatus?.(`Listening to “${m.name}” (${i + 1} of ${media.length})…`, i / media.length);
+      byMedia.set(m.id, await mediaWords(app, m, locale, v => onStatus?.(`Listening to “${m.name}” (${i + 1} of ${media.length})… ${Math.round(v * 100)}%`, (i + v) / media.length)));
+      if (listening.stopped) throw new Error('Stopped.');
+    }
+    return mergeWords(clips.map(c => wordsOnTimeline(byMedia.get(c.media) || [], c)));
+  } catch (e) { if (listening?.stopped) throw new Error('Stopped.'); throw e; }
+  finally { listening = null; }
 }
 
 export function trackSelect(doc, value) {
