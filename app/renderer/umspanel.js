@@ -8,7 +8,7 @@ import { mergeRanges } from './lib/words.js';
 import { findUms, levelOnTimeline } from './lib/ums.js';
 import { timelineWords, speechClips, speechPrefs, saveSpeechPrefs, trackSelect, LANGS, stopListening } from './transcript.js';
 import { peaksFor } from './peaks.js';
-import { umModel, teachUms, findYourUms, teachFromTimeline, notAnUm } from './umvoice.js';
+import { umModel, reloadModel, teachUms, findYourUms, teachFromTimeline, notAnUm } from './umvoice.js';
 
 // the words on the timeline as last heard (the transcript is cached, so getting them again is quick): each um is
 // shown in its sentence, the words either side, so you can tell what was picked up without playing it
@@ -182,6 +182,7 @@ export function openUms(app) {
   const removeBtn = el('button', { class: 'hw amber', text: 'REMOVE' });
   const markBtn = el('button', { class: 'hw', text: '🏷 MARK', title: 'Put a marker on each one shown instead of cutting (to edit by hand). Click again to take the um markers off' });
   const allBtn = el('button', { class: 'mini ums-all', text: 'ALL CUT', title: 'Mark every one shown CUT (click again to KEEP them)' });
+  const clearBtn = el('button', { class: 'mini ums-clear', text: '🧹 CLEAR', title: 'Clear the list (nothing in the edit changes; ⌘Z brings the list back). Then LISTEN to scan again with what you’ve taught Reel since.', onclick: () => { app.cmd('ums-clear'); refresh(true); } });
   // what's shown: a kind (or a word you looked for), the chosen track, and the selected clip
   let filter = 'all';
   const chips = el('div', { class: 'ums-chips' });
@@ -261,7 +262,9 @@ export function openUms(app) {
     removeBtn.title = n ? `Cut the ${n} shown marked CUT and close the gaps (⌘Z undoes)` : 'Mark some CUT first';
     removeBtn.disabled = !n || busy;
     listenBtn.disabled = busy;
-    listenBtn.textContent = app.doc.ums ? '👂 LISTEN AGAIN' : '👂 LISTEN FOR FILLERS';
+    const listed = (app.doc.ums || []).some(u => u.kind !== 'find'), selNow = onlySel.checked && selClips().length;
+    listenBtn.textContent = listed ? (selNow ? '🧹 CLEAR & RESCAN CLIP' : '🧹 CLEAR & RESCAN') : selNow ? '👂 LISTEN TO THE CLIP' : '👂 LISTEN FOR FILLERS';
+    listenBtn.title = listed ? `Clear the fillers listed${selNow ? ' in the selected clip' : ''} and listen again, with everything you’ve taught Reel so far (⌘Z brings the old list back)` : 'Listen to the speech and list every um, uh and filler (it runs on this Mac)';
     allBtn.textContent = ums.length && ums.every(u => u.cut) ? 'ALL KEEP' : 'ALL CUT';
     if (!app.doc.ums) { list.replaceChildren(el('p', { class: 'takes-empty', text: 'Press LISTEN FOR FILLERS. Reel listens to the speech on the track you choose and lists every um, uh and filler it hears. 🎙 TEACH REEL YOUR UMS first and it finds them in your voice too.' })); return; }
     if (!ums.length) { list.replaceChildren(el('p', { class: 'takes-empty', text: all.length ? 'None here: pick another filter, track or clip.' : 'No ums found. Nice and clean.' })); return; }
@@ -273,7 +276,7 @@ export function openUms(app) {
       timelineWords(app, { locale: lang.value, track: '' }).then(w => { ctxWords = w; ctxSig = sigNow; }, () => { ctxWords = []; ctxSig = sigNow; }).finally(() => { ctxLoading = false; refresh(true); });
     }
     list.replaceChildren(
-      el('div', { class: 'engr takes-rec ums-sum' }, el('span', { text: `${ums.length} shown · ${n} marked CUT` }), allBtn),
+      el('div', { class: 'engr takes-rec ums-sum' }, el('span', { text: `${ums.length} shown · ${n} marked CUT` }), el('span', { class: 'ums-sum-btns' }, clearBtn, allBtn)),
       ...ums.map(u => {
         const cat = catOf(u);
         const play = el('button', { class: 'mini', text: '▶', title: 'Play it with a second either side', onclick: () => { clearInterval(stopTimer); playRange(app, Math.max(0, u.t - 0.6), u.end + 0.6); } });
@@ -361,8 +364,17 @@ export function openUms(app) {
     if (busy) return;
     busy = true; refresh(true);
     saveSpeechPrefs({ ...speechPrefs(), locale: lang.value, track: track.value });
+    // a fresh scan: the latest of what you taught Reel, and the old list cleared first (for the clip, or all of it)
+    reloadModel();
+    const sel = onlySel.checked ? selClips().filter(c => speechClips(app.doc).includes(c)) : [];
+    const ranges = sel.length ? sel.map(c => [c.start, c.start + c.duration]) : null;
+    app.fillerScope = sel.length ? { ids: sel.map(c => c.id) } : null;
+    app.deck?.scopeLabel?.(scopeLabel(app), !!sel.length);
+    const inR = u => !ranges || ranges.some(([a, b]) => u.t >= a - 0.01 && u.t < b);
+    if ((app.doc.ums || []).some(u => u.kind !== 'find' && inR(u))) app.commit(d => { d.ums = (d.ums || []).filter(u => u.kind === 'find' || !inR(u)); });
+    refresh(true);
     try {
-      const found = await listen(app, { locale: lang.value, track: track.value }, t => { status.textContent = t; });
+      const found = await listen(app, { locale: lang.value, track: track.value, ranges, clipIds: sel.length ? sel.map(c => c.id) : null }, t => { status.textContent = t; });
       const n = found.filter(u => u.cut).length;
       status.textContent = found.length ? `${found.length} found, ${n} marked CUT.${umModel() ? '' : ' 🎙 Teach Reel your ums to find the ones it can’t hear as words.'}` : '';
     } catch (e) { status.textContent = e.message; app.deck?.untally(); }

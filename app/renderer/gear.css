@@ -2747,3 +2747,5 @@ html[data-theme="light"] .proxy-chip { background: linear-gradient(#fbfbfd, #dcd
   .row:has(> input[type=range]) > input[type=range] { order: 9; flex: 1 1 100%; }
   .row:has(> input[type=range]) > .val { margin-left: auto; }
 }
+.ums-sum { display: flex; align-items: center; justify-content: space-between; gap: 8px; }
+.ums-sum-btns { display: inline-flex; gap: 6px; }

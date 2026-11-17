@@ -2,6 +2,8 @@
 
 ## 1.11.0 — 2026-11-16
 
+- FILLERS list: 🧹 CLEAR empties the list, and LISTEN AGAIN is now 🧹 CLEAR & RESCAN (or RESCAN CLIP with "Only the selected clip" ticked): the old list goes and it listens again with everything taught since.
+
 - PROXY is now on the deck under the picture-size menu (as well as ⚙ ▾), with its lamp: green on, amber while it makes a copy.
 - A video the preview can't show (black or frozen): a strip on the preview says so, with 🩹 FIX: MAKE A CLEAN COPY (macOS makes a clean, smaller copy the preview plays; the recording isn't changed and export still uses it). Also on a clip's or media item's right-click menu, in PROXY ▾ and in 🩺 Check & repair. Needs the helper rebuilt (Build ProtoArt Reel).
 - Fillers counter: a scan of a selected clip counts just that clip (IN CLIP under the drums), a scan of the whole project counts it all. Right-click the counter to reset it to 0000, count the selected clip or the whole project, or clear the list.
