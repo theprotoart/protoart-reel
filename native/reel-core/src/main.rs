@@ -191,7 +191,8 @@ fn mp4head_job(inp: &mut Input) -> Result<String, String> {
 /// layers u32, each picture u32 · alpha f64 · matrix 6 × f64 · shown part 4 × f64 · look u8 (1.4: 1, then the box's
 /// matrix 6 × f64 · its width and height · corner radius · border width f64 · border colour r, g, b u8 · shadow blur ·
 /// shadow drop f64 · cut to the box u8 (1.5); 0, none). A layer whose picture is 0xFFFFFFFF (1.5) is a colour over
-/// the whole canvas: alpha, then r, g, b u8. Then the output path.
+/// the whole canvas: alpha, then r, g, b u8. After a picture's look, its filter (1.6): u8 1, then blur px, brightness,
+/// saturation f64 (0: none). Then the output path.
 fn frame_job(inp: &mut Input) -> Result<String, String> {
     let (w, h) = (inp.u32()?, inp.u32()?);
     if w == 0 || h == 0 || w > 8192 || h > 8192 { return Err("bad frame size".into()); }
@@ -230,7 +231,13 @@ fn frame_job(inp: &mut Input) -> Result<String, String> {
             if !ok { return Err("bad layer look".into()); }
             Some(frame::Look { b, w: bw, h: bh, radius, border, border_rgb, shadow, dy, cut })
         } else { None };
-        layers.push(frame::Layer { src, alpha, m, rect, look, fill: None });
+        // 1.6: the canvas filter it's drawn with: u8 1, then blur px · brightness · saturation f64; 0, none
+        let filter = if inp.u8()? == 1 {
+            let (blur, bright, sat) = (inp.f64()?, inp.f64()?, inp.f64()?);
+            if !(0.0..=500.0).contains(&blur) || !(0.0..=20.0).contains(&bright) || !(0.0..=20.0).contains(&sat) { return Err("bad layer filter".into()); }
+            Some(frame::Filter { blur, bright, sat })
+        } else { None };
+        layers.push(frame::Layer { src, alpha, m, rect, look, fill: None, filter });
     }
     let out = inp.path()?;
     let px = frame::draw(w, h, bg, &pictures, &layers);

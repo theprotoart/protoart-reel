@@ -47,7 +47,10 @@ export function framePlan(doc, t, W, H, size = m => ({ w: m.width || 0, h: m.hei
     const m = mediaById(doc, c.media);
     if (!m || m.kind === 'audio') continue;
     if ((c.filters || []).some(f => !f.off) || (c.matte && c.matte.file && !c.matte.off) || c.levels || (m.convertedFrom === 'screenflow' && m.kind === 'video' && !m.rangeOk) || p.split > 0.02) return { why: 'filters' };
-    if (p.blur || (p.bright != null && Math.abs(p.bright - 1) > 0.005) || (p.sat != null && Math.abs(p.sat - 1) > 0.005)) return { why: 'blur and exposure moves' };
+    // blur, exposure and colour moves (1.6): drawn as the canvas filter; with a rounded or shadowed box the filter
+    // softens those too, which isn't done here yet
+    const filtered = !!p.blur || (p.bright != null && Math.abs(p.bright - 1) > 0.005) || (p.sat != null && Math.abs(p.sat - 1) > 0.005);
+    if (filtered && (p.radius || p.shadow > 0 || p.border > 0 || (c.stab && m.kind === 'video'))) return { why: 'blur and exposure moves on a rounded, bordered or stabilized picture' };
     if (c.frame && c.frame.type && c.frame.type !== 'none') return { why: 'device frames' };
     if ((c.cursor && c.cursor.show !== false) || m.pointerSeparate || (c.keystrokes && c.keystrokes.show)) return { why: 'pointer and keystroke effects' };
     const { w: srcW, h: srcH } = size(m);
@@ -83,7 +86,8 @@ export function framePlan(doc, t, W, H, size = m => ({ w: m.width || 0, h: m.hei
     if (p.radius > 0 || p.border > 0 || p.shadow > 0 || stab) {
       look = { b: box, w: r.w, h: r.h, radius: Math.max(0, (p.radius || 0) * sx), border: Math.max(0, (p.border || 0) * sx), borderColor: hexRGB(p.borderColor || '#fff') || [255, 255, 255], shadow: Math.max(0, (p.shadow || 0) * sx), dy: Math.max(0, (p.shadow || 0) * sx * 0.25), cut: !!stab };
     }
-    layers.push({ media: m.id, clip: c.id, st: sourceTime(c, t), alpha: clamp(p.opacity, 0, 1), m: M, rect, look });
+    const filter = filtered ? { blur: Math.max(0, (p.blur || 0) * sx), bright: p.bright != null && Math.abs(p.bright - 1) > 0.005 ? +p.bright.toFixed(3) : 1, sat: p.sat != null && Math.abs(p.sat - 1) > 0.005 ? +Math.max(0, p.sat).toFixed(3) : 1 } : null;
+    layers.push({ media: m.id, clip: c.id, st: sourceTime(c, t), alpha: clamp(p.opacity, 0, 1), m: M, rect, look, filter });
     if (dip) layers.push(dip);
   }
   return { bg, layers };

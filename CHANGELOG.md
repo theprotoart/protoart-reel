@@ -1,6 +1,7 @@
 # Changelog
 
 ## 1.11.0 — 2026-11-16
+- Rust core 1.6: the frame drawing does blur, exposure and colour moves (and the transitions made of them, like exposure burn) the way the editor's canvas filter does: a soft blur that spreads past the edges, brightness, then saturation, by the CSS formulas. Checked against the editor's drawing (over 50 dB alike). Not used for exports yet.
 - Rust core 1.5: the frame drawing does dips to black and to white (and the flash transitions' white) and stabilized clips (the picture moved against the shake inside its box, which cuts it), the way the editor draws them. Checked against the editor's drawing. Not used for exports yet.
 - Callout shapes you can move point by point: a callout shows its real shape on the picture (not just a box), with a handle on every point: drag any of them anywhere; double-click a point to take it out, the outline to add one. A rectangle (8 points) or ellipse (12) becomes free points the moment you drag one, a rectangle keeping sharp corners. A freehand shape keeps what you drew, corners and all, cut down to the points that shape it (no more snapping to a box). New callouts last 4 s and the playhead goes past their fade-in, so they show at once.
 - Double-click any slider, anywhere in Reel, to reset it: to its default where it has one (Build in 0.3 s, volume 0 dB, pan centre, scale and opacity 100%, corners 0, push zoom 150%…), else to where it was before you touched it.

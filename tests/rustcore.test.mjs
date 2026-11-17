@@ -697,8 +697,9 @@ async function drawFrame(doc, pics, W = doc.canvas.width, H = doc.canvas.height)
   for (const l of plan.layers) {
     if (l.fill) { u32(0xffffffff); f64(l.alpha); parts.push(Buffer.from(l.fill)); continue; }
     u32(ids.indexOf(l.media)); f64(l.alpha); l.m.forEach(f64); l.rect.forEach(f64);
-    if (!l.look) { parts.push(Buffer.from([0])); continue; }
-    const k = l.look; parts.push(Buffer.from([1])); k.b.forEach(f64); [k.w, k.h, k.radius, k.border].forEach(f64); parts.push(Buffer.from(k.borderColor)); [k.shadow, k.dy].forEach(f64); parts.push(Buffer.from([k.cut ? 1 : 0]));
+    if (!l.look) parts.push(Buffer.from([0])); else {
+    const k = l.look; parts.push(Buffer.from([1])); k.b.forEach(f64); [k.w, k.h, k.radius, k.border].forEach(f64); parts.push(Buffer.from(k.borderColor)); [k.shadow, k.dy].forEach(f64); parts.push(Buffer.from([k.cut ? 1 : 0])); }
+    if (l.filter) { parts.push(Buffer.from([1])); [l.filter.blur, l.filter.bright, l.filter.sat].forEach(f64); } else parts.push(Buffer.from([0]));
   }
   const out = path.join(fs.mkdtempSync(path.join(os.tmpdir(), 'reel-frame-')), 'f.rgba');
   const pb = Buffer.from(out); u32(pb.length); parts.push(pb);
@@ -768,6 +769,20 @@ test('reel-core draws a dip to black and a stabilized picture cut to its box', {
   const px = await drawFrame(s, pics);
   assert.deepEqual(px(10, 4), [16, 32, 48], 'outside the half-size box: background (zoomed picture cut off)');
   assert.ok(near(px(20, 12), [255, 0, 0], 6), 'inside: the picture ' + px(20, 12));
+});
+
+test('reel-core draws blur, exposure and colour moves as the canvas filter does', { skip }, async () => {
+  const media = [{ id: 'scr', kind: 'video', width: 128, height: 72 }];
+  const d = frameDoc([{ media: 'scr', props: { blur: 30, bright: 2, sat: 0 } }], media);
+  d.canvas = { width: 1920, height: 1080, background: '#000000' };
+  const f = framePlan(d, 1, 64, 36).layers[0].filter;
+  assert.deepEqual(f, { blur: 1, bright: 2, sat: 0 }, 'blur scaled to the frame: 30 px of a 1920 canvas at 64 wide is 1 px');
+  const at = await drawFrame(d, { scr: quarters(128, 72) }, 64, 36);
+  // the red quarter, twice as bright (255 stays 255) then grey: 0.213 × 255 = 54
+  const q = at(8, 6);
+  assert.ok(q.every(v => Math.abs(v - 54) <= 3), 'red, brightened and greyed: ' + q);
+  const r = framePlan({ ...d, clips: [{ ...d.clips[0], props: { ...d.clips[0].props, radius: 20 } }] }, 1, 64, 36);
+  assert.match(r.why, /rounded/, 'a filter on a rounded picture is left to the JavaScript');
 });
 
 test('a frame that needs more than pictures says why, for the JavaScript to draw', () => {

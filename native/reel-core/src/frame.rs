@@ -8,10 +8,52 @@ pub struct Picture { pub w: usize, pub h: usize, pub rgba: Vec<u8> }
 
 /// One picture on the canvas: `m` maps its pixels to the canvas's (x' = a x + c y + e, y' = b x + d y + f), `rect`
 /// the part of it shown (x0, y0, x1, y1 in its pixels), `alpha` how solid.
-pub struct Layer { pub src: usize, pub alpha: f64, pub m: [f64; 6], pub rect: [f64; 4], pub look: Option<Look>, pub fill: Option<[u8; 3]> }
+pub struct Layer { pub src: usize, pub alpha: f64, pub m: [f64; 6], pub rect: [f64; 4], pub look: Option<Look>, pub fill: Option<[u8; 3]>, pub filter: Option<Filter> }
+
+/// The canvas filter a picture is drawn with (1.6), as compositor.js sets it: `blur(blur px) brightness(bright)
+/// saturate(sat)`, in that order (the CSS filter functions, on the picture before it's laid down at its opacity).
+pub struct Filter { pub blur: f64, pub bright: f64, pub sat: f64 }
+
+/// The filter on a picture drawn on its own layer (premultiplied RGBA, 0..255, bw wide): a Gaussian blur (sigma =
+/// blur px, as CSS), then brightness (each colour times bright) and saturate (the CSS matrix), each kept within 0..255.
+fn apply_filter(buf: &mut [[f64; 4]], bw: usize, bh: usize, f: &Filter) {
+    if f.blur > 0.05 {
+        let sigma = f.blur;
+        let r = (sigma * 3.0).ceil() as i64;
+        let k: Vec<f64> = (-r..=r).map(|i| (-(i * i) as f64 / (2.0 * sigma * sigma)).exp()).collect();
+        let ks: f64 = k.iter().sum();
+        let mut t = vec![[0f64; 4]; bw * bh];
+        for y in 0..bh { for x in 0..bw {
+            let mut acc = [0.0; 4];
+            for (j, kv) in k.iter().enumerate() { let xx = x as i64 + j as i64 - r; if xx >= 0 && (xx as usize) < bw { let q = buf[y * bw + xx as usize]; for c in 0..4 { acc[c] += q[c] * kv; } } }
+            for c in 0..4 { t[y * bw + x][c] = acc[c] / ks; }
+        } }
+        for y in 0..bh { for x in 0..bw {
+            let mut acc = [0.0; 4];
+            for (j, kv) in k.iter().enumerate() { let yy = y as i64 + j as i64 - r; if yy >= 0 && (yy as usize) < bh { let q = t[yy as usize * bw + x]; for c in 0..4 { acc[c] += q[c] * kv; } } }
+            for c in 0..4 { buf[y * bw + x][c] = acc[c] / ks; }
+        } }
+    }
+    let (b, s) = (f.bright, f.sat);
+    if (b - 1.0).abs() < 1e-9 && (s - 1.0).abs() < 1e-9 { return; }
+    let m = [
+        [0.213 + 0.787 * s, 0.715 - 0.715 * s, 0.072 - 0.072 * s],
+        [0.213 - 0.213 * s, 0.715 + 0.285 * s, 0.072 - 0.072 * s],
+        [0.213 - 0.213 * s, 0.715 - 0.715 * s, 0.072 + 0.928 * s],
+    ];
+    for q in buf.iter_mut() {
+        let a = q[3];
+        if a <= 1e-9 { continue; }
+        let mut c = [0.0; 3];
+        for i in 0..3 { c[i] = (q[i] / a * b).clamp(0.0, 255.0); }
+        let mut o = [0.0; 3];
+        for i in 0..3 { o[i] = (m[i][0] * c[0] + m[i][1] * c[1] + m[i][2] * c[2]).clamp(0.0, 255.0); }
+        for i in 0..3 { q[i] = o[i] * a; }
+    }
+}
 
 /// A layer that's no picture but a colour over the whole canvas (1.5: a dip to black or white), `alpha` solid.
-pub fn fill_layer(rgb: [u8; 3], alpha: f64) -> Layer { Layer { src: usize::MAX, alpha, m: [1.0, 0.0, 0.0, 1.0, 0.0, 0.0], rect: [0.0, 0.0, 1.0, 1.0], look: None, fill: Some(rgb) } }
+pub fn fill_layer(rgb: [u8; 3], alpha: f64) -> Layer { Layer { src: usize::MAX, alpha, m: [1.0, 0.0, 0.0, 1.0, 0.0, 0.0], rect: [0.0, 0.0, 1.0, 1.0], look: None, fill: Some(rgb), filter: None } }
 
 /// How the clip's box looks (1.4): the box (b maps -0.5..0.5 of it to the canvas, w × h canvas pixels), its rounded
 /// corners (radius, px), a border drawn on its edge (border px wide, in border_rgb) and a soft shadow under it (blur
@@ -154,6 +196,12 @@ pub fn draw(w: usize, h: usize, bg: [u8; 3], pictures: &[Picture], layers: &[Lay
         let spread = |s: f64| { let w = (1.0 / s - 1.0).max(0.0); if w < 1e-3 { (1usize, 0.0) } else { ((w.ceil() as usize + 1).min(9), w) } };
         let ((nu, wu), (nv, wv)) = (spread(su), spread(sv));
         let at = |i: usize, n: usize, w: f64| if n == 1 { 0.0 } else { -w / 2.0 + w * i as f64 / (n - 1) as f64 };
+        // a filtered picture is drawn on a layer of its own first (with room round it for the blur to spread into)
+        let filt = l.filter.as_ref().filter(|f| f.blur > 0.05 || (f.bright - 1.0).abs() > 1e-9 || (f.sat - 1.0).abs() > 1e-9);
+        let pad = filt.map(|f| (f.blur * 3.0).ceil() as usize + 1).unwrap_or(0);
+        let (bx0, bx1, by0, by1) = (px0.saturating_sub(pad), (px1 + pad).min(w), py0.saturating_sub(pad), (py1 + pad).min(h));
+        let bw = bx1.saturating_sub(bx0);
+        let mut buf: Vec<[f64; 4]> = if filt.is_some() { vec![[0.0; 4]; bw * by1.saturating_sub(by0)] } else { Vec::new() };
         for y in py0..py1 {
             for x in px0..px1 {
                 let (cx, cy) = (x as f64 + 0.5, y as f64 + 0.5);
@@ -180,10 +228,22 @@ pub fn draw(w: usize, h: usize, bg: [u8; 3], pictures: &[Picture], layers: &[Lay
                     let n = (nu * nv) as f64;
                     for k in 0..4 { s[k] /= n; }
                 }
+                if filt.is_some() { buf[(y - by0) * bw + x - bx0] = [s[0] * cov, s[1] * cov, s[2] * cov, s[3] * cov]; continue; }
                 let k = cov * l.alpha;
                 let o = &mut acc[y * w + x];
                 for ch in 0..3 { o[ch] = s[ch] * k + o[ch] * (1.0 - s[3] * k); }
             }
+        }
+        // the filter, then the layer laid down at its opacity
+        if let Some(fl) = filt {
+            let bh = by1.saturating_sub(by0);
+            apply_filter(&mut buf, bw, bh, fl);
+            for y in 0..bh { for x in 0..bw {
+                let q = buf[y * bw + x];
+                if q[3] <= 0.0 { continue; }
+                let o = &mut acc[(by0 + y) * w + bx0 + x];
+                for ch in 0..3 { o[ch] = q[ch] * l.alpha + o[ch] * (1.0 - q[3] * l.alpha); }
+            } }
         }
         // the border: a line border px wide along the box's edge, half in, half out
         if let Some((lk, ib)) = &look {
@@ -213,7 +273,7 @@ mod tests {
     #[test]
     fn a_picture_placed_at_half_size_and_half_faded() {
         let pic = solid(4, 4, [200, 100, 0, 255]);
-        let out = draw(8, 8, [0, 0, 255], &[pic], &[Layer { src: 0, alpha: 0.5, m: [1.0, 0.0, 0.0, 1.0, 2.0, 2.0], rect: [0.0, 0.0, 4.0, 4.0], look: None, fill: None }]);
+        let out = draw(8, 8, [0, 0, 255], &[pic], &[Layer { src: 0, alpha: 0.5, m: [1.0, 0.0, 0.0, 1.0, 2.0, 2.0], rect: [0.0, 0.0, 4.0, 4.0], look: None, fill: None, filter: None }]);
         let at = |x: usize, y: usize| &out[(y * 8 + x) * 4..(y * 8 + x) * 4 + 3];
         assert_eq!(at(3, 3), &[100, 50, 128]); // half the picture over half the blue
         assert_eq!(at(0, 0), &[0, 0, 255]);
@@ -223,7 +283,7 @@ mod tests {
     fn a_straight_picture_has_hard_edges_at_pixel_centres() {
         // placed from x 0.4 to 2.4: pixels 0 and 1 have their centres inside, pixel 2 (centre 2.5) doesn't
         let pic = solid(2, 2, [255, 255, 255, 255]);
-        let out = draw(4, 1, [0, 0, 0], &[pic], &[Layer { src: 0, alpha: 1.0, m: [1.0, 0.0, 0.0, 1.0, 0.4, -0.5], rect: [0.0, 0.0, 2.0, 2.0], look: None, fill: None }]);
+        let out = draw(4, 1, [0, 0, 0], &[pic], &[Layer { src: 0, alpha: 1.0, m: [1.0, 0.0, 0.0, 1.0, 0.4, -0.5], rect: [0.0, 0.0, 2.0, 2.0], look: None, fill: None, filter: None }]);
         assert_eq!((out[0], out[4], out[8], out[12]), (255, 255, 0, 0));
     }
     #[test]
@@ -232,7 +292,7 @@ mod tests {
         let pic = solid(6, 6, [255, 255, 255, 255]);
         let (co, si) = (std::f64::consts::FRAC_1_SQRT_2, std::f64::consts::FRAC_1_SQRT_2);
         let m = [co, si, -si, co, 4.5 - (co * 3.0 - si * 3.0), 4.5 - (si * 3.0 + co * 3.0)];
-        let out = draw(9, 9, [0, 0, 0], &[pic], &[Layer { src: 0, alpha: 1.0, m, rect: [0.0, 0.0, 6.0, 6.0], look: None, fill: None }]);
+        let out = draw(9, 9, [0, 0, 0], &[pic], &[Layer { src: 0, alpha: 1.0, m, rect: [0.0, 0.0, 6.0, 6.0], look: None, fill: None, filter: None }]);
         assert_eq!(out[(4 * 9 + 4) * 4], 255);
         assert!((0..81).any(|i| out[i * 4] > 20 && out[i * 4] < 235), "some edge pixels are in between");
     }
@@ -241,14 +301,14 @@ mod tests {
         // a 20 × 20 white picture filling a 20 × 20 box at (10, 10) on a black 40 × 40 canvas, corners 6 px, a red 2 px border
         let pic = solid(20, 20, [255, 255, 255, 255]);
         let lk = Look { b: [20.0, 0.0, 0.0, 20.0, 20.0, 20.0], w: 20.0, h: 20.0, radius: 6.0, border: 0.0, border_rgb: [255, 0, 0], shadow: 0.0, dy: 0.0, cut: false };
-        let out = draw(40, 40, [0, 0, 0], &[pic], &[Layer { src: 0, alpha: 1.0, m: [1.0, 0.0, 0.0, 1.0, 10.0, 10.0], rect: [0.0, 0.0, 20.0, 20.0], look: Some(lk), fill: None }]);
+        let out = draw(40, 40, [0, 0, 0], &[pic], &[Layer { src: 0, alpha: 1.0, m: [1.0, 0.0, 0.0, 1.0, 10.0, 10.0], rect: [0.0, 0.0, 20.0, 20.0], look: Some(lk), fill: None, filter: None }]);
         let at = |x: usize, y: usize| out[(y * 40 + x) * 4];
         assert_eq!(at(20, 20), 255);
         assert_eq!(at(10, 10), 0, "the corner is cut off");
         assert_eq!(at(20, 10), 255, "the straight edge isn't");
         let pic = solid(20, 20, [255, 255, 255, 255]);
         let lk = Look { b: [20.0, 0.0, 0.0, 20.0, 20.0, 20.0], w: 20.0, h: 20.0, radius: 0.0, border: 2.0, border_rgb: [255, 0, 0], shadow: 0.0, dy: 0.0, cut: false };
-        let out = draw(40, 40, [0, 0, 0], &[pic], &[Layer { src: 0, alpha: 1.0, m: [1.0, 0.0, 0.0, 1.0, 10.0, 10.0], rect: [0.0, 0.0, 20.0, 20.0], look: Some(lk), fill: None }]);
+        let out = draw(40, 40, [0, 0, 0], &[pic], &[Layer { src: 0, alpha: 1.0, m: [1.0, 0.0, 0.0, 1.0, 10.0, 10.0], rect: [0.0, 0.0, 20.0, 20.0], look: Some(lk), fill: None, filter: None }]);
         let px = |x: usize, y: usize| [out[(y * 40 + x) * 4], out[(y * 40 + x) * 4 + 1]];
         assert_eq!(px(9, 20), [255, 0], "the border outside the edge");
         assert_eq!(px(10, 20), [255, 0], "and inside it");
@@ -258,7 +318,7 @@ mod tests {
     fn a_shadow_falls_below() {
         let pic = solid(10, 10, [255, 255, 255, 255]);
         let lk = Look { b: [10.0, 0.0, 0.0, 10.0, 20.0, 15.0], w: 10.0, h: 10.0, radius: 0.0, border: 0.0, border_rgb: [0, 0, 0], shadow: 8.0, dy: 2.0, cut: false };
-        let out = draw(40, 40, [200, 200, 200], &[pic], &[Layer { src: 0, alpha: 1.0, m: [1.0, 0.0, 0.0, 1.0, 15.0, 10.0], rect: [0.0, 0.0, 10.0, 10.0], look: Some(lk), fill: None }]);
+        let out = draw(40, 40, [200, 200, 200], &[pic], &[Layer { src: 0, alpha: 1.0, m: [1.0, 0.0, 0.0, 1.0, 15.0, 10.0], rect: [0.0, 0.0, 10.0, 10.0], look: Some(lk), fill: None, filter: None }]);
         let at = |x: usize, y: usize| out[(y * 40 + x) * 4];
         assert!(at(20, 22) < 170, "darker just under it: {}", at(20, 22));
         assert!(at(20, 7) > at(20, 22), "less above than below");
@@ -267,7 +327,7 @@ mod tests {
     #[test]
     fn a_dip_lays_a_colour_over_everything() {
         let pic = solid(4, 4, [0, 0, 255, 255]);
-        let out = draw(4, 4, [0, 0, 0], &[pic], &[Layer { src: 0, alpha: 1.0, m: [1.0, 0.0, 0.0, 1.0, 0.0, 0.0], rect: [0.0, 0.0, 4.0, 4.0], look: None, fill: None }, fill_layer([255, 255, 255], 0.25)]);
+        let out = draw(4, 4, [0, 0, 0], &[pic], &[Layer { src: 0, alpha: 1.0, m: [1.0, 0.0, 0.0, 1.0, 0.0, 0.0], rect: [0.0, 0.0, 4.0, 4.0], look: None, fill: None, filter: None }, fill_layer([255, 255, 255], 0.25)]);
         assert_eq!(&out[0..3], &[64, 64, 255]);
     }
     #[test]
@@ -275,17 +335,33 @@ mod tests {
         // the picture drawn twice its size around the box's middle, but cut to the 10 × 10 box at (5, 5)
         let pic = solid(10, 10, [255, 255, 255, 255]);
         let lk = Look { b: [10.0, 0.0, 0.0, 10.0, 10.0, 10.0], w: 10.0, h: 10.0, radius: 0.0, border: 0.0, border_rgb: [0, 0, 0], shadow: 0.0, dy: 0.0, cut: true };
-        let out = draw(20, 20, [0, 0, 0], &[pic], &[Layer { src: 0, alpha: 1.0, m: [2.0, 0.0, 0.0, 2.0, 0.0, 0.0], rect: [0.0, 0.0, 10.0, 10.0], look: Some(lk), fill: None }]);
+        let out = draw(20, 20, [0, 0, 0], &[pic], &[Layer { src: 0, alpha: 1.0, m: [2.0, 0.0, 0.0, 2.0, 0.0, 0.0], rect: [0.0, 0.0, 10.0, 10.0], look: Some(lk), fill: None, filter: None }]);
         let at = |x: usize, y: usize| out[(y * 20 + x) * 4];
         assert_eq!(at(10, 10), 255);
         assert_eq!(at(2, 2), 0, "outside the box: cut");
         assert_eq!(at(17, 17), 0);
     }
     #[test]
+    fn brightness_and_saturate_are_the_css_ones() {
+        // brightness(2) then saturate(0): (100, 50, 0) → (200, 100, 0) → the CSS grey 0.213·200 + 0.715·100 = 114.1
+        let pic = solid(4, 4, [100, 50, 0, 255]);
+        let out = draw(4, 4, [0, 0, 0], &[pic], &[Layer { src: 0, alpha: 1.0, m: [1.0, 0.0, 0.0, 1.0, 0.0, 0.0], rect: [0.0, 0.0, 4.0, 4.0], look: None, fill: None, filter: Some(Filter { blur: 0.0, bright: 2.0, sat: 0.0 }) }]);
+        assert_eq!(&out[4 * 5..4 * 5 + 3], &[114, 114, 114]);
+    }
+    #[test]
+    fn a_blur_spreads_a_picture_softly() {
+        let pic = solid(10, 10, [255, 255, 255, 255]);
+        let out = draw(30, 30, [0, 0, 0], &[pic], &[Layer { src: 0, alpha: 1.0, m: [1.0, 0.0, 0.0, 1.0, 10.0, 10.0], rect: [0.0, 0.0, 10.0, 10.0], look: None, fill: None, filter: Some(Filter { blur: 2.0, bright: 1.0, sat: 1.0 }) }]);
+        let at = |x: usize, y: usize| out[(y * 30 + x) * 4];
+        assert!(at(15, 15) > 240, "the middle stays white: {}", at(15, 15));
+        assert!((100..160).contains(&at(10, 15)), "half at the edge: {}", at(10, 15));
+        assert!(at(6, 15) > 0 && at(6, 15) < 30, "a little spills out: {}", at(6, 15));
+    }
+    #[test]
     fn a_fine_pattern_made_smaller_averages_to_grey() {
         let mut pic = solid(64, 64, [0, 0, 0, 255]);
         for y in 0..64 { for x in 0..64 { if (x + y) % 2 == 0 { let o = (y * 64 + x) * 4; pic.rgba[o..o + 3].copy_from_slice(&[255, 255, 255]); } } }
-        let out = draw(16, 16, [0, 0, 0], &[pic], &[Layer { src: 0, alpha: 1.0, m: [0.25, 0.0, 0.0, 0.25, 0.0, 0.0], rect: [0.0, 0.0, 64.0, 64.0], look: None, fill: None }]);
+        let out = draw(16, 16, [0, 0, 0], &[pic], &[Layer { src: 0, alpha: 1.0, m: [0.25, 0.0, 0.0, 0.25, 0.0, 0.0], rect: [0.0, 0.0, 64.0, 64.0], look: None, fill: None, filter: None }]);
         for px in out.chunks(4) { assert!((px[0] as i32 - 128).abs() <= 8, "{}", px[0]); }
     }
 }
