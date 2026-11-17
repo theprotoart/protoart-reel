@@ -2,6 +2,8 @@
 
 ## 1.11.0 — 2026-11-16
 
+- Rust core 1.12: exports with titles, call-outs (Area and Magnify too), graphics, shapes, drawings and burned captions can now go through the Rust core. The editor draws those exactly as in the preview and hands them over frame by frame; the core lays them over the video it draws (a magnifier's lens is drawn by the core, from the frame under it). Checked side by side against the editor's own frames. Still the usual way: keystrokes, background graphics, blurring call-outs and transitions that read the picture under them.
+
 - Presets search: what you type shows (the box was white with light text), and it finds things on the other pages too: “subscribe” on Motion shows the Subscribe graphics.
 
 - Wide and vertical in one go: a vertical preset on a wide project now makes the export vertical by itself (following the action, or over a blurred or zoomed copy, or with bars), and the project stays wide. In Export, ＋ Wide + vertical pair puts ★ YouTube 1080p and ★ TikTok · Reels · Shorts in the batch; EXPORT BATCH… and leave it. The Mac stays awake while exports run and says when the batch is done.

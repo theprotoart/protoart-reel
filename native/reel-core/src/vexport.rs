@@ -102,12 +102,13 @@ fn read_frame<R: Read>(r: &mut R, w: usize, h: usize) -> Result<Option<(f64, Vec
 }
 
 /// One frame of the job: the (source, moment) pairs it shows, and its layers.
-pub struct FramePlan { pub uses: Vec<(usize, f64)>, pub layers: Vec<frame::Layer> }
+/// overlay (1.12): the editor's drawing over this frame comes next on the overlay stream.
+pub struct FramePlan { pub uses: Vec<(usize, f64)>, pub layers: Vec<frame::Layer>, pub overlay: bool }
 
 /// Draws every frame, pulling each source's frame from its decoder, and writes them (BGRA) to `out` on a thread of
 /// its own (so the encoder takes one frame while the next is drawn). progress(done, total) now and then. Returns how
 /// many frames were written.
-pub fn run<W: Write + Send>(w: usize, h: usize, bg: [u8; 3], sources: &mut [Source], plans: impl Iterator<Item = Result<FramePlan, String>>, total: usize, out: &mut W, mut progress: impl FnMut(usize, usize)) -> Result<usize, String> {
+pub fn run<W: Write + Send>(w: usize, h: usize, bg: [u8; 3], sources: &mut [Source], plans: impl Iterator<Item = Result<FramePlan, String>>, total: usize, out: &mut W, mut overlay: Option<&mut dyn Read>, mut progress: impl FnMut(usize, usize)) -> Result<usize, String> {
     let mut pics: Vec<Picture> = sources.iter().map(|_| Picture { w: 0, h: 0, rgba: vec![] }).collect();
     let (tx, rx) = std::sync::mpsc::sync_channel::<Vec<u8>>(2);
     std::thread::scope(|sc| {
@@ -120,6 +121,7 @@ pub fn run<W: Write + Send>(w: usize, h: usize, bg: [u8; 3], sources: &mut [Sour
         });
         let drawn = (|| -> Result<usize, String> {
             let mut n = 0;
+            let mut prev = std::sync::Arc::new(Vec::new());
             let mut last = std::time::Instant::now();
             for plan in plans {
                 let plan = plan?;
@@ -127,7 +129,12 @@ pub fn run<W: Write + Send>(w: usize, h: usize, bg: [u8; 3], sources: &mut [Sour
                     if s >= sources.len() || !st.is_finite() { return Err("bad frame".into()); }
                     if !sources[s].frame_at(st, &mut pics[s])? { return Err("a clip's video gave no frames".into()); }
                 }
-                let px = frame::draw(w, h, bg, &pics, &plan.layers);
+                let steps = if plan.overlay {
+                    let r: &mut dyn Read = overlay.as_deref_mut().ok_or_else(|| "no drawing from the editor came".to_string())?;
+                    prev = crate::overlay::read(r, w, h, &prev)?;
+                    Some(prev.clone())
+                } else { None };
+                let px = frame::draw_then(w, h, bg, &pics, &plan.layers, |acc| { if let Some(s) = &steps { crate::overlay::apply(acc, w, h, s); } });
                 if tx.send(px).is_err() { break; } // the writer stopped: its reason follows
                 n += 1;
                 if last.elapsed().as_millis() > 400 { last = std::time::Instant::now(); progress(n, total); }
@@ -168,9 +175,9 @@ mod tests {
         let data = stream(&[(0.0, [0, 0, 255, 255])], 4, 4); // red
         let mut srcs = vec![Source::new(std::io::Cursor::new(data), 4, 4)];
         let layer = frame::Layer { src: 0, alpha: 1.0, m: [1.0, 0.0, 0.0, 1.0, 0.0, 0.0], rect: [0.0, 0.0, 4.0, 4.0], look: None, fill: None, filter: None, grade: None, ink: None };
-        let plans = vec![Ok(FramePlan { uses: vec![(0, 0.0)], layers: vec![layer] })];
+        let plans = vec![Ok(FramePlan { uses: vec![(0, 0.0)], layers: vec![layer], overlay: false })];
         let mut out = vec![];
-        let n = run(4, 4, [0, 0, 0], &mut srcs, plans.into_iter(), 1, &mut out, |_, _| {}).unwrap();
+        let n = run(4, 4, [0, 0, 0], &mut srcs, plans.into_iter(), 1, &mut out, None, |_, _| {}).unwrap();
         assert_eq!(n, 1);
         assert_eq!(&out[0..4], &[0, 0, 255, 255], "red, as BGRA");
     }

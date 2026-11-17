@@ -42,6 +42,9 @@
 - **Exports drawn by the Rust core** (Settings › Processing, off by default): the main process checks every media
   name, size, time and bit rate the editor sends, starts the decoders, the encoder and the core itself, and hands the
   decoders' output to the core as file descriptors 3, 4…; the core accepts only those descriptors, one per source.
+  Titles and the rest the editor draws over those frames (1.12) come on one more descriptor, the next after the
+  sources', written only by the main process from what the editor sends for that export (each frame's pictures checked
+  against the frame's size by the core); nothing else is read from it.
 
 ## Audit, 14 November 2026
 

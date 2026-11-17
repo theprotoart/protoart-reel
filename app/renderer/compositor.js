@@ -25,13 +25,17 @@ export function drawFrame(ctx, doc, t, sources, opts = {}) {
   ctx.setTransform(1, 0, 0, 1, 0, 0);
   ctx.globalAlpha = 1;
   ctx.filter = 'none';
-  ctx.fillStyle = doc.canvas.background || '#000';
-  ctx.fillRect(0, 0, W, H);
+  // overlayOnly (1.12, an export the Rust core draws): just what goes over the pictures, on a clear canvas; the core
+  // lays it over the frames it draws. A magnifying call-out's lens is the core's too: opts.lens(...) says where
+  lensHook = opts.overlayOnly ? opts.lens || null : null;
+  if (opts.overlayOnly) ctx.clearRect(0, 0, W, H);
+  else { ctx.fillStyle = doc.canvas.background || '#000'; ctx.fillRect(0, 0, W, H); }
   // pictures first (bottom track to top), then everything drawn on top of them: titles, call-outs, elements, shapes
   // and drawings stay visible even on a track below a full-frame video (they used to vanish under it)
   const overlay = k => k.type !== 'media' && !(k.type === 'element' && isBackgroundElement(k.element));
   const here = activeClips(doc, t);
-  for (const k of [...here.filter(k => !overlay(k)), ...here.filter(overlay)]) {
+  if (opts.overlayOnly) framePointer = pointerOnCanvas(doc, t, here.filter(k => !overlay(k)), sources, W, H);
+  for (const k of opts.overlayOnly ? here.filter(overlay) : [...here.filter(k => !overlay(k)), ...here.filter(overlay)]) {
     const local = t - k.start;
     const c = animated(opts.unzoom === k.id ? unzoomed(k) : k, local); // keyframed values at this moment (the whole picture while its dynamic zoom is being framed)
     const p = propsAt(c, local);
@@ -76,6 +80,51 @@ export function drawFrame(ctx, doc, t, sources, opts = {}) {
   const cs = { ...CAPTION_STYLE, ...(doc.captionStyle || {}) };
   if (cs.burn || opts.showCaptions) { const cap = captionAt(doc, t); if (cap) drawCaption(ctx, cap, cs, W, H, sx); }
   ctx.restore();
+  lensHook = null;
+}
+
+let lensHook = null;
+/**
+ * Where the recorded pointer is on the canvas (fractions), as drawMedia works it out while drawing the pictures:
+ * for drawing the call-outs that follow it without the pictures themselves (the last picture with a pointer wins).
+ */
+function pointerOnCanvas(doc, t, media, sources, W, H) {
+  let fp = null;
+  if (!sources.cursor) return null;
+  for (const k of media) {
+    const m = mediaById(doc, k.media);
+    if (!m || !m.cursor || m.kind === 'audio') continue;
+    const local = t - k.start, c = animated(k, local), p = propsAt(c, local);
+    if (p.opacity <= 0.001) continue;
+    const cur = sources.cursor(c, sourceTime(c, t));
+    if (!cur) continue;
+    const rot = (((m.rotation || 0) % 360) + 360) % 360, swap = rot === 90 || rot === 270;
+    const r = mediaRect(doc, m, p, W, H, swap ? m.height || 1080 : m.width || 1920, swap ? m.width || 1920 : m.height || 1080);
+    const fx = (cur.x - p.crop[0]) / Math.max(1e-6, 1 - p.crop[0] - p.crop[2]), fy = (cur.y - p.crop[1]) / Math.max(1e-6, 1 - p.crop[1] - p.crop[3]);
+    fp = { x: (r.cx + (fx - 0.5) * r.w) / W, y: (r.cy + (fy - 0.5) * r.h) / H };
+  }
+  return fp;
+}
+
+/** A call-out's outline as points (canvas px): what the core cuts a lens to. Curves are made of short straight bits. */
+function calloutPoly(co, W, H) {
+  const x = (co.x - co.w / 2) * W, y = (co.y - co.h / 2) * H, w = co.w * W, h = co.h * H, out = [];
+  if (co.shape === 'freehand' && (co.path || []).length >= 3) {
+    const P = i => { const q = co.path[(i + co.path.length) % co.path.length]; return [(co.x + q[0] * co.w) * W, (co.y + q[1] * co.h) * H]; };
+    if (co.sharp) { for (let i = 0; i < co.path.length; i++) out.push(P(i)); return out; }
+    const n = co.path.length;
+    for (let i = 1; i <= n; i++) {
+      const a = P(i - 1), b = P(i), c2 = P(i + 1), s = [(a[0] + b[0]) / 2, (a[1] + b[1]) / 2], e = [(b[0] + c2[0]) / 2, (b[1] + c2[1]) / 2];
+      for (let j = 0; j < 8; j++) { const u = j / 8; out.push([(1 - u) * (1 - u) * s[0] + 2 * (1 - u) * u * b[0] + u * u * e[0], (1 - u) * (1 - u) * s[1] + 2 * (1 - u) * u * b[1] + u * u * e[1]]); }
+    }
+    return out;
+  }
+  if (co.shape === 'ellipse') { for (let i = 0; i < 96; i++) { const a = (i / 96) * Math.PI * 2; out.push([x + w / 2 + Math.cos(a) * w / 2, y + h / 2 + Math.sin(a) * h / 2]); } return out; }
+  const r = Math.min((co.radius || 0) * Math.min(W, H), w / 2, h / 2);
+  if (r < 0.5) return [[x, y], [x + w, y], [x + w, y + h], [x, y + h]];
+  for (const [cx, cy, a0] of [[x + w - r, y + r, -90], [x + w - r, y + h - r, 0], [x + r, y + h - r, 90], [x + r, y + r, 180]])
+    for (let j = 0; j <= 8; j++) { const a = ((a0 + (j / 8) * 90) * Math.PI) / 180; out.push([cx + Math.cos(a) * r, cy + Math.sin(a) * r]); }
+  return out;
 }
 
 function drawCaption(ctx, cap, cs, W, H, sx) {
@@ -1073,7 +1122,7 @@ function drawCallout(ctx, c, p, W, H, local = 0) {
   const outlineA = kk;
   const zoom = co.zoom || 1;
   let copy = null;
-  if (zoom > 1.001 || co.blur > 0) {
+  if ((zoom > 1.001 && !lensHook) || co.blur > 0) {
     // snapshot of everything drawn so far
     copy = typeof OffscreenCanvas !== 'undefined' ? new OffscreenCanvas(W, H) : Object.assign(document.createElement('canvas'), { width: W, height: H });
     copy.getContext('2d').drawImage(ctx.canvas, 0, 0);
@@ -1098,7 +1147,10 @@ function drawCallout(ctx, c, p, W, H, local = 0) {
     ctx.fill('evenodd');
     ctx.restore();
   }
-  if (zoom > 1.001 && copy) {
+  if (zoom > 1.001 && lensHook) {
+    // drawn by the core, under what comes next (its outline, and what's over it)
+    lensHook({ cx: co.x * W, cy: co.y * H, zoom, blur: 30 * W / 1920, alpha: a, pts: calloutPoly({ ...co, w: co.w * zoom, h: co.h * zoom, radius: (co.radius || 0) * zoom }, W, H) });
+  } else if (zoom > 1.001 && copy) {
     const cx = co.x * W, cy = co.y * H, w = co.w * W, h = co.h * H;
     ctx.save();
     ctx.globalAlpha = a;

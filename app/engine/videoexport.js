@@ -11,7 +11,8 @@ const ENV = { PATH: '/usr/bin:/bin', HOME: process.env.HOME || '' };
 /**
  * Runs it. o: { coreBin, framesBin, encodeBin, sources: [{ path, from, to, w, h }], body (the job after its first
  * line), out (a new .mp4 path), w, h, fps, codec ('h264' | 'hevc'), vbr, abr (bits/s), sound (a WAV path or null),
- * onProgress(f), signal }. Resolves to { frames } once the file is complete; rejects with the first reason anything
+ * onProgress(f), signal, overlay (1.12: true when the editor's drawing comes too), onOverlay(writable): where to
+ * write it, given as soon as the core starts }. Resolves to { frames } once the file is complete; rejects with the first reason anything
  * gave (and leaves no half-written file to the caller: it's the caller's temporary path).
  */
 function videoExport(o) {
@@ -35,8 +36,10 @@ function videoExport(o) {
       procs.push(enc);
       // the core: its stdin the job, its stdout the encoder's stdin, its stderr progress and the answer, and each
       // decoder's frames on 3, 4…
-      const core = spawn(o.coreBin, [], { stdio: ['pipe', enc.stdin, 'pipe', ...decs.map(d => d.stdout)], env: ENV });
+      const core = spawn(o.coreBin, [], { stdio: ['pipe', enc.stdin, 'pipe', ...decs.map(d => d.stdout), ...(o.overlay ? ['pipe'] : [])], env: ENV });
       procs.push(core);
+      // the editor's drawing over the frames (titles and the rest), on the descriptor after the clips'
+      if (o.overlay) { const w = core.stdio[3 + decs.length]; w.on('error', () => {}); o.onOverlay?.(w); }
       // this process's own ends of those pipes go, so each side sees the other's end when it comes
       enc.stdin.destroy();
       for (const d of decs) d.stdout.destroy();

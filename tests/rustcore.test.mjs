@@ -781,7 +781,10 @@ test('a frame that needs more than pictures says why, for the JavaScript to draw
   const d = frameDoc([{ media: 'scr' }], media); d.clips[0].filters = [{ type: 'lut', file: 'look.cube' }];
   assert.match(framePlan(d, 1, 64, 36).why, /LUT/);
   d.clips[0].filters = []; d.clips.push({ id: 't', type: 'text', track: 't0', start: 0, duration: 5, props: {} });
-  assert.match(framePlan(d, 1, 64, 36).why, /titles/);
+  const p = framePlan(d, 1, 64, 36);
+  assert.ok(!p.why && p.overlay, 'a title: the editor draws it over the frame (1.12)');
+  d.clips.push({ id: 'k', type: 'callout', track: 't0', start: 0, duration: 5, props: {}, callout: { blur: 8 } });
+  assert.match(framePlan(d, 1, 64, 36).why, /blurring call-out/);
 });
 
 test('reel-core watches a video (motion, cuts and the pointer) the same as the JavaScript, frame for frame', { skip }, async () => {

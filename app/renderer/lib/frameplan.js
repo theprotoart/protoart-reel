@@ -9,6 +9,7 @@
 import { activeClips, animated, propsAt, mediaById, sourceTime } from '../model.js';
 import { stabilizeAt } from './stabilize.js';
 import { filterParams, needsGl } from './glfx.js';
+import { isBackgroundElement } from './elements.js';
 
 const clamp = (v, a, b) => Math.max(a, Math.min(b, v));
 /** a·b for canvas matrices [a, b, c, d, e, f] (x' = a x + c y + e, y' = b x + d y + f), b applied first */
@@ -34,10 +35,22 @@ export function framePlan(doc, t, W, H, size = m => ({ w: m.width || 0, h: m.hei
   const bg = hexRGB(doc.canvas.background || '#000');
   if (!bg) return { why: 'a background colour that isn’t a plain colour' };
   const cs = doc.captionStyle || {};
-  if (cs.burn && (doc.captions || []).some(c => t >= c.t && t < c.end)) return { why: 'burned-in captions' };
+  // titles, call-outs, graphics, shapes, drawings and burned captions (1.12): the editor draws them, over everything
+  // the core draws (as drawFrame puts them over the pictures), and they come to the core as pictures
+  let overlay = !!(cs.burn && (doc.captions || []).some(c => t >= c.t && t < c.end));
   const layers = [];
   for (const k of activeClips(doc, t)) {
-    if (k.type !== 'media') return { why: k.type === 'element' ? 'elements' : k.type === 'text' ? 'titles' : 'call-outs and drawings' };
+    if (k.type !== 'media') {
+      if (k.type === 'element' && isBackgroundElement(k.element)) return { why: 'background graphics' };
+      const q = propsAt(animated(k, t - k.start), t - k.start);
+      // transitions that read the picture under them, and a blurring call-out, still go the editor's way
+      if (q.vertigo || q.blocks > 0.03 || q.streak || q.holes > 0.02 || q.glitch > 0.05 || q.leak > 0.01 || q.grain > 0.02 || q.flare || (q.bars || 0) > 0.001 || (q.shutter != null && q.shutter < 1))
+        return { why: 'transition effects on a title or graphic' };
+      if (k.type === 'callout' && (k.callout?.blur || 0) > 0) return { why: 'a blurring call-out' };
+      if ((k.filters || []).some(f => !f.off && ['grain', 'letterbox'].includes(f.type))) return { why: 'film filters on a title or graphic' };
+      if (q.opacity > 0.001 || q.dip) overlay = true;
+      continue;
+    }
     const local = t - k.start;
     const c = animated(k, local), p = propsAt(c, local);
     if (p.mask || p.textMask || (p.shutter != null && p.shutter < 1) || p.vertigo || p.blocks > 0.03 || p.streak || p.holes > 0.02 || p.glitch > 0.05 || p.leak > 0.01 || p.grain > 0.02 || p.flare || (p.bars || 0) > 0.001)
@@ -126,7 +139,7 @@ export function framePlan(doc, t, W, H, size = m => ({ w: m.width || 0, h: m.hei
     }
     if (dip) layers.push(dip);
   }
-  return { bg, layers };
+  return { bg, layers, overlay };
 }
 
 const rgba = (hex, a) => { const c = hexRGB(hex) || [0, 0, 0]; return [c[0], c[1], c[2], clamp(a, 0, 1)]; };
@@ -192,7 +205,7 @@ export function pointerInk(c, m, cur, { r, rot, box, radius, crop, disp, sx, alp
  * pictures (each { w, h, rgba }, in the order `ids` gives the plan's media ids), every layer, and where to write the
  * frame. One place for the format (native/reel-core/src/main.rs frame_job reads it).
  */
-export function encodeFrame(plan, W, H, ids, pictures, out) {
+export function encodeFrame(plan, W, H, ids, pictures, out, overlay = null) {
   const chunks = [];
   let size = 0;
   const push = b => { chunks.push(b); size += b.length; };
@@ -203,6 +216,7 @@ export function encodeFrame(plan, W, H, ids, pictures, out) {
   encodeLayers(plan.layers, l => ids.indexOf(l.media), push);
   const ob = new TextEncoder().encode(out);
   u32(ob.length); push(ob);
+  if (overlay) push(overlay); // the editor's drawing over it (1.12; overlay.rs)
   const all = new Uint8Array(size);
   let o = 0; for (const c of chunks) { all.set(c, o); o += c.length; }
   return all;

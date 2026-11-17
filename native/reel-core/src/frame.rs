@@ -171,7 +171,10 @@ fn sample(p: &Picture, r: &[f64; 4], u: f64, v: f64) -> [f64; 4] {
 }
 
 /// Draws the layers over `bg` onto a new w × h canvas (RGBA, opaque).
-pub fn draw(w: usize, h: usize, bg: [u8; 3], pictures: &[Picture], layers: &[Layer]) -> Vec<u8> {
+#[cfg_attr(not(test), allow(dead_code))]
+pub fn draw(w: usize, h: usize, bg: [u8; 3], pictures: &[Picture], layers: &[Layer]) -> Vec<u8> { draw_then(w, h, bg, pictures, layers, |_| {}) }
+/// draw, with `then` laying more over the canvas (RGB 0..255) before it's made bytes (1.12: the editor's drawing).
+pub fn draw_then(w: usize, h: usize, bg: [u8; 3], pictures: &[Picture], layers: &[Layer], then: impl FnOnce(&mut [[f64; 3]])) -> Vec<u8> {
     let mut acc: Vec<[f64; 3]> = vec![[bg[0] as f64, bg[1] as f64, bg[2] as f64]; w * h];
     for l in layers {
         // pointer effects (1.11): shapes over what's drawn so far
@@ -346,6 +349,7 @@ pub fn draw(w: usize, h: usize, bg: [u8; 3], pictures: &[Picture], layers: &[Lay
             }
         }
     }
+    then(&mut acc);
     let mut out = vec![255u8; w * h * 4];
     for (i, c) in acc.iter().enumerate() { for ch in 0..3 { out[i * 4 + ch] = c[ch].round().clamp(0.0, 255.0) as u8; } }
     out

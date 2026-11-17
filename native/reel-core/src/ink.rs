@@ -37,7 +37,7 @@ fn rr_dist(x: f64, y: f64, w: f64, h: f64, r: f64) -> f64 {
     (qx.max(0.0)).hypot(qy.max(0.0)) + qx.max(qy).min(0.0) - r
 }
 /// Signed distance from (x, y) to a closed outline: < 0 inside (even-odd, as the outlines here don't cross).
-fn poly_dist(pts: &[(f64, f64)], x: f64, y: f64) -> f64 {
+pub fn poly_dist(pts: &[(f64, f64)], x: f64, y: f64) -> f64 {
     let n = pts.len();
     let mut d = f64::MAX;
     let mut inside = false;

@@ -8,7 +8,8 @@ import { mediaById, duration as docDuration } from '../model.js';
 const even = v => Math.max(2, Math.round(v / 2) * 2);
 
 /**
- * The job for frames from..to at fps on a W × H canvas: { frames, sources: [{ clip, file, from, to, w, h }], body, ink }
+ * The job for frames from..to at fps on a W × H canvas: { frames, sources: [{ clip, file, from, to, w, h }], body, ink,
+ * overlays: the frames (0 = from) the editor draws titles and the rest over, in order }
  * (body: the vexport job after its first line, for reel-core, with each source's descriptor numbered 3, 4…), or
  * { why, at } (the first frame it can't do and why).
  */
@@ -48,7 +49,8 @@ export function videoJob(doc, from, to, W, H, fps, { maxSources = 48, cursor = n
   const u32 = v => { const b = new Uint8Array(4); new DataView(b.buffer).setUint32(0, v >>> 0, true); push(b); };
   const f64 = v => { const b = new Uint8Array(8); new DataView(b.buffer).setFloat64(0, +v, true); push(b); };
   let bg = null, ink = false;
-  for (const t of plans) {
+  const overlays = [];
+  for (const [fi, t] of plans.entries()) {
     const p = framePlan(doc, t, W, H, size, cursor);
     if (p.why) return { why: p.why, at: t };
     bg ||= p.bg;
@@ -73,6 +75,9 @@ export function videoJob(doc, from, to, W, H, fps, { maxSources = 48, cursor = n
     u32(uses.size);
     for (const [s, st] of uses) { u32(s); f64(st); }
     encodeLayers(p.layers, l => srcOf.get(l.clip), push);
+    // the editor's drawing over this frame (1.12): titles and the rest, sent on as the export runs
+    push(Uint8Array.of(p.overlay ? 1 : 0));
+    if (p.overlay) overlays.push(fi);
   }
   // the head: the canvas, the sources (descriptor 3 + index), how many frames; then the frames written above
   const head = [];
@@ -82,10 +87,11 @@ export function videoJob(doc, from, to, W, H, fps, { maxSources = 48, cursor = n
   h32(W); h32(H); hpush(Uint8Array.from(bg || [0, 0, 0]));
   h32(sources.length);
   sources.forEach((s, i) => { h32(3 + i); h32(s.w); h32(s.h); });
+  h32(overlays.length ? 3 + sources.length : 0);
   h32(frames);
   const out = new Uint8Array(hsize + total);
   let o = 0;
   for (const c of head) { out.set(c, o); o += c.length; }
   for (const c of chunks) { out.set(c, o); o += c.length; }
-  return { frames, sources, body: out, ink };
+  return { frames, sources, body: out, ink, overlays, from: start, fps };
 }

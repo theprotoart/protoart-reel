@@ -42,10 +42,11 @@ test('a video export plan: each clip read once at the size it needs, or why not'
   const [a, b] = j.sources;
   assert.deepEqual([a.clip, a.file, a.w, a.h], ['c1', 'a.mp4', 168, 94], 'the 640×360 video shown at half of 320 wide: read at about 160');
   assert.ok(b.from >= 0 && b.to > b.from && b.w <= 320);
-  // titles aren't drawn by the core: the editor draws that export
+  // titles: the editor draws them over the frames they're on (1.12), the rest is the core's alone
   const t = videoJob({ ...doc, clips: [...doc.clips, { id: 'x', type: 'text', track: 't2', start: 1.5, duration: 0.2, props: props() }] }, 0, 2, 320, 180, 10);
-  assert.match(t.why, /titles/);
-  assert.ok(Math.abs(t.at - 1.5) < 1e-9);
+  assert.ok(!t.why, t.why);
+  assert.deepEqual(t.overlays, [15, 16]);
+  assert.deepEqual(j.overlays, []);
   // a still picture is a source of its own (the decoder gives its one frame)
   const pic = videoJob({ ...doc, media: [...doc.media, { id: 'p', kind: 'image', file: 'logo.png', width: 400, height: 200 }], clips: [...doc.clips, { ...clip('c3', 'p', 't2', 0, 2, { scale: 0.3, x: 0.2, y: 0.2 }) }] }, 0, 2, 320, 180, 10);
   assert.ok(!pic.why, pic.why);
@@ -116,6 +117,8 @@ f.on('close', c => process.exit(c));
     const doc = docOf([
       clip('c1', 'a', 't1', 0, 2, { scale: 1.3, x: 0.45 }, { cursor: { spotlight: true, spotSize: 60, highlight: true, magnify: true, lensSize: 30, clickStyle: 'ripple' } }),
       clip('c2', 'b', 't2', 0.5, 1.2, { scale: 0.4, x: 0.75, y: 0.7, radius: 12, border: 3, shadow: 10, opacity: 0.9 }, { in: 0.7 }),
+      // a title: the editor draws it, the core lays it over (1.12)
+      { id: 'tt', type: 'text', track: 't2', start: 0.65, duration: 0.5, props: props(), text: { content: 'Hi' } },
     ]);
     doc.media[0].cursor = 'a.json';
     // the pointer drifting right, a click at 1 s (pointer effects, 1.11)
@@ -123,10 +126,15 @@ f.on('close', c => process.exit(c));
     const job = videoJob(doc, 0, 2, W, H, fps, { cursor });
     assert.ok(!job.why, job.why);
     assert.ok(job.ink);
+    assert.deepEqual(job.overlays, [7, 8, 9, 10, 11]);
+    // what the editor would send: a half see-through red square, then the same again
+    const square = (() => { const b = Buffer.alloc(4 + 1 + 16 + 12 * 12 * 4); b.writeUInt32LE(1, 0); b[4] = 0; [40, 30, 12, 12].forEach((v, i) => b.writeUInt32LE(v, 5 + i * 4)); for (let i = 0; i < 144; i++) b.set([230, 20, 20, 170], 21 + i * 4); return b; })();
+    const again = Buffer.from([255, 255, 255, 255]);
     const out = path.join(dir, 'out.mp4');
     let last = 0;
     const r = await videoExport({ coreBin: bin, framesBin: fakeFrames, encodeBin: fakeEncode, sources: job.sources.map(s => ({ ...s, path: path.join(dir, s.file) })), body: job.body,
-      out, w: W, h: H, fps, codec: 'h264', vbr: 2_000_000, abr: 128_000, sound: path.join(dir, 'mix.wav'), onProgress: f => { last = f; } });
+      out, w: W, h: H, fps, codec: 'h264', vbr: 2_000_000, abr: 128_000, sound: path.join(dir, 'mix.wav'), onProgress: f => { last = f; },
+      overlay: true, onOverlay: w => { (async () => { for (const [k] of job.overlays.entries()) { if (!w.write(k ? again : square)) await new Promise(r => w.once('drain', r)); } w.end(); })(); } });
     assert.equal(r.frames, 20);
     void last;
     const streams = execFileSync(ffprobe, ['-v', 'error', '-show_entries', 'stream=codec_type', '-of', 'csv=p=0', out]).toString().trim().split('\n');
@@ -148,13 +156,13 @@ f.on('close', c => process.exit(c));
     };
     const at = (list, st) => { let k = 0; while (k + 1 < list.length && list[k + 1].t <= st + 0.5 / 120) k++; return list[k].px; };
     const size = m => { const s = job.sources.find(x => x.file === m.file); return s ? { w: s.w, h: s.h } : { w: m.width, h: m.height }; };
-    for (const i of [0, 7, 12, 19]) {
+    for (const i of [0, 7, 9, 12, 19]) {
       const t = i / fps, plan = framePlan(doc, t, W, H, size, cursor);
       const ids = [...new Set(plan.layers.filter(l => !l.fill && !l.ink).map(l => l.clip))];
       const pics = ids.map(cid => { const s = job.sources.find(x => x.clip === cid); const l = plan.layers.find(x => x.clip === cid); return { w: s.w, h: s.h, rgba: at(framesOf(s), l.st) }; });
       const plan2 = { ...plan, layers: plan.layers.map(l => (l.fill || l.ink ? l : { ...l, media: l.clip })) };
       const f = path.join(dir, `f${i}.rgba`);
-      await core.run(Buffer.concat([Buffer.from('RCORE1\nframe\n'), Buffer.from(encodeFrame(plan2, W, H, ids, pics, f))]));
+      await core.run(Buffer.concat([Buffer.from('RCORE1\nframe\n'), Buffer.from(encodeFrame(plan2, W, H, ids, pics, f, plan.overlay ? square : null))]));
       const want = fs.readFileSync(f), got = raw.subarray(i * W * H * 4, (i + 1) * W * H * 4);
       let diff = 0;
       for (let p = 0; p < want.length; p += 4) if (want[p] !== got[p + 2] || want[p + 1] !== got[p + 1] || want[p + 2] !== got[p]) diff++;

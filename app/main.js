@@ -1574,7 +1574,7 @@ handle('core:videoExport', async (id, token, job) => {
   for (const b of [FRAMES_BIN, ENCODE_BIN]) { try { await fs.promises.access(b, fs.constants.X_OK); } catch { return null; } }
   coreVersion ??= core.version();
   const v = String((await coreVersion) || '0').split('.').map(Number);
-  if ((v[0] || 0) < 1 || ((v[0] || 0) === 1 && (v[1] || 0) < (job?.ink ? 11 : 10))) return null; // pointer effects: 1.11
+  if ((v[0] || 0) < 1 || ((v[0] || 0) === 1 && (v[1] || 0) < 12)) return null; // the job as 1.12 reads it (titles over the frames)
   const h = handleOf(id, 'export');
   const p = projectOf(token);
   if (!/\.mp4$/i.test(h.dst)) throw new Error('Bad export');
@@ -1604,7 +1604,7 @@ handle('core:videoExport', async (id, token, job) => {
   const send = f => { if (win && !win.isDestroyed()) win.webContents.send('core:progress', id, f); };
   try {
     const r = await videoExport({ coreBin: core.binary(), framesBin: FRAMES_BIN, encodeBin: ENCODE_BIN, sources, body: job.body, out: tmp, w: job.w, h: job.h, fps: job.fps,
-      codec: job.codec, vbr: job.vbr, abr: job.abr, sound, onProgress: send, signal: ctl.signal });
+      codec: job.codec, vbr: job.vbr, abr: job.abr, sound, onProgress: send, signal: ctl.signal, overlay: !!job.overlay, onOverlay: w => overlayPipe(id).set(w) });
     await closeHandle(id);
     await fs.promises.rm(h.file, { force: true }); // the JavaScript export's part file, unused
     await fs.promises.rename(tmp, h.dst);
@@ -1613,7 +1613,31 @@ handle('core:videoExport', async (id, token, job) => {
   } catch (e) {
     await fs.promises.rm(tmp, { force: true }).catch(() => {});
     throw e;
-  } finally { coreVideos.delete(id); }
+  } finally { coreVideos.delete(id); overlayPipe(id).set(null); coreOverlays.delete(id); }
+});
+// the editor's drawing over an export the core draws (titles, call-outs…): sent frame by frame as it's drawn, each
+// written into the core's overlay descriptor before the next is taken (so the editor never runs far ahead)
+const coreOverlays = new Map();
+function overlayPipe(id) {
+  let e = coreOverlays.get(id);
+  if (!e) {
+    let set; const ready = new Promise(r => { set = r; });
+    e = { ready, set: w => { e.w = w; set(w); }, w: undefined };
+    coreOverlays.set(id, e);
+  }
+  return e;
+}
+handle('core:overlay', async (id, data) => {
+  if (typeof id !== 'string' || id.length > 64) throw new Error('Bad overlay');
+  const e = overlayPipe(id);
+  const w = e.w !== undefined ? e.w : await Promise.race([e.ready, new Promise(r => setTimeout(() => r(null), 60000))]);
+  if (!w || w.destroyed) throw new Error('The export stopped');
+  if (data == null) { w.end(); return; }
+  if (!(data instanceof Uint8Array) || data.length > 64 << 20) throw new Error('Bad overlay');
+  await new Promise((res, rej) => {
+    const ok = w.write(Buffer.from(data.buffer, data.byteOffset, data.length), err => { if (err) rej(new Error('The export stopped')); });
+    if (ok) res(); else { const done = () => { w.off('close', fail); res(); }; const fail = () => { w.off('drain', done); rej(new Error('The export stopped')); }; w.once('drain', done); w.once('close', fail); }
+  });
 });
 
 handle('export:cancel', async id => {

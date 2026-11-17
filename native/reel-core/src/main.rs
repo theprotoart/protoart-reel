@@ -30,6 +30,7 @@ mod analyze;
 mod mp4;
 mod frame;
 mod ink;
+mod overlay;
 mod grade;
 mod media;
 mod mix;
@@ -312,7 +313,9 @@ fn frame_job(inp: &mut Input) -> Result<String, String> {
     let mut layers = Vec::with_capacity(nl);
     for _ in 0..nl { layers.push(read_layer(inp, pictures.len())?); }
     let out = inp.path()?;
-    let px = frame::draw(w, h, bg, &pictures, &layers);
+    // 1.12: the editor's drawing over it (overlay.rs's steps for one frame), when the job goes on
+    let steps = if inp.at < inp.b.len() { let mut r = std::io::Cursor::new(&inp.b[inp.at..]); Some(overlay::read(&mut r, w, h, &std::sync::Arc::new(Vec::new()))?) } else { None };
+    let px = frame::draw_then(w, h, bg, &pictures, &layers, |acc| { if let Some(s) = &steps { overlay::apply(acc, w, h, s); } });
     use std::io::Write;
     let mut f = std::fs::OpenOptions::new().write(true).create_new(true).open(&out).map_err(|e| format!("can't write the file: {e}"))?;
     f.write_all(&px).map_err(|e| e.to_string())?;
@@ -534,6 +537,10 @@ fn vexport_job(b: &[u8]) -> Result<String, String> {
         let f = unsafe { std::fs::File::from_raw_fd(fd as i32) };
         sources.push(vexport::Source::new(f, sw, sh));
     }
+    // 1.12: the descriptor the editor's drawing comes on (the next after the clips'), or 0 for none
+    let ofd = inp.u32()?;
+    if ofd != 0 && ofd != 3 + ns { return Err("bad overlay source".into()); }
+    let mut ovl = if ofd != 0 { vexport::blocking(ofd as i32); Some(std::io::BufReader::with_capacity(1 << 22, unsafe { std::fs::File::from_raw_fd(ofd as i32) })) } else { None };
     let total = inp.u32()?;
     if total == 0 || total > 3 * 3600 * 120 { return Err("bad frame count".into()); }
     let mut left = total;
@@ -549,13 +556,15 @@ fn vexport_job(b: &[u8]) -> Result<String, String> {
             if nl > 64 { return Err("too many layers".into()); }
             let mut layers = Vec::with_capacity(nl);
             for _ in 0..nl { layers.push(read_layer(&mut inp, ns)?); }
-            Ok(vexport::FramePlan { uses, layers })
+            let overlay = inp.u8()? == 1;
+            if overlay && ofd == 0 { return Err("bad frame".into()); }
+            Ok(vexport::FramePlan { uses, layers, overlay })
         })())
     });
     vexport::blocking(1); // stdout: the encoder's input
     // stdout as the plain descriptor it is (not Rust's line-buffered stdout: these are frames, not lines)
     let mut out = std::io::BufWriter::with_capacity(w * h * 4, unsafe { std::fs::File::from_raw_fd(1) });
-    let n = vexport::run(w, h, bg, &mut sources, plans, total, &mut out, |d, t| {
+    let n = vexport::run(w, h, bg, &mut sources, plans, total, &mut out, ovl.as_mut().map(|r| r as &mut dyn std::io::Read), |d, t| {
         let mut e = std::io::stderr().lock();
         let _ = writeln!(e, "{{\"progress\":{}}}", d as f64 / t.max(1) as f64);
     })?;

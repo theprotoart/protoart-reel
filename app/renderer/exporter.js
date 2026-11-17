@@ -12,6 +12,7 @@ import { builtInPresets, GROUPS, QUALITY, SIZE_LIMITS, presetFps, videoBitrate, 
 import { exportMixJob } from './lib/mixplan.js';
 import { videoJob } from './lib/videoplan.js';
 import { cursorAt } from './cursor.js';
+import { drawFrame } from './compositor.js';
 import { FORMATS as VFORMATS, reframeDoc, reframeable } from './lib/reframe.js';
 
 const SOUND = new Set(['aac', 'wav']); // sound-only formats
@@ -49,6 +50,68 @@ export function estimate(s, canvas, secs) {
   const px = w * h, rate = SOUND.has(s.codec) ? 0 : ANIM.has(s.codec) ? 4e7 / px : Math.min(120, 1.3e8 / px);
   const time = SOUND.has(s.codec) ? secs / 40 : (secs * fps) / Math.max(1, rate) * (s.motionBlur ? 4 : 1);
   return { w, h, mb, time };
+}
+
+/**
+ * The editor's part of an export the Rust core draws (1.12): what goes over the pictures (titles, call-outs,
+ * graphics, shapes, drawings, burned captions) drawn as in the preview, for each frame job.overlays lists, and sent
+ * to the core as it goes (overlay.rs): the parts of the drawing that show, each a picture, and where a magnifying
+ * call-out's lens goes; the same again as one short note when nothing changed.
+ */
+export async function sendOverlays(app, doc, job, W, H, cursor, send) {
+  const canvas = new OffscreenCanvas(W, H), ctx = canvas.getContext('2d', { willReadFrequently: true });
+  ctx.imageSmoothingEnabled = true; ctx.imageSmoothingQuality = 'high';
+  // the pictures graphics show (an end screen's thumbnails…)
+  const images = new Map();
+  for (const c of doc.clips.filter(x => x.type === 'element')) {
+    for (const [k, v] of Object.entries(c.element || {})) {
+      if (!/^img\d$/.test(k) || !v || images.has(v)) continue;
+      const m = mediaById(doc, v);
+      if (m && m.kind === 'image') { try { images.set(m.id, await createImageBitmap(await (await fetch(`app://reel/m/${app.token}/${encodeURIComponent(m.file)}`)).blob())); } catch { /* drawn without it */ } }
+    }
+  }
+  await document.fonts?.ready;
+  const sources = { frame: () => null, image: id => images.get(id) || null, cursor, input: () => null, fx: () => null, lut: () => null, matte: () => null };
+  let prev = null;
+  for (const fi of job.overlays) {
+    const t = job.from + fi / job.fps;
+    const parts = [];
+    let size = 4;
+    // what's on the canvas so far, as the smallest picture that holds it, then a clear canvas
+    const flush = () => {
+      const d = ctx.getImageData(0, 0, W, H).data, u = new Uint32Array(d.buffer);
+      let x0 = W, y0 = H, x1 = -1, y1 = -1;
+      for (let y = 0; y < H; y++) {
+        const row = y * W;
+        let a = -1, b = -1;
+        for (let x = 0; x < W; x++) if (u[row + x] >>> 24) { a = x; break; }
+        if (a < 0) continue;
+        for (let x = W - 1; x >= a; x--) if (u[row + x] >>> 24) { b = x; break; }
+        if (a < x0) x0 = a; if (b > x1) x1 = b; if (y < y0) y0 = y; y1 = y;
+      }
+      ctx.clearRect(0, 0, W, H);
+      if (x1 < 0) return;
+      const w = x1 - x0 + 1, h = y1 - y0 + 1, px = new Uint8Array(w * h * 4);
+      for (let y = 0; y < h; y++) px.set(d.subarray(((y0 + y) * W + x0) * 4, ((y0 + y) * W + x1 + 1) * 4), y * w * 4);
+      parts.push({ x: x0, y: y0, w, h, px }); size += 17 + px.length;
+    };
+    drawFrame(ctx, doc, t, sources, { overlayOnly: true, lens: L => { flush(); parts.push({ lens: L }); size += 1 + 40 + 4 + L.pts.length * 16; } });
+    flush();
+    // overlay.rs's format
+    const out = new Uint8Array(size), dv = new DataView(out.buffer);
+    let o = 0;
+    const u32 = v => { dv.setUint32(o, v, true); o += 4; }, f64 = v => { dv.setFloat64(o, v, true); o += 8; };
+    u32(parts.length);
+    for (const p of parts) {
+      if (p.lens) { out[o++] = 1; [p.lens.cx, p.lens.cy, p.lens.zoom, p.lens.blur, p.lens.alpha].forEach(f64); u32(p.lens.pts.length); for (const [x, y] of p.lens.pts) { f64(x); f64(y); } }
+      else { out[o++] = 0; [p.x, p.y, p.w, p.h].forEach(u32); out.set(p.px, o); o += p.px.length; }
+    }
+    // nothing changed since the frame before: just say so
+    const same = prev && prev.length === out.length && (() => { const a = new Uint32Array(prev.buffer, 0, prev.length >> 2), b = new Uint32Array(out.buffer, 0, out.length >> 2); for (let i = 0; i < a.length; i++) if (a[i] !== b[i]) return false; for (let i = a.length * 4; i < out.length; i++) if (prev[i] !== out[i]) return false; return true; })();
+    await send(same ? Uint8Array.of(255, 255, 255, 255) : out);
+    if (!same) prev = out;
+  }
+  await send(null);
 }
 
 export function openExport(app) {
@@ -349,8 +412,13 @@ export function openExport(app) {
           });
           let r = null;
           try {
-            r = await app.api.coreVideoExport(h.id, app.token, { w, h: hh, fps: fps0, codec: s.codec === 'hevc' ? 'hevc' : 'h264', vbr: Math.round(videoBitrate(s, w, hh, fps0, to - from)),
-              abr: s.abr ? s.abr * 1000 : Number(pref('audioBitrate')) || 192000, sound, sources: job.sources.map(x => ({ file: x.file, from: x.from, to: x.to, w: x.w, h: x.h })), body: job.body, ink: job.ink });
+            const running = app.api.coreVideoExport(h.id, app.token, { w, h: hh, fps: fps0, codec: s.codec === 'hevc' ? 'hevc' : 'h264', vbr: Math.round(videoBitrate(s, w, hh, fps0, to - from)),
+              abr: s.abr ? s.abr * 1000 : Number(pref('audioBitrate')) || 192000, sound, sources: job.sources.map(x => ({ file: x.file, from: x.from, to: x.to, w: x.w, h: x.h })), body: job.body, ink: job.ink, overlay: job.overlays.length > 0 });
+            // titles, call-outs, graphics…: drawn here as the core goes, and handed to it frame by frame
+            const drawing = job.overlays.length ? sendOverlays(app, doc, job, w, hh, cursor, data => app.api.coreOverlay(h.id, data)).catch(e => e) : null;
+            r = await running;
+            const derr = drawing && await drawing;
+            if (derr instanceof Error && !r) throw derr;
           } finally { off?.(); }
           if (r) {
             progress.firstChild.style.width = '100%'; cleanup();
