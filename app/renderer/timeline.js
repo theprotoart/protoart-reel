@@ -33,6 +33,14 @@ const LANE = {
 // a picture on the timeline (not sound): what the Zoom lane shows
 const isPicture = (doc, c) => !(c.type === 'media' && (c.audioOnly || mediaById(doc, c.media)?.kind === 'audio'));
 
+/** What an action's bar says: a zoom move's zoom and how long it takes ("↗ 200% · 1.2 s"), or just how long. */
+function actLabel(a) {
+  const p = a.props || {}, len = `${a.dur < 10 ? a.dur.toFixed(1) : Math.round(a.dur)} s`;
+  if ('scale' in p) return `${p.scale > 1.01 ? '🔍' : '↩'} ${Math.round(p.scale * 100)}% · ${len}`;
+  if ('x' in p || 'y' in p) return `↔ ${len}`;
+  return len;
+}
+
 export class Timeline {
   constructor(app) {
     this.app = app;
@@ -1006,7 +1014,11 @@ export class Timeline {
     }
     for (const side of ['in', 'out']) { const tr = side === 'in' ? c.transIn : c.transOut; if (tr && !['none', 'fade'].includes(tr.type)) e.append(this._transBlock(c, side)); }
     for (const a of c.actions || []) {
-      const ae = el('div', { class: 'act' + (this.app.selection.action === a.id && selected ? ' selected' : ''), title: `Action at ${fmtTime(c.start + a.t)}`, style: { left: this.x(a.t) + 'px', width: Math.max(6, this.x(a.dur)) + 'px' } });
+      const zoom = a.props && ['x', 'y', 'scale'].some(k => k in a.props), wpx = Math.max(6, this.x(a.dur));
+      const ae = el('div', { class: 'act' + (zoom ? ' zm' : '') + (this.app.selection.action === a.id && selected ? ' selected' : ''), title: `${zoom ? 'Zoom move' : 'Action'} at ${fmtTime(c.start + a.t)}, ${a.dur.toFixed(1)} s\nDrag the middle to move it · drag an end to make it quicker or slower`, style: { left: this.x(a.t) + 'px', width: wpx + 'px' } },
+        // its ends: drag to change how long it takes (the left end moves its start, the right its end)
+        ...(wpx >= 14 ? [el('i', { class: 'ah l', 'data-edge': 'l' }), el('i', { class: 'ah r', 'data-edge': 'r' })] : []),
+        wpx >= 54 ? el('span', { class: 'al', text: actLabel(a) }) : null);
       ae.addEventListener('pointerdown', ev => this._actionDrag(ev, c, a));
       ae.addEventListener('contextmenu', ev => this._actionMenu(ev, c, a));
       e.append(ae);
@@ -1965,15 +1977,25 @@ export class Timeline {
   _actionDrag(e, c, a) {
     e.stopPropagation();
     this.app.select([c.id], a.id);
-    const startX = e.clientX, t0 = a.t;
+    const startX = e.clientX, t0 = a.t, d0 = a.dur, edge = e.target?.dataset?.edge || null, bar = e.currentTarget;
+    const MIN = 0.1;
     let moved = false;
     const move = ev => {
       const dx = ev.clientX - startX;
       if (!moved && Math.abs(dx) < 3) return;
       if (!moved) { moved = true; this.app.beginChange(); }
-      let t = t0 + this.t(dx);
-      if (this.snapOn) t = this._snap(this.doc, c.start + t, this._tol(), [], [this.app.player.time]) - c.start;
-      a.t = Math.max(0, Math.min(c.duration - a.dur, t));
+      const snap = t => (this.snapOn ? this._snap(this.doc, c.start + t, this._tol(), [], [this.app.player.time]) - c.start : t);
+      if (edge === 'r') {
+        // the end: quicker (shorter) or slower (longer), the start stays
+        const end = clamp(snap(t0 + d0 + this.t(dx)), t0 + MIN, c.duration);
+        a.dur = end - t0;
+      } else if (edge === 'l') {
+        // the start: the end stays
+        const st = clamp(snap(t0 + this.t(dx)), 0, t0 + d0 - MIN);
+        a.t = st; a.dur = t0 + d0 - st;
+      } else a.t = Math.max(0, Math.min(c.duration - a.dur, snap(t0 + this.t(dx))));
+      // the bar follows at once (the timeline redraws when you let go)
+      if (bar?.isConnected) { bar.style.left = this.x(a.t) + 'px'; bar.style.width = Math.max(6, this.x(a.dur)) + 'px'; const lb = bar.querySelector('.al'); if (lb) lb.textContent = actLabel(a); }
       this.app.changed({ light: true });
     };
     const up = () => { window.removeEventListener('pointermove', move); window.removeEventListener('pointerup', up); if (moved) this.app.endChange(); };

@@ -162,6 +162,15 @@ button, select, input, textarea { font: inherit; color: inherit; }
 .clip .edge:hover { background: rgba(var(--glow-b),0.5); }
 .clip .act { position: absolute; bottom: 2px; height: 12px; border-radius: 3px; background: rgba(74,168,255,0.55); border: 1px solid rgba(160,210,255,0.9); z-index: 4; cursor: ew-resize; min-width: 6px; }
 .clip .act.selected { background: rgba(var(--glow-b),0.8); border-color: #fff; }
+.clip .act.zm { background: rgba(255,196,64,0.5); border-color: rgba(255,214,120,0.95); height: 16px; }
+.clip .act.zm.selected { background: rgba(255,196,64,0.85); border-color: #fff; }
+.clip .act { cursor: grab; display: flex; align-items: center; overflow: hidden; }
+.clip .act .ah { position: absolute; top: -1px; bottom: -1px; width: 7px; cursor: ew-resize; background: rgba(255,255,255,0.55); z-index: 1; }
+.clip .act .ah.l { left: -1px; border-radius: 3px 0 0 3px; }
+.clip .act .ah.r { right: -1px; border-radius: 0 3px 3px 0; }
+.clip .act .ah:hover, .clip .act .ah:active { background: #fff; }
+.clip .act .al { flex: 1; text-align: center; font: 700 9px/1 var(--font-mono); color: #1a1408; white-space: nowrap; overflow: hidden; text-overflow: clip; padding: 0 9px; pointer-events: none; }
+.clip .act:not(.zm) .al { color: #fff; }
 .clip .tr { position: absolute; top: 0; bottom: 0; background: linear-gradient(90deg, rgba(255,255,255,0.22), transparent); pointer-events: none; }
 .clip .tr.out { background: linear-gradient(270deg, rgba(255,255,255,0.22), transparent); }
 .marker { position: absolute; top: 0; width: 0; height: 100%; border-left: 1px dashed rgba(255,214,10,0.6); pointer-events: none; z-index: 1; }

@@ -1,6 +1,7 @@
 # Changelog
 
 ## 1.11.0 — 2026-11-16
+- Zoom moves on the timeline: each one's bar (now amber, with its zoom and length written on it: “🔍 200% · 1.2 s”) has a handle at each end. Drag the right end to make the zoom quicker or slower; drag the left end to start it earlier or later (its end stays); drag the middle to move it. Other actions' bars get the same handles.
 - 🔎 Smart Zoom and Auto Edit find the pointer in older videos: a tutorial recorded before Reel, or with another app, has no pointer file, so Reel now looks for the Mac's arrow in the picture itself (it plays the video through once, at 8×), keeps what it found with the video, and follows it the way it follows a Reel recording's pointer. A video with no pointer in its first minute (a camera video) is left to the picture-watching zooms as before. Window recordings made before 1.11 get the same: their pointer is found in the picture, and the clicks and keys you recorded are kept.
 - Auto Edit's zooms are much quicker, redoing them above all: each recording is watched once for all its clips (Auto Edit's cuts leave dozens; each used to be opened and played on its own), and what was seen is remembered while the project is open, so redoing just the zooms doesn't watch anything again.
 - Zoom moves: playing while the 🎯 editor is open shows the moves as they'll be (it used to keep showing the whole picture, for placing the frames, so nothing seemed to move). Pause, and the frames come back to adjust.
