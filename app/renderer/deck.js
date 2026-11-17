@@ -220,10 +220,11 @@ export class Deck {
    * found, the drums turning one by one, and slides away a few seconds after the last count (or when clicked).
    * label says what it counts, for its tooltip. done: that's the final count (it goes away after it).
    */
-  tally(n, label = 'filler words found', { done = true } = {}) {
+  tally(n, label = 'filler words found', { done = true, from: start = null } = {}) {
     n = Math.max(0, Math.min(9999, Math.round(n) || 0));
-    const from = this.tallying ? this.tallyAt : 0;
-    if (!this.tallying) this.counter.set(0);
+    // rolls on from what it shows; brought out again it starts from `start` (the count before some were removed) or 0
+    const from = this.tallying ? this.tallyAt : start ?? 0;
+    if (!this.tallying) this.counter.set(from);
     this.tallying = true;
     this.index.classList.add('tally');
     cancelAnimationFrame(this.tallyRaf); clearTimeout(this.tallyHide);

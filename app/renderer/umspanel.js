@@ -128,6 +128,8 @@ export function openUms(app) {
     let d = 0;
     app.commit(dd => { d = removeRange(dd, u.t, u.end); dd.ums = (dd.ums || []).filter(x => x.id !== u.id); });
     toast(`Removed “${u.text}” (${d.toFixed(2)} s). ⌘Z brings it back.`, 3000);
+    const left = umsOf(app.doc).filter(x => x.kind !== 'find').length;
+    app.deck?.tally(left, 'fillers left', { from: left + 1 }); // the counter rolls back one
     refresh(true);
   };
   // the ones shown: the kind picked, the track chosen, and the selected clip(s) when that's ticked
@@ -262,6 +264,8 @@ export function openUms(app) {
       for (const r of mergeRanges(cuts).reverse()) total += removeRange(d, r.t, r.end);
       d.ums = (d.ums || []).filter(u => !ids.has(u.id));
     });
+    const left = umsOf(app.doc).filter(x => x.kind !== 'find').length;
+    app.deck?.tally(left, 'fillers left', { from: left + cuts.length }); // rolls back down as they go
     toast(`Removed ${cuts.length} (${total.toFixed(1)} s). ⌘Z brings them back.`, 5000);
     refresh(true);
   });
