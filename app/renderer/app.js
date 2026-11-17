@@ -1929,13 +1929,17 @@ class App {
     const full = c => c.type === 'media' && !c.audioOnly && !c.disabled && ['video', 'image'].includes(mediaById(doc, c.media)?.kind) && Math.abs((c.props?.scale ?? 1) - 1) < 0.05 && Math.abs((c.props?.x ?? 0.5) - 0.5) < 0.05 && Math.abs((c.props?.y ?? 0.5) - 0.5) < 0.05;
     const clips = doc.clips.filter(full);
     const plans = new Map();
-    if (mode === 'follow' && clips.length) {
+    // In and Out set: only the clips in that part are watched (the part being exported); the rest are reframed on
+    // their middle, so a long project doesn't wait on footage that won't be used
+    const R = doc.range && doc.range.out > doc.range.in ? doc.range : null;
+    const watch = R ? clips.filter(c => c.start < R.out && c.start + c.duration > R.in) : clips;
+    if (mode === 'follow' && watch.length) {
       const ctl = new AbortController(), bar = el('div', { class: 'progress' }, el('i')), what = el('p', { class: 'note', text: 'Finding the action…' });
       const dlg = modal('Make Vertical', el('div', {}, what, bar), [{ label: 'Stop', onClick: x => x() }], { onClose: () => ctl.abort() });
       try {
-        for (const [k, c] of clips.entries()) {
+        for (const [k, c] of watch.entries()) {
           const m = mediaById(doc, c.media);
-          what.textContent = `Watching “${c.name || m.name}” (${k + 1} of ${clips.length})…`;
+          what.textContent = `Watching “${c.name || m.name}” (${k + 1} of ${watch.length}${R ? ', between In and Out' : ''})…`;
           let focus = [];
           if (m.cursor) {
             const data = await api.readJson(token, m.cursor).catch(() => null);
@@ -1944,12 +1948,12 @@ class App {
           if (!focus.length && m.kind === 'video') {
             // a time limit (as Auto Edit has): a clip that won't play smoothly stops there and is framed from what was
             // seen, so one stubborn recording can't hold up the rest
-            const res = await zoomAnalyse(this, c, m, { budget: Math.max(25, c.duration * 0.4), signal: ctl.signal, onProgress: v => { bar.firstChild.style.width = Math.round(((k + v) / clips.length) * 100) + '%'; } });
+            const res = await zoomAnalyse(this, c, m, { budget: Math.max(25, c.duration * 0.4), signal: ctl.signal, onProgress: v => { bar.firstChild.style.width = Math.round(((k + v) / watch.length) * 100) + '%'; } });
             focus = res.samples.map(s => s.motion > 0.01 ? { t: s.t, x: s.cx, y: s.cy, w: 0.3 + s.motion * 4 } : { t: s.t, x: s.detail?.x ?? 0.5, y: s.detail?.y ?? 0.5, w: 0.15 });
           }
           if (this.token !== token) return;
           plans.set(c.id, focus);
-          bar.firstChild.style.width = Math.round(((k + 1) / clips.length) * 100) + '%';
+          bar.firstChild.style.width = Math.round(((k + 1) / watch.length) * 100) + '%';
         }
       } catch (e) { if (!ctl.signal.aborted) toast(e.message, 5000); return; } finally { dlg.close(); }
     }
@@ -1990,7 +1994,7 @@ class App {
       }
     });
     this.renderAll?.(); this.player.resize();
-    toast(`Now ${W} × ${H}. ${clips.length} clip${clips.length === 1 ? '' : 's'} reframed${mode === 'follow' ? ' to follow the action' : ''}. ⌘Z undoes it.`, 6000);
+    toast(`Now ${W} × ${H}. ${clips.length} clip${clips.length === 1 ? '' : 's'} reframed${mode === 'follow' ? (R && watch.length < clips.length ? `, the ${watch.length} between In and Out to follow the action` : ' to follow the action') : ''}. ⌘Z undoes it.`, 6000);
   }
 
   /**

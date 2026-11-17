@@ -2,6 +2,8 @@
 
 ## 1.11.0 — 2026-11-16
 
+- Make Vertical with In and Out set watches only the clips between them (the part you're exporting); the rest are reframed on their middle straight away.
+
 - The callouts used most are on the preview now, under ✎ and 🎯: ▭ Area and 🔍 Magnify (drag a box right on the picture and it's added at the playhead for 4 s) and 〰 Freehand (draw round what matters).
 
 - Rust core 1.11: MP4 exports drawn by the Rust core (Settings › Processing) now include pointer effects: the spotlight, highlight, click rings, ripples and dots, the magnifier, and the pointer drawn from a recording that kept it separate. They match the editor's own drawing (checked side by side in Chrome). Keystrokes, titles and transitions still export the usual way.
