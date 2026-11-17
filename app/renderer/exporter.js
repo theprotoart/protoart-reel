@@ -74,7 +74,7 @@ export async function sendOverlays(app, doc, job, W, H, cursor, send) {
   const sources = { frame: () => null, image: id => images.get(id) || null, cursor, input: cursor?.input || (() => null), fx: () => null, lut: () => null, matte: () => null };
   let prev = null;
   for (const fi of job.overlays) {
-    const t = job.from + fi / job.fps;
+    const t = job.times ? job.times[fi] : job.from + fi / job.fps;
     const parts = [];
     let size = 4;
     // what's on the canvas so far, as the smallest picture that holds it, then a clear canvas
@@ -325,7 +325,7 @@ export function openExport(app) {
     // the recorded clicks of clips that play click sounds, for the core to add them (read from the cursor files)
     const cursors = new Map();
     // an MP4 the Rust core draws, with a loudness target (1.12): the core mixes and masters its sound too
-    const vidCore = !SOUND.has(s.codec) && !anim && pref('rustVideo') && !!app.api.coreVideoExport && !!app.api.coreMixToMedia && !st.motionBlur && loud != null && !plugChain.length;
+    const vidCore = !SOUND.has(s.codec) && !anim && pref('rustVideo') && !!app.api.coreVideoExport && !!app.api.coreMixToMedia && loud != null && !plugChain.length;
     if ((SOUND.has(s.codec) || vidCore) && app.api.coreMixExport) {
       for (const c of doc.clips.filter(x => x.cursor?.clickSound > 0 && !x.audio?.mute)) {
         const cm = mediaById(doc, c.media);
@@ -387,7 +387,7 @@ export function openExport(app) {
     // an MP4 the Rust core can draw (Settings › Processing, while it's tested): the Mac's decoder, the core and the
     // Mac's encoder make it, with the sound mixed here first; anything it can't do exports the usual way below
     const fps0 = s.fps || 30;
-    if (!SOUND.has(s.codec) && !anim && pref('rustVideo') && app.api.coreVideoExport && !st.motionBlur && (loud == null || vidMix)) {
+    if (!SOUND.has(s.codec) && !anim && pref('rustVideo') && app.api.coreVideoExport && (loud == null || vidMix)) {
       // the recorded pointer of clips with pointer effects (the core draws those too), read as the editor's export does
       const tracks = new Map();
       for (const c of doc.clips.filter(x => x.type === 'media' && x.start < to && x.start + x.duration > from && ((x.cursor ? x.cursor.show !== false : mediaById(doc, x.media)?.pointerSeparate) || x.keystrokes?.show))) {
@@ -397,7 +397,7 @@ export function openExport(app) {
       }
       const cursor = (c, st) => { const cm = mediaById(doc, c.media), data = cm && tracks.get(cm.id); return data ? cursorAt(data, cm.cursorOffset || 0, st, c.cursor?.smooth || 0) : null; };
       cursor.input = c => { const cm = mediaById(doc, c.media); return (cm && tracks.get(cm.id)) || null; };
-      const job = videoJob(doc, from, to, w, hh, fps0, { cursor });
+      const job = videoJob(doc, from, to, w, hh, fps0, { cursor, samples: st.motionBlur ? 4 : 1 });
       if (job.why) usual = `drawn the usual way: ${job.why}`;
       else {
         let sound = masterFile;

@@ -567,8 +567,10 @@ fn vexport_job(b: &[u8]) -> Result<String, String> {
     if ofd != 0 && ofd != 3 + ns { return Err("bad overlay source".into()); }
     let mut ovl = if ofd != 0 { vexport::blocking(ofd as i32); Some(std::io::BufReader::with_capacity(1 << 22, unsafe { std::fs::File::from_raw_fd(ofd as i32) })) } else { None };
     let total = inp.u32()?;
+    // 1.13: motion blur: the count's top bit set, then how many moments each frame averages (2..8)
+    let (total, samples) = if total & 0x8000_0000 != 0 { let s = inp.u32()?; if !(2..=8).contains(&s) { return Err("bad motion blur".into()); } (total & 0x7fff_ffff, s) } else { (total, 1) };
     if total == 0 || total > 3 * 3600 * 120 { return Err("bad frame count".into()); }
-    let mut left = total;
+    let mut left = total * samples;
     let plans = std::iter::from_fn(|| {
         if left == 0 { return None; }
         left -= 1;
@@ -589,7 +591,7 @@ fn vexport_job(b: &[u8]) -> Result<String, String> {
     vexport::blocking(1); // stdout: the encoder's input
     // stdout as the plain descriptor it is (not Rust's line-buffered stdout: these are frames, not lines)
     let mut out = std::io::BufWriter::with_capacity(w * h * 4, unsafe { std::fs::File::from_raw_fd(1) });
-    let n = vexport::run(w, h, bg, &mut sources, plans, total, &mut out, ovl.as_mut().map(|r| r as &mut dyn std::io::Read), |d, t| {
+    let n = vexport::run(w, h, bg, &mut sources, plans, total, samples, &mut out, ovl.as_mut().map(|r| r as &mut dyn std::io::Read), |d, t| {
         let mut e = std::io::stderr().lock();
         let _ = writeln!(e, "{{\"progress\":{}}}", d as f64 / t.max(1) as f64);
     })?;

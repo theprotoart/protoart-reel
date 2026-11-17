@@ -84,6 +84,11 @@ impl Source {
     }
 }
 
+/// One more moment laid over a motion-blurred frame at opacity a, kept in 8 bits as the canvas does.
+fn blend_into(avg: &mut [u8], px: &[u8], a: f64) {
+    for (o, &p) in avg.iter_mut().zip(px) { *o = (p as f64 * a + *o as f64 * (1.0 - a)).round().clamp(0.0, 255.0) as u8; }
+}
+
 /// A decoder's next frame (made RGBA), or None at its end.
 fn read_frame<R: Read>(r: &mut R, w: usize, h: usize) -> Result<Option<(f64, Vec<u8>)>, String> {
     let mut tb = [0u8; 8];
@@ -108,7 +113,10 @@ pub struct FramePlan { pub uses: Vec<(usize, f64)>, pub layers: Vec<frame::Layer
 /// Draws every frame, pulling each source's frame from its decoder, and writes them (BGRA) to `out` on a thread of
 /// its own (so the encoder takes one frame while the next is drawn). progress(done, total) now and then. Returns how
 /// many frames were written.
-pub fn run<W: Write + Send>(w: usize, h: usize, bg: [u8; 3], sources: &mut [Source], plans: impl Iterator<Item = Result<FramePlan, String>>, total: usize, out: &mut W, mut overlay: Option<&mut dyn Read>, mut progress: impl FnMut(usize, usize)) -> Result<usize, String> {
+/// samples (1.13, motion blur): each frame written is the running average of that many plans in a row, as the
+/// editor's export lays them one over another (each at 1 / (s + 1), in 8 bits).
+#[allow(clippy::too_many_arguments)]
+pub fn run<W: Write + Send>(w: usize, h: usize, bg: [u8; 3], sources: &mut [Source], plans: impl Iterator<Item = Result<FramePlan, String>>, total: usize, samples: usize, out: &mut W, mut overlay: Option<&mut dyn Read>, mut progress: impl FnMut(usize, usize)) -> Result<usize, String> {
     let mut pics: Vec<Picture> = sources.iter().map(|_| Picture { w: 0, h: 0, rgba: vec![] }).collect();
     let (tx, rx) = std::sync::mpsc::sync_channel::<Vec<u8>>(2);
     std::thread::scope(|sc| {
@@ -120,7 +128,8 @@ pub fn run<W: Write + Send>(w: usize, h: usize, bg: [u8; 3], sources: &mut [Sour
             out.flush().map_err(|_| "the encoder stopped taking frames".to_string())
         });
         let drawn = (|| -> Result<usize, String> {
-            let mut n = 0;
+            let (mut n, mut sub) = (0, 0usize);
+            let mut avg: Vec<u8> = Vec::new();
             let mut prev = std::sync::Arc::new(Vec::new());
             let mut last = std::time::Instant::now();
             for plan in plans {
@@ -135,7 +144,13 @@ pub fn run<W: Write + Send>(w: usize, h: usize, bg: [u8; 3], sources: &mut [Sour
                     Some(prev.clone())
                 } else { None };
                 let px = frame::draw_then(w, h, bg, &pics, &plan.layers, |acc| { if let Some(s) = &steps { crate::overlay::apply(acc, w, h, s); } });
-                if tx.send(px).is_err() { break; } // the writer stopped: its reason follows
+                if samples > 1 {
+                    if sub == 0 { avg = px; } else { blend_into(&mut avg, &px, 1.0 / (sub + 1) as f64); }
+                    sub += 1;
+                    if sub < samples { continue; }
+                    sub = 0;
+                    if tx.send(std::mem::take(&mut avg)).is_err() { break; }
+                } else if tx.send(px).is_err() { break; } // the writer stopped: its reason follows
                 n += 1;
                 if last.elapsed().as_millis() > 400 { last = std::time::Instant::now(); progress(n, total); }
             }
@@ -177,8 +192,20 @@ mod tests {
         let layer = frame::Layer { src: 0, alpha: 1.0, m: [1.0, 0.0, 0.0, 1.0, 0.0, 0.0], rect: [0.0, 0.0, 4.0, 4.0], look: None, fill: None, filter: None, grade: None, ink: None, mask: None };
         let plans = vec![Ok(FramePlan { uses: vec![(0, 0.0)], layers: vec![layer], overlay: false })];
         let mut out = vec![];
-        let n = run(4, 4, [0, 0, 0], &mut srcs, plans.into_iter(), 1, &mut out, None, |_, _| {}).unwrap();
+        let n = run(4, 4, [0, 0, 0], &mut srcs, plans.into_iter(), 1, 1, &mut out, None, |_, _| {}).unwrap();
         assert_eq!(n, 1);
         assert_eq!(&out[0..4], &[0, 0, 255, 255], "red, as BGRA");
+    }
+    #[test]
+    fn motion_blur_averages_the_moments() {
+        // four moments a frame: black, white, white, white (fills), averaged as the canvas lays them one on another
+        let fill = |v: u8| frame::fill_layer([v, v, v], 1.0);
+        let plans: Vec<Result<FramePlan, String>> = [0u8, 255, 255, 255, 255, 255, 255, 255].iter().map(|&v| Ok(FramePlan { uses: vec![], layers: vec![fill(v)], overlay: false })).collect();
+        let mut out = vec![];
+        let n = run(2, 2, [0, 0, 0], &mut [], plans.into_iter(), 2, 4, &mut out, None, |_, _| {}).unwrap();
+        assert_eq!(n, 2, "two frames written");
+        // 0, then 255 at ½ → 128, at ⅓ → 170, at ¼ → 191
+        assert_eq!(out[0], 191);
+        assert_eq!(out[2 * 2 * 4], 255, "the second frame: all white");
     }
 }

@@ -42,8 +42,14 @@ JavaScript runs, as before). When little JavaScript is left, the window itself c
      description, and every frame's place, timing and keyframe flag; fragmented files, edit lists, B-frames, turned
      phone videos) and writes the export's MP4. Checked against the JavaScript on real H.264, HEVC, MOV and
      fragmented files, sample for sample, and the written file byte for byte.
-   - Next: decoding frames through VideoToolbox (on the Mac), then drawing them (placed, scaled, cropped, faded),
-     then titles and elements, then effects, and encoding; each checked frame by frame against the current export.
+   - **Done (1.3–1.13): drawing and encoding.** Frames decoded by the Mac (VideoToolbox), drawn by the core (placed,
+     scaled, cropped, turned, faded, rounded, bordered, shadowed, blurred, colour filters and green screen, pointer
+     effects, the pointer magnifier), titles, call-outs and graphics laid over as the editor draws them, magnifying
+     and blurring call-outs, shaped transitions (wipes, iris, clock, barn doors, blinds), motion blur, and the sound
+     mixed and mastered; encoded by VideoToolbox. Each checked frame by frame against the editor's own drawing.
+   - Still drawn by the editor (an export that needs them goes the usual way): background graphics, device frames,
+     LUT files and background removal, the text reveal, and the transitions that read the picture (glitch, film
+     burn, light leak, vertigo, radial shutter).
 6. **Recording:** screen, window and camera through ScreenCaptureKit.
 7. **The window:** a plain Rust interface (egui or Slint), once the pieces above no longer need the browser.
 

@@ -168,5 +168,46 @@ f.on('close', c => process.exit(c));
       for (let p = 0; p < want.length; p += 4) if (want[p] !== got[p + 2] || want[p + 1] !== got[p + 1] || want[p + 2] !== got[p]) diff++;
       assert.equal(diff, 0, `frame ${i}: ${diff} pixels differ`);
     }
+
+    // motion blur (1.13): each frame the average of four moments across half a frame, laid one over another as the
+    // editor's export does (each at 1 / (s + 1), in 8 bits)
+    const mb = videoJob(doc, 0, 2, W, H, fps, { cursor, samples: 4 });
+    assert.ok(!mb.why, mb.why);
+    assert.equal(mb.core, 13);
+    assert.equal(mb.times.length, 80);
+    const out2 = path.join(dir, 'blur.mp4');
+    const r2 = await videoExport({ coreBin: bin, framesBin: fakeFrames, encodeBin: fakeEncode, sources: mb.sources.map(s => ({ ...s, path: path.join(dir, s.file) })), body: mb.body,
+      out: out2, w: W, h: H, fps, codec: 'h264', vbr: 2_000_000, abr: 128_000, sound: path.join(dir, 'mix.wav'), onProgress: () => {},
+      overlay: true, onOverlay: w => { (async () => { for (const [k] of mb.overlays.entries()) { if (!w.write(k ? again : square)) await new Promise(r => w.once('drain', r)); } w.end(); })(); } });
+    assert.equal(r2.frames, 20, 'twenty frames, not eighty');
+    const raw2 = fs.readFileSync(out2 + '.raw');
+    const dec2 = new Map();
+    const frames2 = s => {
+      if (!dec2.has(s.clip)) {
+        const d = execFileSync(fakeFrames, ['--rgba', path.join(dir, s.file), String(s.from), String(s.to), String(s.w), String(s.h)], { maxBuffer: 1e9 });
+        const sz = s.w * s.h * 4, list = [];
+        for (let o = 0; o + 8 + sz <= d.length; o += 8 + sz) { const px = Buffer.from(d.subarray(o + 8, o + 8 + sz)); for (let q = 0; q < px.length; q += 4) { const b = px[q]; px[q] = px[q + 2]; px[q + 2] = b; } list.push({ t: d.readDoubleLE(o), px }); }
+        dec2.set(s.clip, list);
+      }
+      return dec2.get(s.clip);
+    };
+    const size2 = m => { const s = mb.sources.find(x => x.file === m.file); return s ? { w: s.w, h: s.h } : { w: m.width, h: m.height }; };
+    for (const i of [0, 8, 19]) {
+      let avg = null;
+      for (let s = 0; s < 4; s++) {
+        const t = mb.times[i * 4 + s], plan = framePlan(doc, t, W, H, size2, cursor);
+        const ids = [...new Set(plan.layers.filter(l => !l.fill && !l.ink).map(l => l.clip))];
+        const pics = ids.map(cid => { const src = mb.sources.find(x => x.clip === cid); const l = plan.layers.find(x => x.clip === cid); return { w: src.w, h: src.h, rgba: at(frames2(src), l.st) }; });
+        const plan2 = { ...plan, layers: plan.layers.map(l => (l.fill || l.ink ? l : { ...l, media: l.clip })) };
+        const f = path.join(dir, `m${i}_${s}.rgba`);
+        await core.run(Buffer.concat([Buffer.from('RCORE1\nframe\n'), Buffer.from(encodeFrame(plan2, W, H, ids, pics, f, plan.overlay ? square : null))]));
+        const px = fs.readFileSync(f);
+        if (!avg) avg = Buffer.from(px); else { const a = 1 / (s + 1); for (let q = 0; q < avg.length; q++) avg[q] = Math.min(255, Math.max(0, Math.round(px[q] * a + avg[q] * (1 - a)))); }
+      }
+      const got = raw2.subarray(i * W * H * 4, (i + 1) * W * H * 4);
+      let diff = 0;
+      for (let p = 0; p < avg.length; p += 4) if (avg[p] !== got[p + 2] || avg[p + 1] !== got[p + 1] || avg[p + 2] !== got[p]) diff++;
+      assert.equal(diff, 0, `motion-blurred frame ${i}: ${diff} pixels differ`);
+    }
   } finally { fs.rmSync(dir, { recursive: true, force: true }); }
 });

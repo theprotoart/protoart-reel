@@ -13,14 +13,18 @@ const even = v => Math.max(2, Math.round(v / 2) * 2);
  * (body: the vexport job after its first line, for reel-core, with each source's descriptor numbered 3, 4…), or
  * { why, at } (the first frame it can't do and why).
  */
-export function videoJob(doc, from, to, W, H, fps, { maxSources = 48, cursor = null } = {}) {
+export function videoJob(doc, from, to, W, H, fps, { maxSources = 48, cursor = null, samples = 1 } = {}) {
+  samples = Math.max(1, Math.min(8, samples | 0));
   const start = Math.max(0, from || 0), end = Math.min(docDuration(doc), to ?? Infinity);
   const frames = Math.max(1, Math.round((end - start) * fps));
   if (W % 2 || H % 2) return { why: 'an odd frame size', at: start };
   // first pass at each video's own size: what's shown, and how big (so each is decoded no bigger than it's needed)
   const plans = [], big = new Map();
-  for (let i = 0; i < frames; i++) {
-    const t = start + i / fps;
+  // motion blur (1.13): each frame the average of `samples` moments across half a frame, as the editor's export
+  // (export-worker.js) takes them
+  const times = [];
+  for (let i = 0; i < frames; i++) for (let s = 0; s < samples; s++) times.push(samples === 1 ? start + i / fps : Math.max(start, start + i / fps + ((s / samples) - 0.5) * 0.5 / fps));
+  for (const t of times) {
     const p = framePlan(doc, t, W, H, undefined, cursor);
     if (p.why) return { why: p.why, at: t };
     for (const l of p.layers) {
@@ -89,11 +93,12 @@ export function videoJob(doc, from, to, W, H, fps, { maxSources = 48, cursor = n
   h32(sources.length);
   sources.forEach((s, i) => { h32(3 + i); h32(s.w); h32(s.h); });
   h32(overlays.length ? 3 + sources.length : 0);
-  h32(frames);
+  // with motion blur: the frame count's top bit set, then the moments per frame (1.13)
+  if (samples > 1) { h32((frames | 0x80000000) >>> 0); h32(samples); } else h32(frames);
   const out = new Uint8Array(hsize + total);
   let o = 0;
   for (const c of head) { out.set(c, o); o += c.length; }
   for (const c of chunks) { out.set(c, o); o += c.length; }
   // core: the oldest core that can draw it (a blurring call-out or a transition's shape: 1.13)
-  return { frames, sources, body: out, ink, overlays, from: start, fps, core: blur ? 13 : 12 };
+  return { frames, sources, body: out, ink, overlays, times: plans, from: start, fps, core: blur || samples > 1 ? 13 : 12 };
 }
