@@ -39,7 +39,7 @@ export const PREFS = {
   voCountdown: { page: 'playback', label: 'Voice-over countdown', type: 'select', ...inObj('reel.voiceover', 'countdown', 3), options: [[0, 'None'], [3, '3-2-1'], [5, '5 seconds']] },
 
   // ---------------------------------------------------------------- Timeline & Editing
-  trackH: { page: 'timeline', label: 'Track height', type: 'select', get: () => readJSON('reel.trackH', 'regular'), set: v => writeJSON('reel.trackH', v), options: [['small', 'Compact'], ['regular', 'Regular'], ['large', 'Tall']], apply: 'prefs' },
+  trackH: { page: 'timeline', label: 'Track height', type: 'select', get: () => readJSON('reel.trackH', 'regular'), set: v => { writeJSON('reel.trackH', v); try { localStorage.removeItem('reel.trackPx'); } catch { /* fine */ } }, options: [['small', 'Compact'], ['regular', 'Regular'], ['large', 'Tall']], apply: 'prefs' },
   snap: { page: 'timeline', label: 'Snapping on when a project opens', type: 'check', ...own('snap', true) },
   remix: { page: 'timeline', label: 'REMIX on: dragging the end of a music clip extends or shortens the song seamlessly (off: plain trimming)', type: 'check', ...own('remix', true) },
   smoothCuts: { page: 'timeline', label: 'Smooth every cut (a short crossfade where clips meet, a short fade by a gap)', type: 'select', ...own('smoothCuts', 0.1), options: [[0, 'Off'], [0.1, 'Short (0.1 s)'], [0.25, 'Medium (0.25 s)'], [0.5, 'Long (0.5 s)']] },

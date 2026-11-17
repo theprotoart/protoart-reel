@@ -273,7 +273,8 @@ export async function runAutoEdit(app, recipeId, o) {
   const before = structuredClone(app.doc);
   const list = el('ul', { class: 'ae-steps live' }), bar = el('div', { class: 'progress' }, el('i')), what = el('p', { class: 'note' });
   let stopped = false;
-  const dlg = modal('Auto Edit', el('div', { class: 'ae-run' }, what, bar, list), [{ label: 'Stop', onClick: c => { stopped = true; c(); } }]);
+  const halt = new AbortController(); // STOP reaches the step that's working (the zooms, the listening), not just the next one
+  const dlg = modal('Auto Edit', el('div', { class: 'ae-run' }, what, bar, list), [{ label: 'Stop', onClick: c => { stopped = true; halt.abort(); c(); } }]);
   const step = text => { for (const li of list.querySelectorAll('li.now')) { li.classList.remove('now'); li.classList.add('done'); } list.append(el('li', { class: 'now', text })); what.textContent = text + '…'; };
   const note = text => list.append(el('li', { class: 'skip', text }));
   let shown = 0; // the bar only goes forward, so its time left doesn't start over between steps
@@ -428,7 +429,7 @@ export async function runAutoEdit(app, recipeId, o) {
       const zids = app.doc.clips.filter(c => isVideo(app.doc, c) && !bgTrack(c.track)).map(c => c.id);
       // the bar moves as each clip is watched (this is the long part on a long recording), so the time left is real
       const z0 = parseFloat(bar.firstChild.style.width) / 100 || 0.27, z1 = Math.max(z0 + 0.05, 0.5);
-      const made = await app.smartZoom(zids, { style: o.motion || r.zoom[0], strength: ZOOM_LEVELS[o.zoom][1], quiet: true, fallback: true, onProgress: f => progress(z0 + (z1 - z0) * f) });
+      const made = await app.smartZoom(zids, { style: o.motion || r.zoom[0], strength: ZOOM_LEVELS[o.zoom][1], quiet: true, fallback: true, signal: halt.signal, onStatus: t => { what.textContent = t + '…'; }, onProgress: f => progress(z0 + (z1 - z0) * f) });
       report.push(made ? `${made} zoom${made === 1 ? '' : 's'}` : 'no zooms (the picture barely moves)');
       progress(0.5);
     }

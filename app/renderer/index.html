@@ -181,6 +181,13 @@
     <button class="tool" data-cmd="zoom-in" title="Zoom in around the playhead (⌘=)">+</button>
     <button class="tool" data-cmd="zoom-fit" title="Zoom all the way out: the whole project (⌘0)">FIT ALL</button>
     </div>
+    <div class="zoom-group vzoom-group" title="Track height: make every track shorter to see more of them, or taller to see more in each (⌘-scroll over the track names, ⌥⌘− / ⌥⌘=)">
+    <span class="engr small">↕ TRACKS</span>
+    <button class="tool" data-cmd="tracks-shorter" title="Shorter tracks: see more of them (⌥⌘−)">−</button>
+    <input type="range" id="tl-vzoom" min="22" max="160" step="1" value="58">
+    <button class="tool" data-cmd="tracks-taller" title="Taller tracks: bigger clips and waveforms (⌥⌘=)">+</button>
+    <button class="tool" data-cmd="tracks-fit" title="Every track in view at once (⌥⌘0). Click again to go back">FIT</button>
+    </div>
   </div>
   <div id="timeline">
     <div id="tl-heads"></div>

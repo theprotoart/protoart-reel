@@ -2381,3 +2381,15 @@ html[data-theme="light"] .sp-place { background: rgba(0,0,0,.07); }
 .pl-sound .pl-star { top: 50%; transform: translateY(-50%); }
 .pl-sound .pl-star:hover { transform: translateY(-50%) scale(1.12); }
 .lib-tab[data-k="fav"]:not(.on) { color: #ffc31a; }
+
+/* ↕ TRACKS: the vertical zoom. Short tracks fold their headers down (knobs away, then the keys) and their clips
+   keep only the name */
+.vzoom-group { margin-left: 6px; }
+.vzoom-group input[type=range] { width: 90px; }
+#timeline.th-compact .tl-head { gap: 0; padding-top: 0; padding-bottom: 0; }
+#timeline.th-compact .tl-head .th-bottom { display: none; }
+#timeline.th-compact .cbadges, #timeline.th-compact .sync-badge { display: none; }
+#timeline.th-tiny .tl-head .th-top > :not(.th-grip):not(.tname) { display: none; }
+#timeline.th-tiny .clip .cname { font-size: 10px; line-height: 1; padding-top: 1px; }
+#timeline.th-tiny .clip .strip { opacity: .55; }
+#timeline.th-tiny .xfade { transform: scale(.6); }

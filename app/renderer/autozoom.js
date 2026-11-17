@@ -18,7 +18,14 @@ export const STYLES = {
 const GW = 48; // analysis grid width (height follows the aspect)
 
 /** Samples the part of the media a clip uses. Resolves to { samples, gw, gh, aspect }. */
-export async function analyse(app, c, m, { onProgress, signal } = {}) {
+export async function analyse(app, c, m, { onProgress, signal: outer, budget = Infinity } = {}) {
+  // budget: seconds this clip may take. A clip that won't play smoothly (a stalled decoder, a slow drive) stops there
+  // and its zooms are worked out from what was seen so far, so one stubborn clip never holds up the rest
+  const ctl = new AbortController(), signal = ctl.signal;
+  let slow = false;
+  const stop = () => ctl.abort();
+  if (outer?.aborted) ctl.abort(); else outer?.addEventListener('abort', stop);
+  const timer = isFinite(budget) ? setTimeout(() => { slow = true; ctl.abort(); }, budget * 1000) : 0;
   const speed = c.speed || 1, from = c.in || 0, to = from + c.duration * speed;
   const gh = Math.max(12, Math.round((GW * (m.height || 1080)) / (m.width || 1920)));
   const cv = document.createElement('canvas'); cv.width = GW; cv.height = gh;
@@ -40,13 +47,16 @@ export async function analyse(app, c, m, { onProgress, signal } = {}) {
   };
   const step = 0.2 * speed; // source seconds between samples
   try {
-    await new Promise((res, rej) => { v.onloadeddata = res; v.onerror = () => rej(new Error('This video can’t be read')); setTimeout(() => rej(new Error('The video took too long to open')), 15000); });
-    if (v.requestVideoFrameCallback && to - from > 3) await playThrough(v, from, to, step, grab, signal);
-    else await seekThrough(v, from, to, step, grab, signal);
-    // samples are ~0.2–0.4 s apart: find each cut's exact frame by seeking between its two samples
+    await new Promise((res, rej) => { v.onloadeddata = res; v.onerror = () => rej(new Error('This video can’t be read')); setTimeout(() => rej(new Error('The video took too long to open')), 15000); signal.addEventListener('abort', () => rej(new Error(slow ? 'slow' : 'Cancelled'))); });
+    try {
+      if (v.requestVideoFrameCallback && to - from > 3) await playThrough(v, from, to, step, grab, signal);
+      else await seekThrough(v, from, to, step, grab, signal);
+    } catch (e) { if (!slow) throw e; }
+    // samples are ~0.2–0.4 s apart: find each cut's exact frame by seeking between its two samples (the first 40;
+    // past its time a clip keeps the cuts as sampled)
     cuts = [];
-    for (const ct of findCuts(samples)) {
-      if (signal?.aborted) throw new Error('Cancelled');
+    for (const ct of slow ? [] : findCuts(samples).slice(0, 40)) {
+      if (signal.aborted) { if (slow) break; throw new Error('Cancelled'); }
       const i = samples.findIndex(x => x.t === ct);
       let lo = samples[i - 1].t * speed + from, hi = ct * speed + from;
       const look = async t => { await seekTo(v, t); ctx.drawImage(v, 0, 0, GW, gh); const px = ctx.getImageData(0, 0, GW, gh).data; let d = 0; for (let k = 0; k < px.length; k += 4) d += Math.abs(px[k] - before[k]); return d / (px.length / 4); };
@@ -54,8 +64,9 @@ export async function analyse(app, c, m, { onProgress, signal } = {}) {
       for (let n = 0; n < 6 && hi - lo > 1 / 60; n++) { const mid = (lo + hi) / 2; if ((await look(mid)) > 20) hi = mid; else lo = mid; }
       cuts.push(Math.max(0, (hi - from) / speed - 0.035)); // a frame early: never a zoomed frame of the new shot
     }
-  } finally { v.pause(); v.removeAttribute('src'); v.load(); v.remove(); }
-  return { samples, cuts, gw: GW, gh, aspect: (m.width || 1920) / (m.height || 1080) };
+  } catch (e) { if (!slow) throw e; } finally { clearTimeout(timer); outer?.removeEventListener('abort', stop); v.pause(); v.removeAttribute('src'); v.load(); v.remove(); }
+  if (outer?.aborted) throw new Error('Cancelled');
+  return { samples, cuts: cuts || [], slow, gw: GW, gh, aspect: (m.width || 1920) / (m.height || 1080) };
 }
 
 function playThrough(v, from, to, step, grab, signal) {

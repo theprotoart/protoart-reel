@@ -45,7 +45,13 @@ export class Timeline {
     this.zoomInput = $('#tl-zoom');
     this.zoomInput.addEventListener('input', () => this.setZoomFromSlider());
     this.scroll.addEventListener('scroll', () => { this.heads.scrollTop = this.scroll.scrollTop; this.drawRuler(); });
-    this.heads.addEventListener('wheel', e => { this.scroll.scrollTop += e.deltaY; }, { passive: true });
+    // over the track names: scroll moves up and down; ⌘-scroll (or a pinch) makes every track taller or shorter
+    this.heads.addEventListener('wheel', e => {
+      if (e.metaKey || e.ctrlKey) { e.preventDefault(); this.setTrackHeight(this.trackH() * Math.exp(-e.deltaY * 0.01)); return; }
+      this.scroll.scrollTop += e.deltaY;
+    }, { passive: false });
+    this.vzoomInput = $('#tl-vzoom');
+    this.vzoomInput?.addEventListener('input', () => this.setTrackHeight(+this.vzoomInput.value));
     // zoom like a DAW: trackpad pinch, ⌘-scroll, or rolling a mouse wheel zooms around the pointer; a trackpad's
     // two-finger scroll still scrolls (⇧-wheel scrolls sideways, ⌥-wheel up and down)
     this.scroll.addEventListener('wheel', e => {
@@ -424,6 +430,34 @@ export class Timeline {
     let sx = this.x(t) - this.scroll.scrollLeft;
     if (sx < 0 || sx > this.scroll.clientWidth) sx = this.scroll.clientWidth / 2; // playhead off screen: centre it
     this.zoomAt(f, rect.left + sx);
+  }
+
+  // ---------------------------------------------------------------- track height (the vertical zoom)
+  /** Every track this tall (22–160 px), remembered for next time. */
+  setTrackHeight(px) {
+    this._fitBack = null;
+    this.applyTrackHeight(px, true);
+  }
+  applyTrackHeight(px, remember) {
+    const h = Math.round(Math.min(160, Math.max(22, +px || 58)));
+    document.documentElement.style.setProperty('--track-h', h + 'px');
+    const tl = document.getElementById('timeline');
+    tl?.classList.toggle('th-compact', h < 50); // the track's knobs fold away: name and keys only
+    tl?.classList.toggle('th-tiny', h < 34);    // just the name
+    if (this.vzoomInput) this.vzoomInput.value = h;
+    if (remember) { try { localStorage.setItem('reel.trackPx', JSON.stringify(h)); } catch { /* fine */ } }
+    if (this.doc) { const mid = this.scroll.scrollTop; this.render(); this.scroll.scrollTop = mid; }
+  }
+  /** Every track in view at once; again, back to the height before. */
+  fitTracks() {
+    if (!this.doc) return;
+    if (this._fitBack) { const b = this._fitBack; this._fitBack = null; this.applyTrackHeight(b, true); return; }
+    const n = this.doc.tracks.length || 1, extra = this.layout().reduce((a, r) => a + (r.end - r.top - r.h), 0);
+    const room = this.scroll.clientHeight - 30 - this.capH() - extra;
+    const was = this.trackH();
+    this.applyTrackHeight(Math.floor(room / n), true);
+    this._fitBack = was;
+    this.scroll.scrollTop = 0;
   }
 
   // ---------------------------------------------------------------- layout

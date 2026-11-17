@@ -127,6 +127,7 @@ class App {
     this.proxies = new ProxyQueue(this);
     this.proxies.onChange(st => this._proxyLabel(st));
     this.timeline = new Timeline(this);
+    this.applyPrefs(); // (the track height needs the timeline)
     this.inspector = new Inspector(this);
     this.library = new Library(this);
     this.deck = new Deck(this, $('#transport'));
@@ -1111,6 +1112,9 @@ class App {
       case 'zoom-in': return this.timeline.zoom(1.4);
       case 'zoom-out': return this.timeline.zoom(1 / 1.4);
       case 'zoom-fit': return this.timeline.fit();
+      case 'tracks-taller': return this.timeline.setTrackHeight(this.timeline.trackH() * 1.25);
+      case 'tracks-shorter': return this.timeline.setTrackHeight(this.timeline.trackH() / 1.25);
+      case 'tracks-fit': return this.timeline.fitTracks();
       case 'zoom-max': return this.timeline.zoomMax();
       case 'settings': return openSettings(this);
       case 'settings-storage': return openSettings(this, 'storage');
@@ -1439,7 +1443,10 @@ class App {
     try { p = { smpte: JSON.parse(localStorage.getItem('reel.smpte') || 'false'), trackH: JSON.parse(localStorage.getItem('reel.trackH') || '"regular"') }; } catch { /* defaults */ }
     timeFormat.smpte = !!p.smpte;
     timeFormat.fps = this.doc?.canvas.fps || 30;
-    document.documentElement.style.setProperty('--track-h', (({ small: 44, regular: 58, large: 84 })[p.trackH] || 58) + 'px');
+    // a height set with ↕ TRACKS (any size) wins over the Settings choice (Compact / Regular / Tall)
+    let px = null; try { px = JSON.parse(localStorage.getItem('reel.trackPx') || 'null'); } catch { /* none */ }
+    const h = Number.isFinite(px) ? px : (({ small: 44, regular: 58, large: 84 })[p.trackH] || 58);
+    if (this.timeline) this.timeline.applyTrackHeight(h, false); else document.documentElement.style.setProperty('--track-h', h + 'px');
   }
 
   /** Moves the selected clips by one frame (or one second with ⇧), all together, if there's room. */
@@ -1857,24 +1864,28 @@ class App {
 
   /** Runs Smart Zoom on clips (ids). quiet: no progress window (used for videos as they're dropped). */
   /** Returns how many zoom and pan moves it made. fallback: a clip with nothing to follow gets gentle push-ins. */
-  async smartZoom(ids, { style = 'follow', strength = 1, usePointer = true, quiet = false, pack = '', packSounds = true, packFilter = null, fallback = false, onProgress = null } = {}) {
+  async smartZoom(ids, { style = 'follow', strength = 1, usePointer = true, quiet = false, pack = '', packSounds = true, packFilter = null, fallback = false, onProgress = null, onStatus = null, signal = null } = {}) {
     if (this._zooming) { if (!quiet) toast('Smart Zoom is already working.'); return 0; }
     this._zooming = true;
     const token = this.token, ctl = new AbortController();
     const bar = el('div', { class: 'progress' }, el('i')), what = el('p', { class: 'note', text: 'Watching the video…' });
     const dlg = quiet ? null : modal('Smart Zoom', el('div', {}, what, bar), [{ label: 'Stop', onClick: c => c() }], { onClose: () => ctl.abort() });
-    let made = 0, clipsDone = 0;
-    const shots = {};
+    let made = 0, clipsDone = 0, slow = 0, unread = 0;
+    const shots = {}, pointers = new Map(); // each recording's pointer file read once, not once per clip
+    if (signal) { if (signal.aborted) ctl.abort(); else signal.addEventListener('abort', () => ctl.abort(), { once: true }); }
     try {
       for (const [k, id] of ids.entries()) {
+        if (ctl.signal.aborted) throw new Error('Cancelled');
         const c = this.doc?.clips.find(x => x.id === id);
         const m = c && mediaById(this.doc, c.media);
         if (!m) continue;
         what.textContent = `Watching “${c.name || m.name}” (${k + 1} of ${ids.length})…`;
+        onStatus?.(`Adding zooms: clip ${k + 1} of ${ids.length} (${c.name || m.name})`);
+        onProgress?.(k / ids.length);
         let actions = [];
         if (usePointer && m.cursor) {
-          const data = await api.readJson(token, m.cursor).catch(() => null);
-          actions = autoZoom(data, m.cursorOffset || 0, c);
+          if (!pointers.has(m.cursor)) pointers.set(m.cursor, await api.readJson(token, m.cursor).catch(() => null));
+          actions = autoZoom(pointers.get(m.cursor), m.cursorOffset || 0, c);
         }
         if (!actions.length) {
           const p = { ...c.props, crop: c.props.crop || [0, 0, 0, 0] };
@@ -1882,7 +1893,16 @@ class App {
           if (m.kind === 'image') {
             actions = zoomPlan([{ t: 0, diff: 0, motion: 0, cx: 0.5, cy: 0.5, box: 1, detail: { x: 0.5, y: 0.45 } }], c.duration, { style: 'cinematic', strength, base });
           } else {
-            const res = await zoomAnalyse(this, c, m, { signal: ctl.signal, onProgress: v => { const f = (k + v) / ids.length; bar.firstChild.style.width = Math.round(f * 100) + '%'; onProgress?.(f); } });
+            // a clip may take about twice what playing it at 16× takes, plus time to open it; then it's left as seen
+            const budget = 25 + ((c.duration || 1) * (c.speed || 1)) / 8;
+            let res;
+            try {
+              res = await zoomAnalyse(this, c, m, { signal: ctl.signal, budget, onProgress: v => { const f = (k + v) / ids.length; bar.firstChild.style.width = Math.round(f * 100) + '%'; onProgress?.(f); } });
+            } catch (e) {
+              if (/Cancelled/.test(e.message) || ctl.signal.aborted) throw e;
+              unread++; continue; // this one can't be read: the others still get their zooms
+            }
+            if (res.slow) slow++;
             if (this.token !== token) return;
             actions = zoomPlan(res.samples, c.duration, { style, strength, base, cuts: res.cuts });
             if (!actions.length && fallback && style !== 'cinematic') actions = zoomPlan(res.samples, c.duration, { style: 'cinematic', strength, base, cuts: res.cuts });
@@ -1898,6 +1918,7 @@ class App {
         made += actions.length; clipsDone++;
       }
       dlg?.close();
+      if (slow || unread) toast(`Smart Zoom: ${[slow && `${slow} clip${slow === 1 ? ' was' : 's were'} slow to play, so ${slow === 1 ? 'it was' : 'they were'} zoomed from what was seen in time`, unread && `${unread} clip${unread === 1 ? '' : 's'} couldn’t be read and ${unread === 1 ? 'was' : 'were'} left without zooms`].filter(Boolean).join('; ')}.`, 7000);
       let trans = 0;
       if (pack) trans = await autoTransitions(this, pack, { sounds: packSounds, clipIds: ids, shots: packFilter ? null : shots, filter: packFilter });
       if (trans) toast(`${PACKS[pack].name} transitions on ${trans} cut${trans === 1 ? '' : 's'}${packSounds ? ', with sounds' : ''}.`, 5000);
