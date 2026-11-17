@@ -1887,6 +1887,33 @@ class App {
     toast(`Now ${W} × ${H}. ${clips.length} clip${clips.length === 1 ? '' : 's'} reframed${mode === 'follow' ? ' to follow the action' : ''}. ⌘Z undoes it.`, 6000);
   }
 
+  /**
+   * A pointer file that can't place the pointer on the picture: none, or a window recorded before Reel noted where
+   * the window was (data: that file's contents).
+   */
+  pointerBlind(m, data) { return m?.kind === 'video' && (!m.cursor || (data && !data.display && !data.window?.frames?.length)); }
+  /**
+   * Finds the pointer in a video's picture and keeps it with the video (the recorded clicks and keys carried over),
+   * so pointer effects, Smart Zoom and Auto Edit can follow it. Resolves to the new pointer data, or null.
+   */
+  async findPointerFor(m, { signal, onProgress } = {}) {
+    const token = this.token;
+    const old = m.cursor ? await api.readJson(token, m.cursor).catch(() => null) : null;
+    const found = await findPointer(this, m, { signal, onProgress });
+    if (!found || this.token !== token) return null;
+    if (old) {
+      const off = (m.cursorOffset || 0) * 1000; // the old file's times are the recorder's: the found ones are the video's
+      found.clicks = (old.clicks || []).map(([t, ...r]) => [t - off, ...r]);
+      found.keys = (old.keys || []).map(([t, ...r]) => [t - off, ...r]);
+    }
+    const file = await api.writeJson(token, `${String(m.file || m.name || 'video').replace(/\.[^.]+$/, '')}-pointer`, found).catch(() => null);
+    if (!file || this.token !== token) return null;
+    this.commit(d => { const x = mediaById(d, m.id); if (x && x.cursor === m.cursor) Object.assign(x, { cursor: file, cursorOffset: 0, cursorFound: 'video' }); }, { quiet: true });
+    this.player.cursors?.set(m.id, found); // drawn with the new one straight away
+    this.player.queueDraw();
+    return found;
+  }
+
   /** Runs Smart Zoom on clips (ids). quiet: no progress window (used for videos as they're dropped). */
   /** Returns how many zoom and pan moves it made. fallback: a clip with nothing to follow gets gentle push-ins. */
   async smartZoom(ids, { style = 'follow', strength = 1, usePointer = true, seekPointer = true, quiet = false, pack = '', packSounds = true, packFilter = null, fallback = false, onProgress = null, onStatus = null, signal = null } = {}) {
@@ -1923,24 +1950,14 @@ class App {
         // window was) counts as none: the pointer is found in the picture, and the recorded clicks and keys kept
         let old = null;
         if (usePointer && m.cursor) { if (!pointers.has(m.cursor)) pointers.set(m.cursor, await api.readJson(token, m.cursor).catch(() => null)); old = pointers.get(m.cursor); }
-        const blind = !m.cursor || (old && !old.display && !old.window?.frames?.length);
+        const blind = this.pointerBlind(m, old);
         if (usePointer && seekPointer && blind && m.kind === 'video' && !sought.has(m.id)) {
           sought.add(m.id);
           what.textContent = `Looking for the pointer in “${m.name}”…`;
           onStatus?.(`Looking for the pointer in “${m.name}”`);
-          const found = await findPointer(this, m, { signal: ctl.signal, onProgress: v => { const f = (k + v) / ids.length; bar.firstChild.style.width = Math.round(f * 100) + '%'; onProgress?.(f); } }).catch(e => { if (/Cancelled/.test(e.message) || ctl.signal.aborted) throw e; return null; });
+          const found = await this.findPointerFor(m, { signal: ctl.signal, onProgress: v => { const f = (k + v) / ids.length; bar.firstChild.style.width = Math.round(f * 100) + '%'; onProgress?.(f); } }).catch(e => { if (/Cancelled/.test(e.message) || ctl.signal.aborted) throw e; return null; });
           if (this.token !== token) return;
-          if (found && old) {
-            const off = (m.cursorOffset || 0) * 1000; // the old file's times are the recorder's: the found ones are the video's
-            found.clicks = (old.clicks || []).map(([t, ...r]) => [t - off, ...r]);
-            found.keys = (old.keys || []).map(([t, ...r]) => [t - off, ...r]);
-          }
-          const file = found ? await api.writeJson(token, `${String(m.file || m.name || 'video').replace(/\.[^.]+$/, '')}-pointer`, found).catch(() => null) : null;
-          if (file) {
-            this.commit(d => { const x = mediaById(d, m.id); if (x && x.cursor === m.cursor) Object.assign(x, { cursor: file, cursorOffset: 0, cursorFound: 'video' }); }, { quiet: true });
-            pointers.set(file, found);
-            pointerFound++;
-          }
+          if (found) { pointers.set(mediaById(this.doc, m.id)?.cursor, found); pointerFound++; }
         }
         const mm = mediaById(this.doc, c.media) || m;
         if (usePointer && mm.cursor) {

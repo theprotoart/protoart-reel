@@ -502,6 +502,7 @@ export class Inspector {
     const cur = c.cursor;
     const hasClicks = !!m?.cursorClicks, hasKeys = !!m?.cursorKeys;
     const sec = section('Pointer & clicks');
+    sec.append(pointerFinder(app, m, !!cur));
     if (!cur) {
       sec.append(el('p', { class: 'note', text: m.cursorFound === 'video' ? (m.cursorClicks ? 'Reel found the pointer in this video and kept the clicks you recorded. ' : 'Reel found the pointer in this video. ') + 'Highlight it, or zoom in automatically where it settles.' : 'This recording has a pointer track. Highlight it, add click effects and click sounds, or zoom in automatically where it settles.' }),
         el('div', { class: 'btn-row' }, el('button', { class: 'tool', text: 'Pointer effects', onclick: () => this.edit(() => { c.cursor = { show: true, highlight: true, highlightColor: '#ffd60a', highlightSize: 70, clickStyle: 'rings', smooth: 0.2 }; }) })));
@@ -875,4 +876,35 @@ function lookRow(app, tx) {
   };
   draw();
   return row;
+}
+
+/**
+ * A recording whose pointer file can't place the pointer on the picture (a window recorded before Reel noted where
+ * the window was): says so, and finds the pointer in the picture instead (by itself once pointer effects are on).
+ * The work carries on while the inspector changes; whichever notice is showing follows it.
+ */
+function pointerFinder(app, m, effectsOn) {
+  const box = el('div', { class: 'ptr-blind hidden', 'data-m': m.id });
+  const jobs = (app._ptrJobs ||= new Map());
+  const say = (text, busy) => { for (const b of document.querySelectorAll(`.ptr-blind[data-m="${m.id}"]`)) { b.classList.remove('hidden'); b.querySelector('.pb-text').textContent = text; b.querySelector('.pb-go').hidden = !!busy; } };
+  const run = async () => {
+    if (jobs.get(m.id)?.busy) return;
+    jobs.set(m.id, { busy: true });
+    say('Finding the pointer in the picture… 0%', true);
+    const found = await app.findPointerFor(m, { onProgress: v => say(`Finding the pointer in the picture… ${Math.round(v * 100)}%`, true) }).catch(() => null);
+    jobs.set(m.id, { busy: false, done: true, ok: !!found });
+    if (found) { say('Found the pointer: the effects follow it now.', true); toast(`Found the pointer in “${m.name}”: the pointer effects follow it now.`, 4500); setTimeout(() => app.inspector?.render?.(), 400); }
+    else say('Couldn’t find the Mac’s arrow pointer in this video (it may be hidden, or a different pointer). Pointer effects need to know where it is.', false);
+  };
+  box.append(el('span', { class: 'pb-text', text: 'This recording doesn’t know where its window was on the screen, so the pointer can’t be placed on the picture and pointer effects don’t show. Reel can find the pointer in the picture instead.' }),
+    el('button', { class: 'tool hw amber pb-go', type: 'button', text: '🔎 Find the pointer in the picture', onclick: run }));
+  (async () => {
+    const data = m.cursor ? await app.api.readJson(app.token, m.cursor).catch(() => null) : null;
+    if (!app.pointerBlind(m, data)) return;
+    box.classList.remove('hidden');
+    const j = jobs.get(m.id);
+    if (j?.busy) say('Finding the pointer in the picture…', true);
+    else if (effectsOn && !j?.done) run(); // effects are on: find it now, they're waiting for it
+  })();
+  return box;
 }
