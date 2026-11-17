@@ -8,12 +8,16 @@ pub struct Picture { pub w: usize, pub h: usize, pub rgba: Vec<u8> }
 
 /// One picture on the canvas: `m` maps its pixels to the canvas's (x' = a x + c y + e, y' = b x + d y + f), `rect`
 /// the part of it shown (x0, y0, x1, y1 in its pixels), `alpha` how solid.
-pub struct Layer { pub src: usize, pub alpha: f64, pub m: [f64; 6], pub rect: [f64; 4], pub look: Option<Look> }
+pub struct Layer { pub src: usize, pub alpha: f64, pub m: [f64; 6], pub rect: [f64; 4], pub look: Option<Look>, pub fill: Option<[u8; 3]> }
+
+/// A layer that's no picture but a colour over the whole canvas (1.5: a dip to black or white), `alpha` solid.
+pub fn fill_layer(rgb: [u8; 3], alpha: f64) -> Layer { Layer { src: usize::MAX, alpha, m: [1.0, 0.0, 0.0, 1.0, 0.0, 0.0], rect: [0.0, 0.0, 1.0, 1.0], look: None, fill: Some(rgb) } }
 
 /// How the clip's box looks (1.4): the box (b maps -0.5..0.5 of it to the canvas, w × h canvas pixels), its rounded
 /// corners (radius, px), a border drawn on its edge (border px wide, in border_rgb) and a soft shadow under it (blur
-/// px as the canvas's shadowBlur, moved down dy px), as compositor.js drawMedia draws them.
-pub struct Look { pub b: [f64; 6], pub w: f64, pub h: f64, pub radius: f64, pub border: f64, pub border_rgb: [u8; 3], pub shadow: f64, pub dy: f64 }
+/// px as the canvas's shadowBlur, moved down dy px), as compositor.js drawMedia draws them; cut (1.5): the picture is
+/// cut to the box even with square corners (a stabilized picture moves inside its box).
+pub struct Look { pub b: [f64; 6], pub w: f64, pub h: f64, pub radius: f64, pub border: f64, pub border_rgb: [u8; 3], pub shadow: f64, pub dy: f64, pub cut: bool }
 
 /// Signed distance (canvas px) from a point of the box (px from its middle) to its rounded edge: < 0 inside.
 fn rr_dist(x: f64, y: f64, w: f64, h: f64, r: f64) -> f64 {
@@ -105,6 +109,11 @@ fn sample(p: &Picture, r: &[f64; 4], u: f64, v: f64) -> [f64; 4] {
 pub fn draw(w: usize, h: usize, bg: [u8; 3], pictures: &[Picture], layers: &[Layer]) -> Vec<u8> {
     let mut acc: Vec<[f64; 3]> = vec![[bg[0] as f64, bg[1] as f64, bg[2] as f64]; w * h];
     for l in layers {
+        if let Some(rgb) = l.fill {
+            let a = l.alpha.clamp(0.0, 1.0);
+            if a > 0.0 { for o in acc.iter_mut() { for ch in 0..3 { o[ch] = rgb[ch] as f64 * a + o[ch] * (1.0 - a); } } }
+            continue;
+        }
         let Some(p) = pictures.get(l.src) else { continue };
         if p.w == 0 || p.h == 0 || l.alpha <= 0.0 { continue; }
         let [a, b, c, d, e, f] = l.m;
@@ -130,7 +139,7 @@ pub fn draw(w: usize, h: usize, bg: [u8; 3], pictures: &[Picture], layers: &[Lay
                 } }
             }
         }
-        let clip = look.as_ref().filter(|(lk, _)| lk.radius > 0.0 || lk.border > 0.0);
+        let clip = look.as_ref().filter(|(lk, _)| lk.radius > 0.0 || lk.border > 0.0 || lk.cut);
         let square = (b.abs() < 1e-9 && c.abs() < 1e-9) || (a.abs() < 1e-9 && d.abs() < 1e-9);
         let corners = [(r[0], r[1]), (r[2], r[1]), (r[0], r[3]), (r[2], r[3])];
         let xs = corners.iter().map(|&(u, v)| a * u + c * v + e);
@@ -204,7 +213,7 @@ mod tests {
     #[test]
     fn a_picture_placed_at_half_size_and_half_faded() {
         let pic = solid(4, 4, [200, 100, 0, 255]);
-        let out = draw(8, 8, [0, 0, 255], &[pic], &[Layer { src: 0, alpha: 0.5, m: [1.0, 0.0, 0.0, 1.0, 2.0, 2.0], rect: [0.0, 0.0, 4.0, 4.0], look: None }]);
+        let out = draw(8, 8, [0, 0, 255], &[pic], &[Layer { src: 0, alpha: 0.5, m: [1.0, 0.0, 0.0, 1.0, 2.0, 2.0], rect: [0.0, 0.0, 4.0, 4.0], look: None, fill: None }]);
         let at = |x: usize, y: usize| &out[(y * 8 + x) * 4..(y * 8 + x) * 4 + 3];
         assert_eq!(at(3, 3), &[100, 50, 128]); // half the picture over half the blue
         assert_eq!(at(0, 0), &[0, 0, 255]);
@@ -214,7 +223,7 @@ mod tests {
     fn a_straight_picture_has_hard_edges_at_pixel_centres() {
         // placed from x 0.4 to 2.4: pixels 0 and 1 have their centres inside, pixel 2 (centre 2.5) doesn't
         let pic = solid(2, 2, [255, 255, 255, 255]);
-        let out = draw(4, 1, [0, 0, 0], &[pic], &[Layer { src: 0, alpha: 1.0, m: [1.0, 0.0, 0.0, 1.0, 0.4, -0.5], rect: [0.0, 0.0, 2.0, 2.0], look: None }]);
+        let out = draw(4, 1, [0, 0, 0], &[pic], &[Layer { src: 0, alpha: 1.0, m: [1.0, 0.0, 0.0, 1.0, 0.4, -0.5], rect: [0.0, 0.0, 2.0, 2.0], look: None, fill: None }]);
         assert_eq!((out[0], out[4], out[8], out[12]), (255, 255, 0, 0));
     }
     #[test]
@@ -223,7 +232,7 @@ mod tests {
         let pic = solid(6, 6, [255, 255, 255, 255]);
         let (co, si) = (std::f64::consts::FRAC_1_SQRT_2, std::f64::consts::FRAC_1_SQRT_2);
         let m = [co, si, -si, co, 4.5 - (co * 3.0 - si * 3.0), 4.5 - (si * 3.0 + co * 3.0)];
-        let out = draw(9, 9, [0, 0, 0], &[pic], &[Layer { src: 0, alpha: 1.0, m, rect: [0.0, 0.0, 6.0, 6.0], look: None }]);
+        let out = draw(9, 9, [0, 0, 0], &[pic], &[Layer { src: 0, alpha: 1.0, m, rect: [0.0, 0.0, 6.0, 6.0], look: None, fill: None }]);
         assert_eq!(out[(4 * 9 + 4) * 4], 255);
         assert!((0..81).any(|i| out[i * 4] > 20 && out[i * 4] < 235), "some edge pixels are in between");
     }
@@ -231,15 +240,15 @@ mod tests {
     fn rounded_corners_cut_the_picture_and_a_border_goes_round_it() {
         // a 20 × 20 white picture filling a 20 × 20 box at (10, 10) on a black 40 × 40 canvas, corners 6 px, a red 2 px border
         let pic = solid(20, 20, [255, 255, 255, 255]);
-        let lk = Look { b: [20.0, 0.0, 0.0, 20.0, 20.0, 20.0], w: 20.0, h: 20.0, radius: 6.0, border: 0.0, border_rgb: [255, 0, 0], shadow: 0.0, dy: 0.0 };
-        let out = draw(40, 40, [0, 0, 0], &[pic], &[Layer { src: 0, alpha: 1.0, m: [1.0, 0.0, 0.0, 1.0, 10.0, 10.0], rect: [0.0, 0.0, 20.0, 20.0], look: Some(lk) }]);
+        let lk = Look { b: [20.0, 0.0, 0.0, 20.0, 20.0, 20.0], w: 20.0, h: 20.0, radius: 6.0, border: 0.0, border_rgb: [255, 0, 0], shadow: 0.0, dy: 0.0, cut: false };
+        let out = draw(40, 40, [0, 0, 0], &[pic], &[Layer { src: 0, alpha: 1.0, m: [1.0, 0.0, 0.0, 1.0, 10.0, 10.0], rect: [0.0, 0.0, 20.0, 20.0], look: Some(lk), fill: None }]);
         let at = |x: usize, y: usize| out[(y * 40 + x) * 4];
         assert_eq!(at(20, 20), 255);
         assert_eq!(at(10, 10), 0, "the corner is cut off");
         assert_eq!(at(20, 10), 255, "the straight edge isn't");
         let pic = solid(20, 20, [255, 255, 255, 255]);
-        let lk = Look { b: [20.0, 0.0, 0.0, 20.0, 20.0, 20.0], w: 20.0, h: 20.0, radius: 0.0, border: 2.0, border_rgb: [255, 0, 0], shadow: 0.0, dy: 0.0 };
-        let out = draw(40, 40, [0, 0, 0], &[pic], &[Layer { src: 0, alpha: 1.0, m: [1.0, 0.0, 0.0, 1.0, 10.0, 10.0], rect: [0.0, 0.0, 20.0, 20.0], look: Some(lk) }]);
+        let lk = Look { b: [20.0, 0.0, 0.0, 20.0, 20.0, 20.0], w: 20.0, h: 20.0, radius: 0.0, border: 2.0, border_rgb: [255, 0, 0], shadow: 0.0, dy: 0.0, cut: false };
+        let out = draw(40, 40, [0, 0, 0], &[pic], &[Layer { src: 0, alpha: 1.0, m: [1.0, 0.0, 0.0, 1.0, 10.0, 10.0], rect: [0.0, 0.0, 20.0, 20.0], look: Some(lk), fill: None }]);
         let px = |x: usize, y: usize| [out[(y * 40 + x) * 4], out[(y * 40 + x) * 4 + 1]];
         assert_eq!(px(9, 20), [255, 0], "the border outside the edge");
         assert_eq!(px(10, 20), [255, 0], "and inside it");
@@ -248,18 +257,35 @@ mod tests {
     #[test]
     fn a_shadow_falls_below() {
         let pic = solid(10, 10, [255, 255, 255, 255]);
-        let lk = Look { b: [10.0, 0.0, 0.0, 10.0, 20.0, 15.0], w: 10.0, h: 10.0, radius: 0.0, border: 0.0, border_rgb: [0, 0, 0], shadow: 8.0, dy: 2.0 };
-        let out = draw(40, 40, [200, 200, 200], &[pic], &[Layer { src: 0, alpha: 1.0, m: [1.0, 0.0, 0.0, 1.0, 15.0, 10.0], rect: [0.0, 0.0, 10.0, 10.0], look: Some(lk) }]);
+        let lk = Look { b: [10.0, 0.0, 0.0, 10.0, 20.0, 15.0], w: 10.0, h: 10.0, radius: 0.0, border: 0.0, border_rgb: [0, 0, 0], shadow: 8.0, dy: 2.0, cut: false };
+        let out = draw(40, 40, [200, 200, 200], &[pic], &[Layer { src: 0, alpha: 1.0, m: [1.0, 0.0, 0.0, 1.0, 15.0, 10.0], rect: [0.0, 0.0, 10.0, 10.0], look: Some(lk), fill: None }]);
         let at = |x: usize, y: usize| out[(y * 40 + x) * 4];
         assert!(at(20, 22) < 170, "darker just under it: {}", at(20, 22));
         assert!(at(20, 7) > at(20, 22), "less above than below");
         assert_eq!(at(2, 2), 200, "nothing far away");
     }
     #[test]
+    fn a_dip_lays_a_colour_over_everything() {
+        let pic = solid(4, 4, [0, 0, 255, 255]);
+        let out = draw(4, 4, [0, 0, 0], &[pic], &[Layer { src: 0, alpha: 1.0, m: [1.0, 0.0, 0.0, 1.0, 0.0, 0.0], rect: [0.0, 0.0, 4.0, 4.0], look: None, fill: None }, fill_layer([255, 255, 255], 0.25)]);
+        assert_eq!(&out[0..3], &[64, 64, 255]);
+    }
+    #[test]
+    fn a_stabilized_picture_is_cut_to_its_box() {
+        // the picture drawn twice its size around the box's middle, but cut to the 10 × 10 box at (5, 5)
+        let pic = solid(10, 10, [255, 255, 255, 255]);
+        let lk = Look { b: [10.0, 0.0, 0.0, 10.0, 10.0, 10.0], w: 10.0, h: 10.0, radius: 0.0, border: 0.0, border_rgb: [0, 0, 0], shadow: 0.0, dy: 0.0, cut: true };
+        let out = draw(20, 20, [0, 0, 0], &[pic], &[Layer { src: 0, alpha: 1.0, m: [2.0, 0.0, 0.0, 2.0, 0.0, 0.0], rect: [0.0, 0.0, 10.0, 10.0], look: Some(lk), fill: None }]);
+        let at = |x: usize, y: usize| out[(y * 20 + x) * 4];
+        assert_eq!(at(10, 10), 255);
+        assert_eq!(at(2, 2), 0, "outside the box: cut");
+        assert_eq!(at(17, 17), 0);
+    }
+    #[test]
     fn a_fine_pattern_made_smaller_averages_to_grey() {
         let mut pic = solid(64, 64, [0, 0, 0, 255]);
         for y in 0..64 { for x in 0..64 { if (x + y) % 2 == 0 { let o = (y * 64 + x) * 4; pic.rgba[o..o + 3].copy_from_slice(&[255, 255, 255]); } } }
-        let out = draw(16, 16, [0, 0, 0], &[pic], &[Layer { src: 0, alpha: 1.0, m: [0.25, 0.0, 0.0, 0.25, 0.0, 0.0], rect: [0.0, 0.0, 64.0, 64.0], look: None }]);
+        let out = draw(16, 16, [0, 0, 0], &[pic], &[Layer { src: 0, alpha: 1.0, m: [0.25, 0.0, 0.0, 0.25, 0.0, 0.0], rect: [0.0, 0.0, 64.0, 64.0], look: None, fill: None }]);
         for px in out.chunks(4) { assert!((px[0] as i32 - 128).abs() <= 8, "{}", px[0]); }
     }
 }

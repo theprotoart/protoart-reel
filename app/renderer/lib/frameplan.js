@@ -7,6 +7,7 @@
 // No DOM here, so it's tested in Node.
 
 import { activeClips, animated, propsAt, mediaById, sourceTime } from '../model.js';
+import { stabilizeAt } from './stabilize.js';
 
 const clamp = (v, a, b) => Math.max(a, Math.min(b, v));
 /** a·b for canvas matrices [a, b, c, d, e, f] (x' = a x + c y + e, y' = b x + d y + f), b applied first */
@@ -38,14 +39,16 @@ export function framePlan(doc, t, W, H, size = m => ({ w: m.width || 0, h: m.hei
     if (k.type !== 'media') return { why: k.type === 'element' ? 'elements' : k.type === 'text' ? 'titles' : 'call-outs and drawings' };
     const local = t - k.start;
     const c = animated(k, local), p = propsAt(c, local);
-    if (p.dip || p.mask || p.textMask || (p.shutter != null && p.shutter < 1) || p.vertigo || p.blocks > 0.03 || p.streak || p.holes > 0.02 || p.glitch > 0.05 || p.leak > 0.01 || p.grain > 0.02 || p.flare || (p.bars || 0) > 0.001)
+    if (p.mask || p.textMask || (p.shutter != null && p.shutter < 1) || p.vertigo || p.blocks > 0.03 || p.streak || p.holes > 0.02 || p.glitch > 0.05 || p.leak > 0.01 || p.grain > 0.02 || p.flare || (p.bars || 0) > 0.001)
       return { why: 'transition effects' };
-    if (p.opacity <= 0.001) continue;
+    // a dip to black or white: a colour over everything drawn so far (after this clip, as drawFrame does)
+    const dip = p.dip && p.dip.amount > 0 ? { fill: hexRGB(p.dip.color) || [0, 0, 0], alpha: clamp(p.dip.amount, 0, 1) } : null;
+    if (p.opacity <= 0.001) { if (dip) layers.push(dip); continue; }
     const m = mediaById(doc, c.media);
     if (!m || m.kind === 'audio') continue;
     if ((c.filters || []).some(f => !f.off) || (c.matte && c.matte.file && !c.matte.off) || c.levels || (m.convertedFrom === 'screenflow' && m.kind === 'video' && !m.rangeOk) || p.split > 0.02) return { why: 'filters' };
     if (p.blur || (p.bright != null && Math.abs(p.bright - 1) > 0.005) || (p.sat != null && Math.abs(p.sat - 1) > 0.005)) return { why: 'blur and exposure moves' };
-    if ((c.frame && c.frame.type && c.frame.type !== 'none') || (c.stab && m.kind === 'video')) return { why: 'device frames and stabilizing' };
+    if (c.frame && c.frame.type && c.frame.type !== 'none') return { why: 'device frames' };
     if ((c.cursor && c.cursor.show !== false) || m.pointerSeparate || (c.keystrokes && c.keystrokes.show)) return { why: 'pointer and keystroke effects' };
     const { w: srcW, h: srcH } = size(m);
     if (!(srcW > 0 && srcH > 0)) return { why: 'a picture whose size isn’t known' };
@@ -57,6 +60,10 @@ export function framePlan(doc, t, W, H, size = m => ({ w: m.width || 0, h: m.hei
     const r = { cx: p.x * W, cy: p.y * H, w: cw0 * fit * p.scale, h: ch0 * fit * p.scale };
     let M = translate(r.cx, r.cy);
     if (p.rotation) M = mul(M, rotate(p.rotation));
+    const box = mul(M, scale(r.w, r.h)); // the clip's box: -0.5..0.5 of it onto the canvas
+    // stabilized: the picture moves against the camera's shake inside its box, zoomed so its edges stay out of sight
+    const stab = c.stab && m.kind === 'video' ? stabilizeAt(c.stab, sourceTime(c, t)) : null;
+    if (stab) { M = mul(M, scale(stab.zoom, stab.zoom)); M = mul(M, translate(stab.x * r.w, stab.y * r.h)); if (stab.rot) M = mul(M, rotate((stab.rot * 180) / Math.PI)); }
     const cl = p.crop[0] * dispW, ct = p.crop[1] * dispH, cw = cw0, chh = ch0;
     let rect;
     if (rot) {
@@ -73,13 +80,11 @@ export function framePlan(doc, t, W, H, size = m => ({ w: m.width || 0, h: m.hei
     // the canvas's size: scaled to this frame's)
     const sx = W / (doc.canvas.width || W);
     let look = null;
-    if (p.radius > 0 || p.border > 0 || p.shadow > 0) {
-      let B = translate(r.cx, r.cy);
-      if (p.rotation) B = mul(B, rotate(p.rotation));
-      B = mul(B, scale(r.w, r.h));
-      look = { b: B, w: r.w, h: r.h, radius: Math.max(0, (p.radius || 0) * sx), border: Math.max(0, (p.border || 0) * sx), borderColor: hexRGB(p.borderColor || '#fff') || [255, 255, 255], shadow: Math.max(0, (p.shadow || 0) * sx), dy: Math.max(0, (p.shadow || 0) * sx * 0.25) };
+    if (p.radius > 0 || p.border > 0 || p.shadow > 0 || stab) {
+      look = { b: box, w: r.w, h: r.h, radius: Math.max(0, (p.radius || 0) * sx), border: Math.max(0, (p.border || 0) * sx), borderColor: hexRGB(p.borderColor || '#fff') || [255, 255, 255], shadow: Math.max(0, (p.shadow || 0) * sx), dy: Math.max(0, (p.shadow || 0) * sx * 0.25), cut: !!stab };
     }
     layers.push({ media: m.id, clip: c.id, st: sourceTime(c, t), alpha: clamp(p.opacity, 0, 1), m: M, rect, look });
+    if (dip) layers.push(dip);
   }
   return { bg, layers };
 }

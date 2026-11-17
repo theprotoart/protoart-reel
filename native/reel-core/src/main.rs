@@ -190,7 +190,8 @@ fn mp4head_job(inp: &mut Input) -> Result<String, String> {
 /// Body: width u32 · height u32 · background r, g, b u8 · pictures u32, each width u32 · height u32 · RGBA bytes ·
 /// layers u32, each picture u32 · alpha f64 · matrix 6 × f64 · shown part 4 × f64 · look u8 (1.4: 1, then the box's
 /// matrix 6 × f64 · its width and height · corner radius · border width f64 · border colour r, g, b u8 · shadow blur ·
-/// shadow drop f64; 0, none) · output path.
+/// shadow drop f64 · cut to the box u8 (1.5); 0, none). A layer whose picture is 0xFFFFFFFF (1.5) is a colour over
+/// the whole canvas: alpha, then r, g, b u8. Then the output path.
 fn frame_job(inp: &mut Input) -> Result<String, String> {
     let (w, h) = (inp.u32()?, inp.u32()?);
     if w == 0 || h == 0 || w > 8192 || h > 8192 { return Err("bad frame size".into()); }
@@ -203,11 +204,18 @@ fn frame_job(inp: &mut Input) -> Result<String, String> {
         if pw == 0 || ph == 0 || pw > 16384 || ph > 16384 { return Err("bad picture size".into()); }
         pictures.push(frame::Picture { w: pw, h: ph, rgba: inp.take(pw * ph * 4)?.to_vec() });
     }
-    let nl = inp.count(4 + 8 * 11 + 1)?;
+    let nl = inp.count(4 + 8 + 3)?;
     let mut layers = Vec::with_capacity(nl);
     for _ in 0..nl {
         let src = inp.u32()?;
         let alpha = inp.f64()?;
+        // 1.5: a colour over the whole canvas (a dip to black or white): r, g, b u8 instead of a picture's place
+        if src == u32::MAX as usize {
+            let rgb = [inp.u8()?, inp.u8()?, inp.u8()?];
+            if !(0.0..=1.0).contains(&alpha) { return Err("bad layer".into()); }
+            layers.push(frame::fill_layer(rgb, alpha));
+            continue;
+        }
         let mut m = [0.0; 6]; for v in m.iter_mut() { *v = inp.f64()?; }
         let mut rect = [0.0; 4]; for v in rect.iter_mut() { *v = inp.f64()?; }
         if src >= pictures.len() || !(0.0..=1.0).contains(&alpha) || m.iter().chain(rect.iter()).any(|v| !v.is_finite()) || rect[2] <= rect[0] || rect[3] <= rect[1] { return Err("bad layer".into()); }
@@ -217,11 +225,12 @@ fn frame_job(inp: &mut Input) -> Result<String, String> {
             let (bw, bh, radius, border) = (inp.f64()?, inp.f64()?, inp.f64()?, inp.f64()?);
             let border_rgb = [inp.u8()?, inp.u8()?, inp.u8()?];
             let (shadow, dy) = (inp.f64()?, inp.f64()?);
+            let cut = inp.u8()? == 1;
             let ok = b.iter().chain([bw, bh, radius, border, shadow, dy].iter()).all(|v| v.is_finite()) && bw > 0.0 && bh > 0.0 && (0.0..=4096.0).contains(&radius) && (0.0..=512.0).contains(&border) && (0.0..=1024.0).contains(&shadow) && dy.abs() <= 1024.0;
             if !ok { return Err("bad layer look".into()); }
-            Some(frame::Look { b, w: bw, h: bh, radius, border, border_rgb, shadow, dy })
+            Some(frame::Look { b, w: bw, h: bh, radius, border, border_rgb, shadow, dy, cut })
         } else { None };
-        layers.push(frame::Layer { src, alpha, m, rect, look });
+        layers.push(frame::Layer { src, alpha, m, rect, look, fill: None });
     }
     let out = inp.path()?;
     let px = frame::draw(w, h, bg, &pictures, &layers);

@@ -695,9 +695,10 @@ async function drawFrame(doc, pics, W = doc.canvas.width, H = doc.canvas.height)
   for (const id of ids) { const m = doc.media.find(x => x.id === id); u32(m.width); u32(m.height); parts.push(Buffer.from(pics[id])); }
   u32(plan.layers.length);
   for (const l of plan.layers) {
+    if (l.fill) { u32(0xffffffff); f64(l.alpha); parts.push(Buffer.from(l.fill)); continue; }
     u32(ids.indexOf(l.media)); f64(l.alpha); l.m.forEach(f64); l.rect.forEach(f64);
     if (!l.look) { parts.push(Buffer.from([0])); continue; }
-    const k = l.look; parts.push(Buffer.from([1])); k.b.forEach(f64); [k.w, k.h, k.radius, k.border].forEach(f64); parts.push(Buffer.from(k.borderColor)); [k.shadow, k.dy].forEach(f64);
+    const k = l.look; parts.push(Buffer.from([1])); k.b.forEach(f64); [k.w, k.h, k.radius, k.border].forEach(f64); parts.push(Buffer.from(k.borderColor)); [k.shadow, k.dy].forEach(f64); parts.push(Buffer.from([k.cut ? 1 : 0]));
   }
   const out = path.join(fs.mkdtempSync(path.join(os.tmpdir(), 'reel-frame-')), 'f.rgba');
   const pb = Buffer.from(out); u32(pb.length); parts.push(pb);
@@ -749,6 +750,24 @@ test('reel-core draws rounded corners, a border and a shadow where the editor dr
   assert.ok(corner[2] < 200 && corner[0] < 230 && !near(corner, [255, 0, 0], 40), 'the corner is cut (shadowed background): ' + corner);
   assert.ok(at(32, 29)[0] < at(32, 6)[0], `darker below (shadow) than above: ${at(32, 29)} vs ${at(32, 6)}`);
   assert.deepEqual(at(2, 2), [200, 200, 200], 'far away: the background');
+});
+
+test('reel-core draws a dip to black and a stabilized picture cut to its box', { skip }, async () => {
+  const media = [{ id: 'scr', kind: 'video', width: 128, height: 72 }];
+  const pics = { scr: quarters(128, 72) };
+  // halfway through a 1 s dip to black at the end of a 1.5 s clip (drawn at 1 s): darker than the picture
+  const d = frameDoc([{ media: 'scr' }], media); Object.assign(d.clips[0], { duration: 1.5, transOut: { type: 'dip-black', dur: 1 } });
+  assert.ok(framePlan(d, 1, 64, 36).layers.some(l => l.fill), 'a colour layer for the dip');
+  const dark = await drawFrame(d, pics);
+  assert.ok(dark(5, 5)[0] > 20 && dark(5, 5)[0] < 200, 'the red quarter, part dipped: ' + dark(5, 5));
+  // stabilized: moved and zoomed inside its own box, which cuts it
+  const s = frameDoc([{ media: 'scr', props: { scale: 0.5 } }], media);
+  s.clips[0].stab = { rate: 30, t0: 0, x: Array.from({ length: 90 }, (_, i) => Math.sin(i) * 0.02), y: Array(90).fill(0), r: Array(90).fill(0), smooth: 0.5, zoom: 1.2, strength: 1 };
+  const sp = framePlan(s, 1, 64, 36);
+  assert.equal(sp.layers[0].look?.cut, true, 'cut to its box');
+  const px = await drawFrame(s, pics);
+  assert.deepEqual(px(10, 4), [16, 32, 48], 'outside the half-size box: background (zoomed picture cut off)');
+  assert.ok(near(px(20, 12), [255, 0, 0], 6), 'inside: the picture ' + px(20, 12));
 });
 
 test('a frame that needs more than pictures says why, for the JavaScript to draw', () => {
