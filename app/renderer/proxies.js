@@ -2,6 +2,7 @@
 // scrubbing and playback stay smooth. Export (and full-size stills for thumbnails) always use the
 // originals. Settings are per Mac: mode auto | always | off, size half | quarter.
 import { toast } from './ui.js';
+import { pictureTrouble } from './picturefix.js';
 
 const KEY = 'reel.proxy';
 export function proxyPrefs() {
@@ -38,6 +39,7 @@ export function wantsProxy(m, prefs = proxyPrefs()) {
 /** The file the preview should play for this media. */
 export function previewFile(m, fullRes = false) {
   const p = proxyPrefs();
+  if (!fullRes && m.proxy?.clean && m.proxy.of === m.file) return m.proxy.file; // a clean copy made because the original shows black: always
   if (fullRes || p.mode === 'off' || !m.proxy || m.proxy.of !== m.file) return m.file;
   return m.proxy.file;
 }
@@ -56,7 +58,7 @@ export class ProxyQueue {
   needed() {
     const doc = this.app.doc, prefs = proxyPrefs();
     if (!doc) return [];
-    return doc.media.filter(m => wantsProxy(m, prefs) && !(m.proxy && m.proxy.of === m.file && m.proxy.div === proxyDiv(m, prefs)));
+    return doc.media.filter(m => wantsProxy(m, prefs) && !(m.proxy && m.proxy.of === m.file && (m.proxy.clean || m.proxy.div === proxyDiv(m, prefs))));
   }
   /**
    * Starts (or continues) making proxies in the background, one file at a time — like a background render cache:
@@ -139,7 +141,9 @@ export class ProxyQueue {
       if (rid) app.api.renderCancel(rid);
       const live = app.doc?.media.find(x => x.id === m.id);
       if (live) live.proxyFailed = true; // plays from the original from now on
-      toast(`${m.name}: no proxy (${e.message}). It plays from the original.`, 5000);
+      // the preview may well show it black too: the strip on the preview offers a clean copy made by macOS
+      if (live) pictureTrouble(app, live, 'proxy');
+      else toast(`${m.name}: no proxy (${e.message}). It plays from the original.`, 5000);
     } finally {
       worker.terminate();
       if (this.worker === worker) this.worker = null;

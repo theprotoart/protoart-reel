@@ -2,6 +2,11 @@
 
 ## 1.11.0 — 2026-11-16
 
+- PROXY is now on the deck under the picture-size menu (as well as ⚙ ▾), with its lamp: green on, amber while it makes a copy.
+- A video the preview can't show (black or frozen): a strip on the preview says so, with 🩹 FIX: MAKE A CLEAN COPY (macOS makes a clean, smaller copy the preview plays; the recording isn't changed and export still uses it). Also on a clip's or media item's right-click menu, in PROXY ▾ and in 🩺 Check & repair. Needs the helper rebuilt (Build ProtoArt Reel).
+- Fillers counter: a scan of a selected clip counts just that clip (IN CLIP under the drums), a scan of the whole project counts it all. Right-click the counter to reset it to 0000, count the selected clip or the whole project, or clear the list.
+- Inspector: when it's narrow, sliders go on their own line under their name instead of shrinking to a sliver.
+
 - 🏷 Labels along the top of the timeline: double-click the ruler (or right-click › Add a label here), name it, colour it; click to go there, drag to move or lengthen.
 - ↔ Move a section: In–Out or a label's stretch of the whole edit (picture, sound, titles, with their cuts and fades) moved earlier or later; the rest closes up and makes room. Locked tracks stay put.
 - Fillers: what a scan finds shows on the timeline (a strip on its track: red when marked CUT, amber when kept; click to hear it, right-click to cut, keep or drop it). Music and sound-effects clips are no longer searched (beats were being listed as ums). ▶ in the list plays just that one.

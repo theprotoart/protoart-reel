@@ -136,6 +136,8 @@ contextBridge.exposeInMainWorld('reel', {
   captionsSave: (text, name, kind) => invoke('captions:save', text, name, kind),
   captionsBeside: (name, text) => invoke('captions:beside', name, text),
   matteMake: (token, media, quality) => invoke('matte:make', token, media, quality),
+  cleanProxy: (token, media) => invoke('media:cleanProxy', token, media),
+  onCleanProxyProgress: cb => { const f = (_e, file, v) => cb(file, v); ipcRenderer.on('clean-proxy-progress', f); return () => ipcRenderer.removeListener('clean-proxy-progress', f); },
   onMatteProgress: cb => ipcRenderer.on('matte-progress', (_e, v) => cb(v)),
   lutImport: token => invoke('lut:import', token),
   ttsVoices: () => invoke('tts:voices'),

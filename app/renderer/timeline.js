@@ -1,6 +1,7 @@
 // Timeline: tracks with a Pro Tools–style header (solo, mute, hide, volume, pan, automation lane),
 // clips with their keyframes, automation lanes, markers and the playhead. Move, trim, snap, drop,
 // marquee-select, scrub (also while playing) and zoom from a single frame out to the whole project.
+import { cleanCopy } from './picturefix.js';
 import { el, $, popMenu, toast, ask } from './ui.js';
 import { clipEnd, isFree, addTrack, snap, trim, setSpeed, SPEED_STEPS, mediaById, duration, fmtTime, keyAt, withGroups, TRACK_LANES, gainToPos, posToGain, fmtDb, fmtPan, clamp, neighbour, roll, KEY_EASES, split, tidyCrossfades, cutsOn, crossfadeOverlaps, fadeShape, putKey, emptyTracks, OVERLAP_CUTS, applyCut, pushAlong, moveRange, uid } from './model.js';
 import { peaksFor, posterFor } from './peaks.js';
@@ -323,6 +324,7 @@ export class Timeline {
       ['Fade in (½ s)', () => fade('in', Math.min(0.5, c.duration / 2))],
       ['Fade out (½ s)', () => fade('out', Math.min(0.5, c.duration / 2))],
       ['Remove fades', () => { fade('in', 0); fade('out', 0); }],
+      m?.kind === 'video' ? ['🩹 Picture black or frozen? Make a clean preview copy', () => cleanCopy(app, m)] : null,
       ...(c.audioOnly || m?.kind === 'audio' ? [] : [null, ['🎯 Punch in on an area…', () => { app.select([c.id]); if (app.player.time < c.start || app.player.time >= c.start + c.duration) app.seek(c.start + Math.min(1, c.duration / 3)); app.cmd('punch-zoom'); }], ['🔍 Dynamic zoom (start & end frames)…', () => { app.select([c.id]); app.cmd('dynamic-zoom'); }]]),
       // bounce in place: render the effects into new audio on a track below; originals muted and greyed out
       c.bounced || c.bounceOf ? ['↩ Back to the original sound (remove the rendered copy)', () => app.cmd('bounce-revert')]

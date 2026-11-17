@@ -1,6 +1,7 @@
 // Media library: everything recorded or added to the project; drag onto the timeline. Search and a
 // kind filter on top; right-click (or the ⋯ on an item) for rename, replace file, show in Finder,
 // select the clips that use it, add to the Global Library, and remove.
+import { cleanCopy } from './picturefix.js';
 import { soundRoleOf } from './lib/soundrole.js';
 import { ROLES as SOUND_ROLES, ROLE_ORDER, nextRole } from './lib/automix.js';
 import { el, $, toast, popMenu, promptText } from './ui.js';
@@ -276,6 +277,7 @@ export class Library {
       ['Add at playhead', () => app.addMediaClip(m.id, null, app.player.time)],
       ['Rename…', () => this.rename(m)],
       ['Replace file…', () => this.replace(m)],
+      m.kind === 'video' ? ['🩹 Picture black or frozen? Make a clean preview copy', () => cleanCopy(app, m)] : null,
       ['Show in Finder', () => app.api.revealMedia(app.token, m.file).catch(e => toast(e.message))],
       used ? ['Select clips using it', () => app.select(app.doc.clips.filter(c => c.media === m.id).map(c => c.id), null)] : null,
       null,

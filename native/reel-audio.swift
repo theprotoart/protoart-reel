@@ -536,13 +536,16 @@ func conformAudio(src: String, dst: String, id: Any?) {
     } catch { conformFail("macOS can't read this sound file (\(error.localizedDescription)).", id) }
 }
 
-func conformVideo(src: String, dst: String, id: Any?) {
+/// proxy: a clean, smaller H.264 copy for the editor's preview (a recording the preview shows black), not a conversion to keep.
+func conformVideo(src: String, dst: String, id: Any?, proxy: Bool = false) {
     let asset = AVURLAsset(url: URL(fileURLWithPath: src))
     guard asset.isReadable, let track = asset.tracks(withMediaType: .video).first else { return conformFail("macOS can't read this video.", id) }
     let size = track.naturalSize.applying(track.preferredTransform)
     let big = max(abs(size.width), abs(size.height)) > 1920
     let presets = AVAssetExportSession.exportPresets(compatibleWith: asset)
-    let preset = big && presets.contains(AVAssetExportPresetHEVCHighestQuality) ? AVAssetExportPresetHEVCHighestQuality : AVAssetExportPresetHighestQuality
+    let small = abs(size.height) > 1100 || abs(size.width) > 1960 ? AVAssetExportPreset1280x720 : AVAssetExportPreset960x540
+    let preset = proxy ? (presets.contains(small) ? small : AVAssetExportPresetMediumQuality)
+        : big && presets.contains(AVAssetExportPresetHEVCHighestQuality) ? AVAssetExportPresetHEVCHighestQuality : AVAssetExportPresetHighestQuality
     guard let ex = AVAssetExportSession(asset: asset, presetName: preset) else { return conformFail("macOS can't convert this video.", id) }
     try? FileManager.default.removeItem(atPath: dst)
     ex.outputURL = URL(fileURLWithPath: dst)
@@ -691,6 +694,7 @@ func handle(_ m: [String: Any]) {
             case "image": conformImage(src: src, dstBase: dst, id: id)
             case "audio": conformAudio(src: src, dst: dst + ".wav", id: id)
             case "video": conformVideo(src: src, dst: dst + ".mp4", id: id)
+            case "proxy": conformVideo(src: src, dst: dst + ".mp4", id: id, proxy: true)
             default: conformFail("conform: unknown kind", id)
             }
         }

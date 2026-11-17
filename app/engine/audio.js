@@ -103,7 +103,7 @@ async function recPause(rec, paused) { return request({ cmd: 'recPause', rec, pa
 /** Clicks (and keys, only when asked) while recording, through a listen-only event tap. */
 /** Background removal: a person mask video for a clip's media (Vision, on this Mac). */
 async function matte(src, dst, quality) { return request({ cmd: 'matte', src, dst, quality }, 6 * 60 * 60 * 1000); }
-/** Converts a file Reel can't use as it is (see FORMATS in main.js). kind: image | audio | video. */
+/** Converts a file Reel can't use as it is (see FORMATS in main.js). kind: image | audio | video, or proxy (a clean small copy for the preview). */
 async function conform(src, dstBase, kind, onProgress) {
   const off = onEvent(m => { if (m.type === 'conformProgress' && onProgress) onProgress(m.value); });
   try { return await request({ cmd: 'conform', src, dst: dstBase, kind }, 6 * 60 * 60 * 1000); } finally { off(); }

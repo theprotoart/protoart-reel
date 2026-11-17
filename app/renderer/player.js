@@ -1,6 +1,7 @@
 // Live preview: keeps one media element per clip in step with the timeline clock, draws frames
 // with the shared compositor, and plays sound through the elements (volume follows fades).
 import { drawFrame } from './compositor.js';
+import { pictureTrouble } from './picturefix.js';
 import { slopeAt } from './lib/retime.js';
 import { activeClips, sourceTime, mediaById, duration, gainAt, panAt, panGains, clipEnd, spanStart, spanEnd } from './model.js';
 import { cursorAt, clicksBetween } from './cursor.js';
@@ -290,6 +291,11 @@ export class Player {
     el.playsInline = true;
     el.src = `app://reel/m/${this.app.token}/${encodeURIComponent(file)}`;
     if (this._noWebAudio && this.monitor.sink && el.setSinkId) el.setSinkId(this.monitor.sink).catch(() => {});
+    if (file === m.file && m.kind === 'video') {
+      // the original won't show here: say so on the preview, with the fix (a clean preview copy)
+      el.addEventListener('error', () => pictureTrouble(this.app, m, 'error'), { once: true });
+      el.addEventListener('loadedmetadata', () => { if (!el.videoWidth) pictureTrouble(this.app, m, 'nopicture'); }, { once: true });
+    }
     if (file !== m.file) {
       el.addEventListener('error', () => { // proxy missing or unreadable: fall back to the original
         if (m.proxy && m.proxy.file === file) { m.proxy = null; this.reloadMedia(m.id); }

@@ -69,7 +69,8 @@ import { openClapFinder, clapsOnTimeline, addClapMarkers } from './clapscan.js';
 import { initToolbarGroups } from './toolbar.js';
 import { calloutsMenu, openCalloutPlanner } from './callouts.js';
 import { openTakes, initTakesButton, closeTakes } from './takes.js';
-import { openUms, closeUms, umCount, refreshUms, scanFillers } from './umspanel.js';
+import { cleanCopy, videoToFix } from './picturefix.js';
+import { openUms, closeUms, umCount, refreshUms, scanFillers, fillerCount, countFillersIn } from './umspanel.js';
 import { teachUms } from './umvoice.js';
 import { applyDynZoom, hasDynZoom, zoomMoves } from './lib/dynzoom.js';
 
@@ -323,6 +324,7 @@ class App {
       if (!p) return;
       this.proxies.cancel();
       this.token = p.token;
+      this.fillerScope = null; // the fillers counter counts the whole project until a scan of some clips
       this.doc = normalize(p.doc);
       this.doc.name = p.name;
       this.history = new History(Number(pref('undoLevels')) || 200);
@@ -1211,10 +1213,12 @@ class App {
     const groups = new Set(d.clips.filter(c => c.musicFit).map(c => c.group));
     return groups.size === 1 ? d.clips.find(c => c.musicFit) : null;
   }
+  /** The fillers counter counts these clips (ids), or the whole project (null); [] resets it to nothing. */
+  countFillersIn(ids) { countFillersIn(this, ids); }
   /** Lights the cassette when there's a remixed song to try again. */
   updateTape() {
     // the fillers counter follows the project's list of fillers
-    if (this.doc) this.deck?.fillers((this.doc.ums || []).filter(u => u.kind !== 'find').length);
+    if (this.doc) this.deck?.fillers(fillerCount(this));
     const b = document.getElementById('remix-tape');
     if (!b) return;
     const c = this.remixTarget();
@@ -1448,6 +1452,14 @@ class App {
       case 'find-claps': return openClapFinder(this);
       case 'takes': closeUms(); return openTakes(this);
       case 'ums': closeTakes(); return openUms(this);
+      case 'ums-clear': {
+        const n = (this.doc?.ums || []).filter(u => u.kind !== 'find').length;
+        if (!n) return;
+        this.commit(d => { d.ums = (d.ums || []).filter(u => u.kind === 'find'); });
+        this.fillerScope = null; this.deck?.scopeLabel?.('FILLERS', false);
+        refreshUms(); this.deck?.fillers(0, true);
+        return toast(`Cleared the list of ${n} filler${n === 1 ? '' : 's'} (nothing in the edit changed). ⌘Z brings the list back.`, 4500);
+      }
       case 'repair': return openRepair(this);
       case 'spelling': return openSpelling(this);
       case 'resync': { // ⇆ sound back in sync with its picture (arg: clip ids, or every clip)
@@ -1572,6 +1584,8 @@ class App {
       null,
       st.busy ? ['Stop making proxies', () => this.proxies.cancel()] : ['Make proxies now', this.doc && p.mode !== 'off' ? () => { this.proxies.kick(true); if (!this.proxies.status().busy) toast('Every video here already has its proxy (or doesn’t need one).'); } : null],
       ['Media & cache settings…', () => this.cmd('settings-storage')],
+      null,
+      ['🩹 Picture black or frozen? Make a clean preview copy of this video', this.doc ? () => cleanCopy(this, videoToFix(this)) : null],
       ['Export and thumbnails always use the originals', null],
     ]);
   }
@@ -1579,6 +1593,13 @@ class App {
     const b = $('#btn-proxy');
     if (!b) return;
     const mode = proxyPrefs().mode;
+    // the PROXY switch on the transport, under the preview
+    const chip = $('#t-proxy');
+    if (chip) {
+      chip.classList.toggle('lit', mode !== 'off'); chip.classList.toggle('working', st.busy);
+      chip.querySelector('.kn').textContent = st.busy ? `PROXY ${Math.round(st.progress * 100)}%` : mode === 'off' ? 'PROXY OFF' : mode === 'always' ? 'PROXY ALL' : 'PROXY';
+      chip.title = (st.busy ? `Making a preview copy of “${st.name}”. ` : '') + 'Proxies: the preview plays smaller copies of big videos so it stays smooth (export uses the originals). Click for settings, and the fix for a picture that shows black.';
+    }
     b.classList.toggle('lit', mode !== 'off');
     b.classList.toggle('working', st.busy);
     b.querySelector('span').textContent = st.busy ? `PROXY ${Math.min(st.total, st.done + 1)}/${st.total} ${Math.round(st.progress * 100)}%` : mode === 'off' ? 'PROXY OFF' : mode === 'always' ? 'PROXY ALL' : 'PROXY AUTO';
@@ -2217,6 +2238,7 @@ class App {
       b.addEventListener('contextmenu', e => { e.preventDefault(); clearTimeout(timer); this.timeline.setTool('select'); this.selectMenu(b); });
     }
     $('#btn-proxy').addEventListener('click', e => this.proxyMenu(e.currentTarget));
+    $('#t-proxy')?.addEventListener('click', e => this.proxyMenu(e.currentTarget));
     this._proxyLabel(this.proxies.status());
     // + INSERT: one menu instead of a crowded strip (fits a 13-inch screen)
     const INSERT = [['insert-text', 'Text', '⇧⌘T'], ['titles', 'Title…', '⌥⌘T'], ['insert-callout', 'Callout', '⇧⌘C'], ['insert-shape', 'Arrow / box', ''],

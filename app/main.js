@@ -1751,6 +1751,22 @@ handle('matte:make', async (token, mediaFile, quality) => {
     return { file: name, frames: r.frames };
   } finally { off(); }
 });
+// A clean preview copy (a proxy made by macOS): for a recording the preview shows black or can't read to make its own
+// proxy. AVFoundation reads damaged or unusual files the preview can't. The original stays as it is; export uses it.
+handle('media:cleanProxy', async (token, mediaFile) => {
+  const p = projectOf(token);
+  if (!validate.mediaName(mediaFile)) throw new Error('Bad media');
+  if (!audio.available()) throw new Error('This needs Reel’s built-in helper, which didn’t build on this Mac.');
+  const src = path.join(mediaDir(p), path.basename(mediaFile));
+  const stem = path.basename(mediaFile, path.extname(mediaFile));
+  const name = await freeMediaName(p, `${stem} proxy.mp4`);
+  const dst = path.join(mediaDir(p), name);
+  const send = v => { if (win && !win.isDestroyed()) win.webContents.send('clean-proxy-progress', mediaFile, v); };
+  const r = await audio.conform(src, dst.replace(/\.mp4$/, ''), 'proxy', send);
+  const info = await probeMedia(r.dst);
+  if (!info || !info.width) { await fs.promises.rm(r.dst, { force: true }); throw new Error('the copy came out without a picture'); }
+  return { file: path.basename(r.dst), width: info.width, height: info.height, duration: info.duration };
+});
 // LUTs: copy a .cube file into the project so it travels with it
 handle('lut:import', async token => {
   const p = projectOf(token);

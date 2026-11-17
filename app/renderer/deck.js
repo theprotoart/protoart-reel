@@ -3,7 +3,7 @@
 // transport buttons; two needle VU meters reading the preview mix; and a tape-speed switch
 // (3¾ · 7½ · 15 ips = ½× · 1× · 2× preview speed). Everything is drawn in SVG, and the animation
 // only runs while something moves, so it costs nothing on an 8 GB M1 when the deck is still.
-import { el } from './ui.js';
+import { el, popMenu } from './ui.js';
 
 const NS = 'http://www.w3.org/2000/svg';
 const svgEl = (tag, attrs = {}, parent) => {
@@ -101,7 +101,7 @@ function makeVu(label) {
  * turns smoothly; each higher drum rolls over only while the one below goes from 9 to 0, as on a
  * real odometer.
  */
-const TAPE_TITLE = 'Fillers counter: the filler words Reel finds as it scans (FILLERS, Auto Edit, Remove fillers). Click to put it away.';
+const TAPE_TITLE = 'Fillers counter: the filler words Reel finds as it scans (🎙 scan, FILLERS, Auto Edit). Click for the list; right-click to reset it, or count the whole project or just the selected clip.';
 
 function makeCounter() {
   const drums = [];
@@ -148,11 +148,12 @@ export class Deck {
     // the fillers counter: only shown while Reel counts filler words (a FILLERS scan, Auto Edit, Remove fillers), then it slides away
     this.zeroBtn = el('span', { class: 'deck-zero engr', text: 'FILLERS' });
     // shown while the project has fillers listed (and while a scan counts them); click it for the FILLERS list
-    const index = this.index = el('div', { class: 'deck-index', title: TAPE_TITLE, onclick: () => app.cmd('ums') },
+    const index = this.index = el('div', { class: 'deck-index', title: TAPE_TITLE, onclick: () => app.cmd('ums'), oncontextmenu: e => { e.preventDefault(); this.counterMenu(e); } },
       el('div', { class: 'drum-window' }, this.counter.el),
       this.zeroBtn);
     this.tallying = false; this.tallyAt = 0; this.tallyRaf = 0; this.tallyHide = 0;
     const zoom = host.querySelector('#preview-zoom');
+    const proxyChip = host.querySelector('#t-proxy'); // PROXY: the preview copies, and the fix for a black picture
     // tape-speed switch
     const speeds = [[0.5, '3¾'], [1, '7½'], [2, '15']];
     const sw = el('div', { class: 'deck-speed', title: 'Tape speed for the preview: ½×, normal, 2× (export is always normal speed)' },
@@ -166,7 +167,7 @@ export class Deck {
     // left: tape speed, picture size, meters · centre: the transport keys · right: the time and the tape counter
     host.replaceChildren(
       el('div', { class: 'deck-reel-well' }, this.supply.svg),
-      el('div', { class: 'deck-side deck-left' }, sw, zoom, meters),
+      el('div', { class: 'deck-side deck-left' }, sw, el('div', { class: 'deck-picture' }, zoom, proxyChip), meters),
       keyBank,
       el('div', { class: 'deck-side deck-right' }, counters, index),
       el('div', { class: 'deck-reel-well' }, this.takeup.svg), tape);
@@ -242,8 +243,26 @@ export class Deck {
     this.tallyRaf = requestAnimationFrame(roll);
     this.index.title = `${n} ${label}${done ? '' : ' so far'}. Click for the list of fillers.`;
   }
-  /** The project's fillers as they stand (the list changed: some cut, a project opened): the counter follows. */
-  fillers(n) {
+  /** Right-click on the fillers counter: reset it, or choose what it counts. */
+  counterMenu(e) {
+    const app = this.app, sel = app.selection.clips.length, ums = (app.doc?.ums || []).filter(u => u.kind !== 'find').length;
+    popMenu(e.clientX, e.clientY, [
+      ['Reset the counter to 0000 (the list stays)', () => app.countFillersIn([])],
+      [`Count just the selected clip${sel === 1 ? '' : 's'}`, sel ? () => app.countFillersIn(app.selection.clips) : null],
+      ['Count the whole project', () => app.countFillersIn(null)],
+      null,
+      [`Clear the list of fillers found (${ums})…`, ums ? () => app.cmd('ums-clear') : null],
+      ['Open the FILLERS list', () => app.cmd('ums')],
+    ]);
+  }
+  /** What the counter counts, under its drums: FILLERS (the whole project) or IN CLIP. */
+  scopeLabel(text, scoped) {
+    this.zeroBtn.textContent = text;
+    this.index.classList.toggle('scoped', !!scoped);
+  }
+  /** The project's fillers as they stand (the list changed: some cut, a project opened): the counter follows. force: show it even if the number's the same. */
+  fillers(n, force = false) {
+    if (force) { this.counting = false; this.shownFillers = -1; }
     if (this.counting || n === this.shownFillers) return;
     this.shownFillers = n;
     if (n > 0) this.tally(n, 'fillers listed', { from: this.tallying ? null : n });

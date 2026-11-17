@@ -30,6 +30,27 @@ const fmt = t => { const m = Math.floor(t / 60), s = t % 60; return `${m}:${s.to
 const umsOf = doc => (doc?.ums || []).slice().sort((a, b) => a.t - b.t);
 export const umCount = doc => umsOf(doc).filter(u => u.cut).length;
 
+/**
+ * What the fillers counter counts: the clips last scanned (app.fillerScope = { ids }), or the whole project (null).
+ * A scan of one clip shows just that clip's fillers; a scan of the whole project, all of them. Cleared: { ids: [] }, 0.
+ */
+export function fillerCount(app) {
+  const doc = app.doc; if (!doc) return 0;
+  const all = (doc.ums || []).filter(u => u.kind !== 'find');
+  const sc = app.fillerScope;
+  if (!sc) return all.length;
+  const clips = sc.ids.map(id => doc.clips.find(c => c.id === id)).filter(Boolean);
+  return all.filter(u => clips.some(c => u.t >= c.start - 0.01 && u.t < c.start + c.duration && (!u.track || !c.track || u.track === c.track || clips.some(o => o.group && o.group === c.group)))).length;
+}
+/** The words under the counter: what it's counting. */
+export const scopeLabel = app => !app.fillerScope ? 'FILLERS' : app.fillerScope.ids.length === 1 ? 'IN CLIP' : `IN ${app.fillerScope.ids.length} CLIPS`;
+/** Points the counter at the selected clips, or the whole project (ids null), and shows that count. */
+export function countFillersIn(app, ids) {
+  app.fillerScope = ids ? { ids: [...ids] } : null;
+  app.deck?.scopeLabel?.(scopeLabel(app), !!ids);
+  app.deck?.fillers(fillerCount(app), true);
+}
+
 /** The kind of an um, for the filters: um / uh, like / you know, a sound between words, your trained voice, a word you looked for. */
 export const catOf = u => u.cat || (u.kind === 'sound' ? 'sound' : u.kind === 'voice' ? 'voice' : u.kind === 'find' ? 'find' : u.cut ? 'um' : 'phrase');
 const CATS = [['all', 'All'], ['um', 'Um · uh'], ['phrase', 'Like · you know'], ['voice', 'Taught'], ['sound', 'Sounds']];
@@ -75,7 +96,7 @@ async function listen(app, { locale, track, ranges = null, clipIds = null, stop 
   found = found.filter(within).filter(u => trackAt(u.t)).sort((a, b) => a.t - b.t).map(u => ({ id: uid('um'), t: +u.t.toFixed(3), end: +u.end.toFixed(3), text: u.text, kind: u.kind, cut: u.cut, track: trackAt(u.t) }));
   if (stop?.()) throw new Error('Stopped.'); // stopped while it listened: the list stays as it was
   app.commit(d => { d.ums = [...found, ...(d.ums || []).filter(u => u.kind === 'find' || (ranges && !within(u)))].sort((a, b) => a.t - b.t); });
-  app.deck?.tally(ranges ? (app.doc.ums || []).filter(u => u.kind !== 'find').length : found.length, 'filler words found');
+  app.deck?.tally(fillerCount(app), ranges ? 'filler words found in the scanned clips' : 'filler words found');
   return found;
 }
 
@@ -120,6 +141,9 @@ export async function scanFillers(app) {
   const ranges = picked.length ? picked.map(c => [c.start, c.start + c.duration]) : null;
   if (!speechClips(doc, track).length) { toast('No speech to listen to: put a recording with sound on the timeline (or select one).', 4500); return; }
   scanning = true;
+  // the counter counts what this scan looks at: these clips, or the whole project
+  app.fillerScope = picked.length ? { ids: picked.map(c => c.id) } : null;
+  app.deck?.scopeLabel?.(scopeLabel(app), !!picked.length);
   const btn = document.getElementById('filler-scan');
   btn?.classList.add('listening');
   try {
@@ -129,7 +153,7 @@ export async function scanFillers(app) {
     toast(found.length ? `${found.length} filler${found.length === 1 ? '' : 's'} found${picked.length ? ` in the ${picked.length} selected clip${picked.length === 1 ? '' : 's'}` : ''}, ${n} marked CUT. FILLERS lists them; click the counter to open it.` : `No fillers found${picked.length ? ' in the selected clips' : ''}.`, 6000);
     refreshUms();
   } catch (e) {
-    if (stopped) { toast('Stopped listening for fillers. Nothing changed.', 3500); app.deck?.untally(); app.deck?.fillers((app.doc?.ums || []).filter(u => u.kind !== 'find').length); }
+    if (stopped) { toast('Stopped listening for fillers. Nothing changed.', 3500); app.deck?.untally(); app.deck?.fillers(fillerCount(app), true); }
     else { toast(e.message, 6000); app.deck?.untally(); }
   }
   finally { scanning = false; btn?.classList.remove('listening'); if (btn) btn.title = SCAN_TITLE; }
@@ -192,7 +216,7 @@ export function openUms(app) {
     let d = 0;
     app.commit(dd => { d = removeRange(dd, u.t, u.end); dd.ums = (dd.ums || []).filter(x => x.id !== u.id); });
     toast(`Removed “${u.text}” (${d.toFixed(2)} s). ⌘Z brings it back.`, 3000);
-    const left = umsOf(app.doc).filter(x => x.kind !== 'find').length;
+    const left = fillerCount(app);
     app.deck?.tally(left, 'fillers left', { from: left + 1 }); // the counter rolls back one
     refresh(true);
   };
@@ -328,7 +352,7 @@ export function openUms(app) {
       for (const r of mergeRanges(cuts).reverse()) total += removeRange(d, r.t, r.end);
       d.ums = (d.ums || []).filter(u => !ids.has(u.id));
     });
-    const left = umsOf(app.doc).filter(x => x.kind !== 'find').length;
+    const left = fillerCount(app);
     app.deck?.tally(left, 'fillers left', { from: left + cuts.length }); // rolls back down as they go
     toast(`Removed ${cuts.length} (${total.toFixed(1)} s). ⌘Z brings them back.`, 5000);
     refresh(true);
