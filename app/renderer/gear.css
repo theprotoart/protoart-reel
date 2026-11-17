@@ -2685,7 +2685,8 @@ input[type=search] { padding: 6px 10px; }
 .filler-scan .shotgun * { fill: none; stroke: #ffc24a; stroke-width: 1.2; stroke-linecap: round; stroke-linejoin: round; transition: stroke .15s, fill .15s; }
 .filler-scan .shotgun .sg-fur { fill: rgba(255, 180, 60, .28); stroke-width: .8; }
 .filler-scan .shotgun .sg-mount { stroke-width: 1; }
-.filler-scan .shotgun .sg-slots { stroke-width: 1; opacity: .8; }
+.filler-scan .shotgun .sg-streak { stroke-width: .7; opacity: .7; }
+.filler-scan .shotgun .sg-cable { stroke-width: .9; opacity: .8; }
 .filler-scan:hover .shotgun { filter: drop-shadow(0 0 4px rgba(255, 180, 60, .55)); }
 .filler-scan.listening .shotgun .sg-fur { animation: sg-listen 1s ease-in-out infinite; transform-origin: 50% 50%; transform-box: fill-box; }
 .filler-scan.listening .shotgun { filter: drop-shadow(0 0 5px rgba(255, 180, 60, .8)); }

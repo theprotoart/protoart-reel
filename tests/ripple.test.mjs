@@ -34,3 +34,22 @@ test('plain delete never moves anything', () => {
   remove(d, ['v1'], false);
   assert.equal(d.clips.find(c => c.id === 'v2').start, 10);
 });
+
+test('trimming a clip out past the next one pushes the clips after along, with their sound, instead of cutting them off', async () => {
+  const { trim, pushAlong } = await import('../app/renderer/model.js');
+  const mk = (id, track, start, duration, group) => ({ id, type: 'media', media: 'm', track, start, duration, in: 0, speed: 1, group, props: {} });
+  const doc = { media: [{ id: 'm', kind: 'video', duration: 100, hasAudio: true }], tracks: [{ id: 'v' }, { id: 'a' }, { id: 'm2' }],
+    clips: [mk('v1', 'v', 0, 5, 'g1'), mk('a1', 'a', 0, 5, 'g1'), mk('v2', 'v', 5, 5, 'g2'), mk('a2', 'a', 5, 5, 'g2'), mk('t', 'm2', 7, 2)], groups: {} };
+  const before = { v1: { start: 0, end: 5 }, a1: { start: 0, end: 5 } };
+  for (const id of ['v1', 'a1']) trim(doc, doc.clips.find(c => c.id === id), 'end', 6.5, doc.media[0], { push: true });
+  const shift = pushAlong(doc, ['v1', 'a1'], before, 'end');
+  const at = id => doc.clips.find(c => c.id === id);
+  assert.equal(shift, 1.5);
+  assert.deepEqual([at('v1').duration, at('v2').start, at('a2').start, at('v2').duration], [6.5, 6.5, 6.5, 5], 'the next picture and its sound moved along, whole');
+  assert.equal(at('t').start, 7, 'other tracks stay put');
+  // the start, out past the clip before: the trimmed clip (and what follows) moves right instead
+  const d2 = { media: doc.media, tracks: [{ id: 'v' }], clips: [mk('p', 'v', 0, 5), { ...mk('q', 'v', 5, 5), in: 3 }, mk('r', 'v', 10, 2)], groups: {} };
+  trim(d2, d2.clips[1], 'start', 4, d2.media[0], { push: true });
+  pushAlong(d2, ['q'], { q: { start: 5, end: 10 } }, 'start');
+  assert.deepEqual(d2.clips.map(c => [c.start, c.duration, c.in]), [[0, 5, 0], [5, 6, 2], [11, 2, 0]]);
+});

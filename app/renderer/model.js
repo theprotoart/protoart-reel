@@ -865,14 +865,14 @@ export function withGroups(doc, ids) {
 }
 
 /** Trims a clip edge. edge 'start' moves the in point; 'end' changes the duration. */
-export function trim(doc, c, edge, t, media) {
+export function trim(doc, c, edge, t, media, { push = false } = {}) {
   const speed = c.speed || 1;
   if (edge === 'start') {
     const minStart = media && media.kind !== 'image' ? c.start - (c.in || 0) / speed : -Infinity;
     let s = Math.max(t, minStart, 0);
     s = Math.min(s, clipEnd(c) - 0.05);
-    // don't overlap the neighbour on the left
-    for (const o of doc.clips) if (o !== c && o.track === c.track && clipEnd(o) <= c.start + EPS) s = Math.max(s, clipEnd(o));
+    // don't overlap the neighbour on the left (push: it may, the caller moves this clip along to make room)
+    if (!push) for (const o of doc.clips) if (o !== c && o.track === c.track && clipEnd(o) <= c.start + EPS) s = Math.max(s, clipEnd(o));
     const d = s - c.start;
     advanceStart(c, d);
     c.actions = (c.actions || []).map(a => ({ ...a, t: a.t - d })).filter(a => a.t + a.dur > 0);
@@ -882,9 +882,40 @@ export function trim(doc, c, edge, t, media) {
   } else {
     let e = Math.max(t, c.start + 0.05);
     if (media && media.kind !== 'image' && media.duration) e = Math.min(e, c.start + (media.duration - (c.in || 0)) / speed);
-    for (const o of doc.clips) if (o !== c && o.track === c.track && o.start >= clipEnd(c) - EPS) e = Math.min(e, o.start);
+    if (!push) for (const o of doc.clips) if (o !== c && o.track === c.track && o.start >= clipEnd(c) - EPS) e = Math.min(e, o.start);
     setEnd(c, e - c.start);
   }
+}
+
+/**
+ * Trimming a clip out past the clip next to it (a word cut off by mistake, brought back): the clips that follow move
+ * along by as much as it now overlaps them, on its track and its group's (a recording's picture and its sound), and
+ * their own groups go with them, so nothing is cut off and everything stays in sync. ids: the clips trimmed; before:
+ * where they started and ended before ({ id: { start, end } }); edge 'end' or 'start' (out past the clip before: the
+ * trimmed clips and everything after them move right, so the clip before keeps all of itself). Returns the shift.
+ */
+export function pushAlong(doc, ids, before, edge) {
+  const trimmed = ids.map(id => doc.clips.find(k => k.id === id)).filter(Boolean);
+  const tracks = new Set(trimmed.map(k => k.track));
+  let shift = 0;
+  for (const k of trimmed) {
+    const b = before[k.id];
+    if (edge === 'end') {
+      const next = Math.min(...doc.clips.filter(o => !ids.includes(o.id) && o.track === k.track && o.start >= b.end - EPS).map(o => o.start));
+      if (isFinite(next)) shift = Math.max(shift, clipEnd(k) - next);
+    } else {
+      const prev = Math.max(...doc.clips.filter(o => !ids.includes(o.id) && o.track === k.track && clipEnd(o) <= b.start + EPS).map(o => clipEnd(o)));
+      if (isFinite(prev)) shift = Math.max(shift, prev - k.start);
+    }
+  }
+  if (shift <= EPS) return 0;
+  // from where the trimmed clips ended (or, at the start, from the trimmed clips themselves) onwards
+  const from = edge === 'end' ? Math.min(...trimmed.map(k => before[k.id].end)) : Math.min(...trimmed.map(k => before[k.id].start));
+  const moving = new Set(edge === 'end' ? [] : ids);
+  for (const o of doc.clips) if (!ids.includes(o.id) && tracks.has(o.track) && o.start >= from - EPS) moving.add(o.id);
+  for (const id of withGroups(doc, [...moving])) if (!(edge === 'end' && ids.includes(id))) moving.add(id);
+  for (const o of doc.clips) if (moving.has(o.id)) o.start += shift;
+  return shift;
 }
 
 /** Snap a time to nearby edges (clip edges, playhead, markers) within `tol` seconds. */

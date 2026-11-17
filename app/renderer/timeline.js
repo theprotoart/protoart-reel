@@ -2,7 +2,7 @@
 // clips with their keyframes, automation lanes, markers and the playhead. Move, trim, snap, drop,
 // marquee-select, scrub (also while playing) and zoom from a single frame out to the whole project.
 import { el, $, popMenu, toast, ask } from './ui.js';
-import { clipEnd, isFree, addTrack, snap, trim, setSpeed, SPEED_STEPS, mediaById, duration, fmtTime, keyAt, withGroups, TRACK_LANES, gainToPos, posToGain, fmtDb, fmtPan, clamp, neighbour, roll, KEY_EASES, split, tidyCrossfades, cutsOn, crossfadeOverlaps, fadeShape, putKey, emptyTracks, OVERLAP_CUTS, applyCut } from './model.js';
+import { clipEnd, isFree, addTrack, snap, trim, setSpeed, SPEED_STEPS, mediaById, duration, fmtTime, keyAt, withGroups, TRACK_LANES, gainToPos, posToGain, fmtDb, fmtPan, clamp, neighbour, roll, KEY_EASES, split, tidyCrossfades, cutsOn, crossfadeOverlaps, fadeShape, putKey, emptyTracks, OVERLAP_CUTS, applyCut, pushAlong } from './model.js';
 import { peaksFor, posterFor } from './peaks.js';
 import { mapAt, addPoint, movePoint, removePoint, linearRetime } from './lib/retime.js';
 import { musicLike, fitSource, refitTo, canFit, tryAnother } from './musicfit.js';
@@ -1120,8 +1120,8 @@ export class Timeline {
       e.append(gear);
     }
     // with REMIX on, a music clip's right end is the ♪ (re-fits the song) instead of a trim edge
-    e.append(el('div', { class: 'edge l', title: 'Drag to trim · ⌘-drag to change speed · ⌥-drag where two clips touch for a rolling edit' }),
-      ...(remix ? [] : [el('div', { class: 'edge r', title: 'Drag to trim · ⌘-drag to change speed · ⌥-drag where two clips touch for a rolling edit' })]));
+    e.append(el('div', { class: 'edge l', title: 'Drag to trim (out past the next clip, it moves along) · ⌘-drag to change speed · ⌥-drag where two clips touch for a rolling edit' }),
+      ...(remix ? [] : [el('div', { class: 'edge r', title: 'Drag to trim (out past the next clip, it moves along) · ⌘-drag to change speed · ⌥-drag where two clips touch for a rolling edit' })]));
     // fade handles at the top corners (as in Audition): drag inward to fade in / out
     const fIn = this._fadeLen(c, 'in'), fOut = this._fadeLen(c, 'out');
     if (fIn > 0) e.append(this._fadeShade(c, 'in', fIn));
@@ -1845,6 +1845,9 @@ export class Timeline {
     if (rollWith) ids.push(rollWith.id);
     const orig = new Map(ids.map(id => { const x = doc.clips.find(k => k.id === id); return [id, { start: x.start, track: x.track, duration: x.duration, in: x.in, actions: structuredClone(x.actions || []), keys: x.keys ? structuredClone(x.keys) : undefined }]; }));
     let moved = false;
+    // trimming out past the next clip pushes the clips after along (pushAlong): where everything was, to start again from
+    const startsAll = edge && !rollWith ? new Map(doc.clips.map(k => [k.id, k.start])) : null;
+    const before = edge ? Object.fromEntries(ids.map(id => { const o = orig.get(id); return [id, { start: o.start, end: o.start + o.duration }]; })) : null;
     // window listeners: the timeline redraws while dragging, which replaces the clip elements
     document.body.style.cursor = edge ? 'ew-resize' : 'grabbing';
     const move = ev => {
@@ -1860,6 +1863,7 @@ export class Timeline {
         roll(doc, left, right, t);
       } else if (edge) {
         const o = orig.get(c.id);
+        for (const k of doc.clips) if (startsAll.has(k.id)) k.start = startsAll.get(k.id);
         for (const id of ids) {
           const k = doc.clips.find(x => x.id === id), ok = orig.get(id);
           Object.assign(k, { start: ok.start, duration: ok.duration, in: ok.in, actions: structuredClone(ok.actions) });
@@ -1871,7 +1875,7 @@ export class Timeline {
         const d = t - (edge === 'start' ? o.start : o.start + o.duration);
         for (const id of ids) {
           const k = doc.clips.find(x => x.id === id), ok = orig.get(id);
-          trim(doc, k, edge, (edge === 'start' ? ok.start : ok.start + ok.duration) + d, k.type === 'media' ? mediaById(doc, k.media) : null);
+          trim(doc, k, edge, (edge === 'start' ? ok.start : ok.start + ok.duration) + d, k.type === 'media' ? mediaById(doc, k.media) : null, { push: true });
         }
         if (ids.length > 1) {
           const edges = ids.map(id => edgeAt(doc.clips.find(x => x.id === id)));
@@ -1880,9 +1884,11 @@ export class Timeline {
             const k = doc.clips.find(x => x.id === id), ok = orig.get(id);
             Object.assign(k, { start: ok.start, duration: ok.duration, in: ok.in, actions: structuredClone(ok.actions) });
             if (ok.keys) k.keys = structuredClone(ok.keys); else delete k.keys;
-            trim(doc, k, edge, lim, k.type === 'media' ? mediaById(doc, k.media) : null);
+            trim(doc, k, edge, lim, k.type === 'media' ? mediaById(doc, k.media) : null, { push: true });
           }
         }
+        // out past the clip next to it: that clip and the ones after it move along instead of being cut off
+        pushAlong(doc, ids, before, edge);
       } else {
         // the earliest selected clip leads (so a whole selection can be pushed to 0 and snapped)
         const lead = [...orig.values()].reduce((a, b) => (b.start < a.start ? b : a));
