@@ -2,6 +2,8 @@
 
 ## 1.11.0 — 2026-11-16
 
+- REW and F.FWD go back or on 5 seconds a press (playing carries on from there) instead of jumping to the very start or end; double-click them (or Home / End) for that.
+
 - 🎙 on a selected clip listens to just that clip's few seconds of its recording, not the whole recording (much faster the first time). While it listens the button says ■ STOP: click it again to stop, and nothing changes.
 
 - 🎙 with a clip selected listens to just that clip's recording (it was listening to every recording on the track). With a recording's picture and microphone selected together, it listens to the microphone.

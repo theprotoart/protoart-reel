@@ -2167,8 +2167,10 @@ class App {
     // while it plays) and Space would press them again instead of play / stop
     $('#transport').addEventListener('mousedown', e => { if (e.target.closest('button')) e.preventDefault(); });
     $('#transport').addEventListener('click', e => { const b = e.target.closest('button'); if (b && document.activeElement === b) b.blur(); });
-    $('#t-start').addEventListener('click', () => { this.stopShuttle(); this.seek(0); });
-    $('#t-end').addEventListener('click', () => { this.stopShuttle(); this.seek(duration(this.doc)); });
+    // REW and F.FWD wind back or on 5 s a press (playing carries on from there); double-click (or ⌥-click) for the very
+    // start or end. They used to go straight to the start, which lost your place when you only wanted a little back
+    $('#t-start').addEventListener('click', e => { this.stopShuttle(); this.seek(e.detail >= 2 || e.altKey ? 0 : Math.max(0, this.player.time - 5)); });
+    $('#t-end').addEventListener('click', e => { this.stopShuttle(); const end = duration(this.doc); this.seek(e.detail >= 2 || e.altKey ? end : Math.min(end, this.player.time + 5)); });
     const frame = () => 1 / (this.doc?.canvas.fps || 30);
     // stopped: step a frame. Playing (or shuttling): shuttle like a tape deck, ▶ 2×/4×/8× fast forward,
     // ◀ 2×/4×/8× rewind; PLAY returns to normal speed.
