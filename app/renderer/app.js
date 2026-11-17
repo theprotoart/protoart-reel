@@ -67,7 +67,7 @@ import { calloutsMenu, openCalloutPlanner } from './callouts.js';
 import { openTakes, initTakesButton, closeTakes } from './takes.js';
 import { openUms, closeUms, umCount, refreshUms } from './umspanel.js';
 import { teachUms } from './umvoice.js';
-import { applyDynZoom, hasDynZoom } from './lib/dynzoom.js';
+import { applyDynZoom, hasDynZoom, zoomMoves } from './lib/dynzoom.js';
 
 /**
  * Which part of the clip a new dynamic zoom covers (clip-local): the In–Out range where it overlaps the clip, or two
@@ -552,6 +552,27 @@ class App {
    * Dynamic zoom on the selected picture: turns it on for a section (START the whole picture, END a gentle zoom to the
    * middle) and shows the START and END frames in the preview to drag. Pressed again while framing, it's done.
    */
+  /** 🎯 Zoom moves: the selected clip's zoom moves shown and edited on the whole picture (see overlay.js zmBoxes). */
+  zoomMovesEdit(clipId = null, moveId = null) {
+    const doc = this.doc;
+    if (!doc) return;
+    if (this.zmEdit && !clipId) { this.cmd('zoom-moves-done'); return; }
+    const pics = (clipId ? [clipId] : this.selection.clips).map(id => doc.clips.find(c => c.id === id)).filter(c => c && c.type === 'media' && !c.audioOnly && mediaById(doc, c.media)?.kind !== 'audio');
+    const c = pics.find(x => this.player.time >= x.start && this.player.time < clipEnd(x)) || pics[0];
+    if (!c) { toast('Select a video or picture clip first, then 🎯 Zoom moves.', 4000); return; }
+    this.dzEdit = null;
+    this.select([c.id]);
+    this.zmEdit = c.id;
+    this.overlay.zmClip = c.id;
+    const moves = zoomMoves(c);
+    const i = moveId ? moves.findIndex(m => m.a.id === moveId) : -1;
+    this.overlay.zmIndex = i >= 0 ? i : -1;
+    if (i >= 0) this.seek(c.start + Math.min(c.duration - 0.01, moves[i].a.t + moves[i].a.dur));
+    else if (this.player.time < c.start || this.player.time >= clipEnd(c)) this.seek(c.start);
+    if (!moves.length) toast('No zoom moves on this clip yet: ＋ ADD puts one at the playhead.', 4000);
+    this.player.queueDraw(); this.overlay.update(); this.inspector.render();
+  }
+
   dynamicZoom() {
     const doc = this.doc;
     if (!doc) return;
@@ -1218,6 +1239,8 @@ class App {
       case 'pip': return this.pictureInPicture();
       case 'dynamic-zoom': return this.dynamicZoom();
       case 'dynamic-zoom-done': this.dzEdit = null; this.player.queueDraw(); this.overlay.update(); this.inspector.render(); return;
+      case 'zoom-moves': return this.zoomMovesEdit();
+      case 'zoom-moves-done': this.zmEdit = null; this.player.queueDraw(); this.overlay.update(); this.inspector.render(); return;
       case 'match-colour': return openMatchColour(this);
       case 'ghost': return openGhost(this);
       case 'music-fit': return openMusicFit(this);
@@ -2106,7 +2129,7 @@ class App {
       case 's': case 'S': if (!e.metaKey) this.cmd('split'); break;
       case 'm': case 'M': if (!e.metaKey) this.cmd(e.shiftKey ? 'clip-marker' : 'marker'); break;
       case 'Backspace': case 'Delete': this.cmd(e.altKey ? 'close-gaps' : e.shiftKey ? 'ripple-delete' : 'delete'); break;
-      case 'Escape': if (this.dzEdit) { this.cmd('dynamic-zoom-done'); break; } if (this.timeline.marking) { this.timeline.setMarking(false); break; } if (this.timeline.filling) { this.timeline.setFilling(false); break; } this.select([], null); break;
+      case 'Escape': if (this.dzEdit) { this.cmd('dynamic-zoom-done'); break; } if (this.zmEdit) { this.cmd('zoom-moves-done'); break; } if (this.timeline.marking) { this.timeline.setMarking(false); break; } if (this.timeline.filling) { this.timeline.setFilling(false); break; } this.select([], null); break;
       case 'i': case 'I': if (!e.metaKey) this.cmd('mark-in'); break;
       case 'o': case 'O': if (!e.metaKey) this.cmd('mark-out'); break;
       case 'x': case 'X': if (!e.metaKey && !e.altKey && !e.ctrlKey) this.cmd('add-section'); break;

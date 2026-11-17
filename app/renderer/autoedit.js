@@ -5,7 +5,7 @@
 // ordinary clips, actions, transitions and captions, so any of it can be changed afterwards, and UNDO AUTO EDIT
 // puts the project back exactly as it was.
 import { el, modal, toast } from './ui.js';
-import { mediaById, removeRange, insertTime, uid, duration as docDuration, split, clipEnd, withGroups, newTextClip, newElementClip, addTrack } from './model.js';
+import { mediaById, removeRange, insertTime, uid, duration as docDuration, split, clipEnd, withGroups, newTextClip, newElementClip, addTrack, cutsOn, OVERLAP_CUTS } from './model.js';
 import { planGraphics, GFX_LEVELS, GFX_LOOKS } from './lib/kinetic.js';
 import { planTalkingText, TALK_MODES, TALK_LOOKS } from './lib/talktext.js';
 import { placeTalkingText } from './talktext.js';
@@ -147,6 +147,16 @@ export function openAutoEdit(app) {
   voiceSel.addEventListener('change', () => { o.voice = voiceSel.value; draw(); });
   // the parts of the video to use: sections (X) and the current In–Out
   const regionRow = el('div', { class: 'ae-parts' });
+  // REDO ONLY: make just some parts of an edit again (the zooms, the ums with newly taught words…), the rest kept
+  let redoOn = false, body = null;
+  const redoParts = new Set(Array.isArray(p.redoParts) && p.redoParts.length ? p.redoParts : ['zoom']);
+  const redoCb = el('input', { type: 'checkbox' });
+  redoCb.addEventListener('change', () => { redoOn = redoCb.checked; draw(); });
+  const redoChips = el('div', { class: 'ae-redo-chips' });
+  const redoRow = el('div', { class: 'ae-redo' },
+    el('label', { class: 'ae-check', title: 'Already auto edited? Make only the parts you pick again, with the settings below. Nothing else changes: not the cuts, the shape, the best moments or anything you did by hand.' },
+      redoCb, el('b', { text: 'REDO ONLY SOME PARTS' }), el('span', { class: 'note', text: ' of the edit already made; the rest stays as it is' })),
+    redoChips);
   let dlg = null;
   const pickParts = () => { dlg?.close(); if (!app.timeline.marking) app.cmd('keep-part'); };
   const drawParts = () => {
@@ -180,7 +190,14 @@ export function openAutoEdit(app) {
     delete o.sounds;
   };
   const draw = () => {
-    const r = RECIPES[id];
+    const r0 = RECIPES[id];
+    redoChips.replaceChildren(...REDO_PARTS.map(([k, t]) => el('button', { type: 'button', class: 'ae-chip' + (redoParts.has(k) ? ' on' : ''), text: (redoParts.has(k) ? '✓ ' : '') + t,
+      onclick: () => { if (redoParts.has(k)) { if (redoParts.size > 1) redoParts.delete(k); } else redoParts.add(k); draw(); } })));
+    redoChips.classList.toggle('hidden', !redoOn);
+    body?.classList.toggle('redoing', redoOn);
+    const go = dlg?.foot?.querySelector('.ae-go'); if (go) go.textContent = redoOn ? 'REDO THESE PARTS' : 'AUTO EDIT';
+    const view = redoOn ? redoSettings(r0, o, [...redoParts]) : null;
+    const r = view ? view.r : r0;
     for (const b of cards.children) b.classList.toggle('lit', b.dataset.k === id);
     if (len == null || !r.lengths?.some(([v]) => v === len)) len = r.lengths ? (p.lengths?.[id] ?? r.length) : null;
     lenRow.replaceChildren(...(r.lengths || []).map(([v, t]) => el('button', { type: 'button', class: v === len ? 'on' : '', text: t, onclick: () => { len = v; draw(); } })));
@@ -198,24 +215,26 @@ export function openAutoEdit(app) {
     detail.textContent = r.hint;
     const f = r.format && FORMATS[r.format];
     const many = useRegion && parts.length > 1, within = useRegion && parts.length ? (many ? ' from each part' : ' in that part') : '';
+    const O = view ? view.o : o;
     steps.replaceChildren(...[
+      redoOn ? `Leave the edit as it is, and make again only: ${REDO_PARTS.filter(([k]) => redoParts.has(k)).map(([, t]) => t.replace(/ \(.*\)$/, '').toLowerCase()).join(', ')}` : null,
       useRegion && parts.length ? `Work only on ${parts.map(q => `${fmt(q.t0)}–${fmt(q.t1)}`).join(', ')}; the rest is set aside` : null,
-      o.claps === 'cut' ? 'Find clap signals and cut them out (each leaves a take marker)' : o.claps === 'markers' ? 'Find clap signals and mark them' : o.claps === 'notes' ? `Find clap signals, cut them out, and put what you say after each one on screen as a note card${o.noteSpeech === 'cut' ? ' (the spoken note is cut, so it only shows as text)' : ''}` : null,
+      O.claps === 'cut' ? 'Find clap signals and cut them out (each leaves a take marker)' : O.claps === 'markers' ? 'Find clap signals and mark them' : O.claps === 'notes' ? `Find clap signals, cut them out, and put what you say after each one on screen as a note card${O.noteSpeech === 'cut' ? ' (the spoken note is cut, so it only shows as text)' : ''}` : null,
       'Listen to the speech (on this Mac)',
       r.highlights ? (many && r.highlights === 1 ? `Pick the best moments${within}, about ${len} s in all, and join them in order` : `Pick the best ${many && r.highlights > 1 ? 'moment from each part (a short each)' : r.highlights > 1 ? `${r.highlights} moments` : 'moment'} of about ${len} s${many ? '' : within}, starting on a strong line`) : (many ? 'Join the parts in order' : null),
-      o.clean !== 'off' ? (o.clean === 'tight' ? 'Cut ums and dead air (tight)' : 'Cut ums and tighten long pauses') + (o.keepSped !== false ? ', leaving sped-up clips whole' : '') : null,
-      f ? `Reframe to ${f.w} × ${f.h}${{ blur: ' (whole picture on a blurred copy)', zoom: ' (whole picture on a zoomed copy)', bars: ' (whole picture, black bars)' }[o.fit] || ', cropped, following the action'}` : null,
-      o.zoom !== 'off' ? `Smart Zoom, ${ZOOM_LEVELS[o.zoom][0].toLowerCase()}: ${{ punchy: 'quick push-ins and push-outs', follow: 'following the action', kenburns: 'slow Ken Burns drifts' }[o.motion || 'follow']}` : null,
-      o.trans !== 'off' ? `${PACKS[o.pack].name} transitions${o.variety === 'wild' ? ', any kind' : o.variety === 'same' ? '' : ', mixed up'}, ${TRANS_LEVELS[o.trans][0].toLowerCase()} (about one every ${transGap(o.trans, !!r.highlights)} s at most)` : null,
-      o.trans !== 'off' ? (o.sfx === 'off' ? 'No sound effects' : `Sound effects with the transitions (${SFX_LEVELS[o.sfx][0].toLowerCase()}), on their own Sound FX track`) : null,
-      o.captions !== 'off' ? (['spoken', 'both'].includes(o.talk) && o.captions !== 'file' ? 'Captions as a subtitle file (the talking text puts the words in the video)' : { file: 'Captions as a subtitle file (.srt) beside the export', burned: 'Captions in the video', big: 'Big, bold captions in the video' }[o.captions]) : null,
-      chainById(o.voice) ? `Voice: ${chainById(o.voice).name} (${chainById(o.voice).chain.map(f => f.type === 'au' ? f.name : ({ declick: 'De-click', deess: 'De-ess', level: 'Auto Level', eq: 'EQ', comp: 'Compressor', gate: 'Noise gate', limiter: 'Limiter', reverb: 'Reverb', delay: 'Delay', gain: 'Gain' })[f.type] || f.type).join(' → ')}) on the speech tracks` : null,
-      o.volume === 'even' ? 'Even out the volume: an Auto Level on each track with sound (quiet parts up, loud parts down)' : null,
-      (o.gfx || 'off') !== 'off' && !['keywords', 'both'].includes(o.talk) ? `Put the punchy lines on screen as ${{ bold: 'bold kinetic titles (slam, smear, slice), with starbursts and light streaks', clean: 'clean titles with pill, serif and highlighted words', tech: 'tech titles (neon, glitch) with light streaks', mix: 'a mix of every kinetic look (slam, smear, neon, slice, shatter, pills…), with starbursts, light streaks and charts' }[o.gfxLook || 'mix']}, ${o.gfx === 'lots' ? 'often' : 'now and then'}; a chart for a percentage` : null,
-      (o.talk || 'off') !== 'off' ? `Talking text: ${{ spoken: 'what you say along the bottom, each word lighting up as you say it', keywords: 'the key words popping up big in the middle (questions, numbers, tips), with an emoji now and then', both: 'what you say along the bottom (each word lighting up as you say it), and the key words popping up big in the middle with an emoji now and then' }[o.talk]}` : null,
-      (o.cta || 'off') !== 'off' ? (r.format ? 'A Follow call-out near the end' : `Like · Subscribe · Bell and comment call-outs between sentences${o.cta === 'end' ? ', and an end screen' : ''}`) : null,
+      O.clean !== 'off' ? (O.clean === 'tight' ? 'Cut ums and dead air (tight)' : 'Cut ums and tighten long pauses') + (redoOn ? ', with every word you’ve taught Reel so far' : '') + (O.keepSped !== false ? ', leaving sped-up clips whole' : '') : null,
+      f ? `Reframe to ${f.w} × ${f.h}${{ blur: ' (whole picture on a blurred copy)', zoom: ' (whole picture on a zoomed copy)', bars: ' (whole picture, black bars)' }[O.fit] || ', cropped, following the action'}` : null,
+      O.zoom !== 'off' ? `Smart Zoom, ${ZOOM_LEVELS[O.zoom][0].toLowerCase()}: ${{ punchy: 'quick push-ins and push-outs', follow: 'following the action', kenburns: 'slow Ken Burns drifts' }[O.motion || 'follow']}` : null,
+      O.trans !== 'off' ? `${PACKS[O.pack].name} transitions${O.variety === 'wild' ? ', any kind' : O.variety === 'same' ? '' : ', mixed up'}, ${TRANS_LEVELS[O.trans][0].toLowerCase()} (about one every ${transGap(O.trans, !!r.highlights)} s at most)` : null,
+      O.trans !== 'off' ? (O.sfx === 'off' ? 'No sound effects' : `Sound effects with the transitions (${SFX_LEVELS[O.sfx][0].toLowerCase()}), on their own Sound FX track`) : null,
+      O.captions !== 'off' ? (['spoken', 'both'].includes(O.talk) && O.captions !== 'file' ? 'Captions as a subtitle file (the talking text puts the words in the video)' : { file: 'Captions as a subtitle file (.srt) beside the export', burned: 'Captions in the video', big: 'Big, bold captions in the video' }[O.captions]) : null,
+      chainById(O.voice) ? `Voice: ${chainById(O.voice).name} (${chainById(O.voice).chain.map(f => f.type === 'au' ? f.name : ({ declick: 'De-click', deess: 'De-ess', level: 'Auto Level', eq: 'EQ', comp: 'Compressor', gate: 'Noise gate', limiter: 'Limiter', reverb: 'Reverb', delay: 'Delay', gain: 'Gain' })[f.type] || f.type).join(' → ')}) on the speech tracks` : null,
+      O.volume === 'even' ? 'Even out the volume: an Auto Level on each track with sound (quiet parts up, loud parts down)' : null,
+      (O.gfx || 'off') !== 'off' && !['keywords', 'both'].includes(O.talk) ? `Put the punchy lines on screen as ${{ bold: 'bold kinetic titles (slam, smear, slice), with starbursts and light streaks', clean: 'clean titles with pill, serif and highlighted words', tech: 'tech titles (neon, glitch) with light streaks', mix: 'a mix of every kinetic look (slam, smear, neon, slice, shatter, pills…), with starbursts, light streaks and charts' }[O.gfxLook || 'mix']}, ${O.gfx === 'lots' ? 'often' : 'now and then'}; a chart for a percentage` : null,
+      (O.talk || 'off') !== 'off' ? `Talking text: ${{ spoken: 'what you say along the bottom, each word lighting up as you say it', keywords: 'the key words popping up big in the middle (questions, numbers, tips), with an emoji now and then', both: 'what you say along the bottom (each word lighting up as you say it), and the key words popping up big in the middle with an emoji now and then' }[O.talk]}` : null,
+      (O.cta || 'off') !== 'off' ? (r.format ? 'A Follow call-out near the end' : `Like · Subscribe · Bell and comment call-outs between sentences${O.cta === 'end' ? ', and an end screen' : ''}`) : null,
       r.chapters ? 'Chapters as markers (they go in the export notes)' : null,
-      `Loudness set for ${r.loud === 'spotify' ? 'TikTok / Reels' : r.loud === 'podcast' ? 'podcasts' : 'YouTube'}`,
+      redoOn && !redoParts.has('voice') ? null : `Loudness set for ${r.loud === 'spotify' ? 'TikTok / Reels' : r.loud === 'podcast' ? 'podcasts' : 'YouTube'}`,
     ].filter(Boolean).map(t => el('li', { text: t })));
   };
   for (const [k, r] of Object.entries(RECIPES)) {
@@ -225,8 +244,9 @@ export function openAutoEdit(app) {
   }
   loadRecipe();
   const row = (label, ...kids) => el('div', { class: 'row ae-row' }, el('label', { text: label }), ...kids);
-  const body = el('div', { class: 'ae' },
+  body = el('div', { class: 'ae' },
     el('p', { class: 'note', text: 'Pick what you’re making, and how strong each effect should be. Reel watches and listens to your video and edits it for you; you preview the result before you keep it, and everything stays editable.' }),
+    redoRow,
     cards,
     el('div', { class: 'ae-cols' },
       el('div', {}, detail,
@@ -257,17 +277,43 @@ export function openAutoEdit(app) {
   draw();
   dlg = modal('Auto Edit', body, [
     { label: 'Cancel', onClick: c => c() },
-    { label: 'Auto edit', cls: 'hw amber', onClick: c => {
+    { label: 'Auto edit', cls: 'hw amber ae-go', onClick: c => {
       const prev = loadPrefs();
-      savePrefs({ ...prev, recipe: id, locale: lang.value, lengths: { ...(prev.lengths || {}), [id]: len }, custom: { ...(prev.custom || {}), [id]: o } });
-      c(); runAutoEdit(app, id, { length: len, locale: lang.value, ...o, regions: useRegion && parts.length ? parts.map(q => ({ t0: q.t0, t1: q.t1 })) : null });
+      savePrefs({ ...prev, recipe: id, locale: lang.value, lengths: { ...(prev.lengths || {}), [id]: len }, custom: { ...(prev.custom || {}), [id]: o }, redoParts: [...redoParts] });
+      c(); runAutoEdit(app, id, { length: len, locale: lang.value, ...o, regions: useRegion && parts.length ? parts.map(q => ({ t0: q.t0, t1: q.t1 })) : null, redo: redoOn ? [...redoParts] : null });
     } },
   ]);
 }
 
 /** Runs a recipe on the open project. */
+/** The parts of an edit Auto Edit can redo on their own (REDO ONLY): each one's setting, and what it's called. */
+export const REDO_PARTS = [
+  ['zoom', 'Zooms & motion'], ['clean', 'Ums & dead air (with the words you’ve taught since)'], ['trans', 'Transitions & their sounds'],
+  ['captions', 'Captions'], ['talk', 'Talking text'], ['gfx', 'Graphics'], ['cta', 'Call-outs'], ['voice', 'Voice & volume'],
+];
+/**
+ * REDO ONLY: the settings for redoing just these parts of an edit already made. The rest is left alone, and so is
+ * what reshapes the edit (the best moments, the new shape, the claps, the parts set aside, the chapters).
+ */
+export function redoSettings(r, o, parts) {
+  const want = new Set(parts);
+  const oo = { ...o, regions: null, claps: 'off', redo: [...want] };
+  if (!want.has('zoom')) oo.zoom = 'off';
+  if (!want.has('clean')) oo.clean = 'off';
+  if (!want.has('trans')) oo.trans = 'off';
+  if (!want.has('captions')) oo.captions = 'off';
+  if (!want.has('talk')) oo.talk = 'off';
+  if (!want.has('gfx')) oo.gfx = 'off';
+  if (!want.has('cta')) oo.cta = 'off';
+  if (!want.has('voice')) { oo.voice = 'none'; oo.volume = 'off'; }
+  return { r: { ...r, highlights: 0, format: null, chapters: false }, o: oo };
+}
+
 export async function runAutoEdit(app, recipeId, o) {
-  const r = RECIPES[recipeId], token = app.token;
+  let r = RECIPES[recipeId];
+  const token = app.token;
+  const redo = Array.isArray(o.redo) && o.redo.length ? new Set(o.redo) : null;
+  if (redo) ({ r, o } = redoSettings(r, o, [...redo]));
   if (app._autoEditing) { toast('Auto Edit is already working.'); return; }
   app._autoEditing = true;
   const before = structuredClone(app.doc);
@@ -465,6 +511,13 @@ export async function runAutoEdit(app, recipeId, o) {
     // 5½ · transitions and sound effects, on the cuts that are left
     if (pack) {
       step('Adding transitions');
+      if (redo) app.commit(d => {
+        // the transitions from before go first (on every cut), and the sounds Auto Edit put with them
+        for (const t of d.tracks) for (const [a, b] of cutsOn(d, t.id)) {
+          if (b.transIn?.type && b.transIn.type !== 'none') { if (OVERLAP_CUTS.has(b.transIn.type) || b.transIn.type === 'text-reveal') { delete a.xfadeOut; delete b.xfadeIn; } a.transOut = { type: 'none', dur: 0.5 }; b.transIn = { type: 'none', dur: 0.5 }; }
+        }
+        d.clips = d.clips.filter(c => c.style !== 'auto-transitions');
+      });
       let ids = app.doc.clips.filter(c => isVideo(app.doc, c) && !bgTrack(c.track)).map(c => c.id);
       // a long single take has no cuts for transitions to sit on: cut it between sentences (nothing is removed),
       // at about the spacing asked for, so the transitions land where the talk changes
@@ -508,7 +561,7 @@ export async function runAutoEdit(app, recipeId, o) {
       step('Writing captions');
       // the talking text already shows what's said: captions burned in as well would say it twice, so they go in the
       // subtitle file instead (for people who turn subtitles on)
-      const spokenOn = ['spoken', 'both'].includes(o.talk) && !only;
+      const spokenOn = (['spoken', 'both'].includes(o.talk) || (redo && app.doc.clips.some(c => c.autoTalk && c.text?.wordTimes))) && !only; // (redoing captions alone: the talking text already there counts)
       const burnIt = o.captions !== 'file' && !spokenOn;
       const big = o.captions === 'big' && burnIt, vertical = app.doc.canvas.height > app.doc.canvas.width;
       const caps = buildCaptions(words, big ? { maxChars: 28, lines: 1, maxDur: 2.4 } : { maxChars: vertical ? 40 : 64, lines: 2 }).map(c => ({ id: uid('cap'), ...c }));
@@ -581,7 +634,7 @@ export async function runAutoEdit(app, recipeId, o) {
       if (n) { step('Evening out the volume'); report.push('even volume'); }
     }
     // 8 · loudness (and the temporary join markers go)
-    app.commit(d => { if (!only) masterOf(d).loudness = r.loud; d.markers = (d.markers || []).filter(m => !m.autoJoin); });
+    app.commit(d => { if (!only && !(redo && !redo.has('voice'))) masterOf(d).loudness = r.loud; d.markers = (d.markers || []).filter(m => !m.autoJoin); });
     // one clip: put the result back in its place; everything after it moves to fit
     if (only) {
       const was = only.t1 - only.t0, now = docDuration(app.doc);
@@ -593,7 +646,7 @@ export async function runAutoEdit(app, recipeId, o) {
     dlg.close();
     app.renderAll?.(); app.timeline?.fit?.(); app.seek?.(only ? only.t0 : 0);
     const after = app.doc;
-    const summary = only ? `Auto Edit, this clip only: ${report.join(' · ')}` : `${RECIPES[recipeId].name}: ${report.join(' · ') || 'done'} · ${after.canvas.width} × ${after.canvas.height}, ${fmt(docDuration(after))}`;
+    const summary = only ? `Auto Edit, this clip only: ${report.join(' · ')}` : redo ? `Redone: ${REDO_PARTS.filter(([k]) => redo.has(k)).map(([, t]) => t.replace(/ \(.*\)$/, '').toLowerCase()).join(', ')} · ${report.join(' · ') || 'done'}` : `${RECIPES[recipeId].name}: ${report.join(' · ') || 'done'} · ${after.canvas.width} × ${after.canvas.height}, ${fmt(docDuration(after))}`;
     reviewBar(app, { before, summary, recipeId, multi: recipeId === 'multi', at: only ? only.t0 : 0 });
   } catch (e) {
     dlg.close();

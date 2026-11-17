@@ -2,9 +2,9 @@
 // scale it; callout boxes and arrow end points can be dragged too.
 import { elementBox } from './lib/elements.js';
 import { el, popMenu, dragBy } from './ui.js';
-import { propsAt, mediaById, ANIMATABLE, clipEnd, TEXT_DEFAULTS, animated, paramAt, setParam, clamp } from './model.js';
+import { propsAt, mediaById, ANIMATABLE, clipEnd, TEXT_DEFAULTS, animated, paramAt, setParam, clamp, uid, fmtTime } from './model.js';
 import { mediaRect, textFont } from './compositor.js';
-import { getDynZoom, setDynZoomFrame, swapDynZoom, setDynZoomEase, DZ_EASES, MIN_S, MAX_S } from './lib/dynzoom.js';
+import { getDynZoom, setDynZoomFrame, swapDynZoom, setDynZoomEase, DZ_EASES, MIN_S, MAX_S, zoomMoves, shotOf, propsOfShot } from './lib/dynzoom.js';
 
 export class Overlay {
   constructor(app) {
@@ -34,6 +34,7 @@ export class Overlay {
     this.root.replaceChildren();
     // framing a dynamic zoom ends when its clip is no longer selected
     if (app.dzEdit && (!doc || !app.selection.clips.includes(app.dzEdit))) { app.dzEdit = null; app.player.queueDraw(); app.inspector?.render?.(); }
+    if (app.zmEdit && (!doc || !app.selection.clips.includes(app.zmEdit))) { app.zmEdit = null; app.player.queueDraw(); app.inspector?.render?.(); }
     if (!doc || !app.selection.clips.length || app.player.playing) return;
     // one picture in the selection gets the handles: a clip selected with its own sound (a recording's screen and
     // microphone, a PIP and its audio) still shows them, so it can be moved and scaled straight away
@@ -51,11 +52,20 @@ export class Overlay {
     const ca = animated(c, t - c.start);
     const p = propsAt({ ...ca, transIn: null, transOut: null }, t - c.start);
     if (app.dzEdit === c.id) { this.dzBoxes(c, W, H); return; }
+    if (app.zmEdit === c.id) { this.zmBoxes(c, W, H); return; }
     if (c.type === 'media') {
       const m = mediaById(doc, c.media);
       if (!m || m.kind === 'audio') return;
       const r = mediaRect(doc, m, p, W, H, m.width || 1920, m.height || 1080);
       this.box(c, { x: r.cx - r.w / 2, y: r.cy - r.h / 2, w: r.w, h: r.h }, W, H, 'media');
+      // the clip's zoom moves (Auto Edit's push-ins), one click away
+      const n = zoomMoves(c).length;
+      if (n && !app.dzEdit) {
+        const pill = el('button', { class: 'zm-pill', type: 'button', text: `🎯 ${n} ZOOM MOVE${n === 1 ? '' : 'S'} · EDIT`, title: 'See where each zoom goes, on the whole picture, and move or resize it' });
+        pill.addEventListener('pointerdown', e => e.stopPropagation());
+        pill.addEventListener('click', e => { e.stopPropagation(); app.cmd('zoom-moves'); });
+        this.root.append(pill);
+      }
     } else if (c.type === 'text') {
       const tx = { ...TEXT_DEFAULTS, ...ca.text };
       const sx = W / doc.canvas.width;
@@ -179,6 +189,134 @@ export class Overlay {
     if (this.dzBarAt) bar.style.translate = this.dzBarAt;
     dragBy(bar, bar.querySelector('.dz-title'));
     bar.querySelector('.dz-title').addEventListener('pointerup', () => { this.dzBarAt = bar.style.translate; });
+  }
+
+  /**
+   * 🎯 Zoom moves: the whole picture, and each zoom move (Auto Edit's push-ins, or ones added by hand) as a numbered
+   * frame, what fills the screen when that move is done, with arrows from one to the next so the direction shows.
+   * One move is worked on at a time: drag inside its frame to move where it goes, a corner to make it closer or
+   * wider. The bar steps through them, adds and removes, and sets how long and how smoothly each one moves.
+   */
+  zmBoxes(c, W, H) {
+    const app = this.app, doc = this.doc, m = mediaById(doc, c.media);
+    if (!m) return;
+    const moves = zoomMoves(c);
+    const r0 = mediaRect(doc, m, { x: 0.5, y: 0.5, scale: 1, crop: c.props?.crop || [0, 0, 0, 0] }, W, H, m.width || 1920, m.height || 1080);
+    const fw = r0.w / W, fh = r0.h / H, left = r0.cx - r0.w / 2, top = r0.cy - r0.h / 2;
+    const center = p => { const f = shotOf(p, fw, fh); return { x: left + f.fx * r0.w, y: top + f.fy * r0.h, w: f.s * W, h: f.s * H, f }; };
+    // which move: the one picked, else the last one started at the playhead
+    const local = app.player.time - c.start;
+    if (!(this.zmIndex >= 0 && this.zmIndex < moves.length && this.zmClip === c.id)) {
+      let i = 0; moves.forEach((mv, k) => { if (mv.a.t <= local + 1e-6) i = k; }); this.zmIndex = i; this.zmClip = c.id;
+    }
+    const act = moves.length ? this.zmIndex : -1;
+    const NS = 'http://www.w3.org/2000/svg';
+    const svg = document.createElementNS(NS, 'svg');
+    svg.setAttribute('class', 'zm-path'); svg.setAttribute('width', W); svg.setAttribute('height', H);
+    svg.innerHTML = '<defs><marker id="zm-arrow" viewBox="0 0 10 10" refX="8" refY="5" markerWidth="8" markerHeight="8" orient="auto"><path d="M0 0 L10 5 L0 10 z" fill="#ffd27a"/></marker></defs>';
+    this.root.append(svg);
+    const pct = p => `${Math.round((p.scale ?? 1) * 100)}%`;
+    const isOut = p => Math.abs((p.scale ?? 1) - 1) < 0.02 && Math.abs((p.x ?? 0.5) - 0.5) < 0.01 && Math.abs((p.y ?? 0.5) - 0.5) < 0.01;
+    const boxes = [];
+    const draw = () => {
+      svg.querySelectorAll('line, circle').forEach(n => n.remove());
+      zoomMoves(c).forEach((mv, i) => {
+        const a = center(mv.from), b = center(mv.to);
+        if (Math.hypot(b.x - a.x, b.y - a.y) > 4) {
+          const ln = document.createElementNS(NS, 'line');
+          ln.setAttribute('x1', a.x); ln.setAttribute('y1', a.y); ln.setAttribute('x2', b.x); ln.setAttribute('y2', b.y);
+          ln.setAttribute('marker-end', 'url(#zm-arrow)'); ln.setAttribute('class', i === act ? 'on' : '');
+          svg.append(ln);
+        }
+        const dot = document.createElementNS(NS, 'circle'); dot.setAttribute('cx', b.x); dot.setAttribute('cy', b.y); dot.setAttribute('r', i === act ? 5 : 3.5); dot.setAttribute('class', i === act ? 'on' : '');
+        svg.append(dot);
+        const bx = boxes[i];
+        if (bx) { Object.assign(bx.el.style, { left: b.x - b.w / 2 + 'px', top: b.y - b.h / 2 + 'px', width: b.w + 'px', height: b.h + 'px' }); bx.tag.textContent = `${i + 1} · ${isOut(mv.to) ? 'BACK OUT' : 'ZOOM ' + pct(mv.to)} · ${fmtTime(c.start + mv.a.t).replace(/(\.\d)\d*$/, '$1')}`; }
+      });
+    };
+    const pick = i => { this.zmIndex = i; const mv = zoomMoves(c)[i]; if (mv) app.seek(c.start + Math.min(c.duration - 0.01, mv.a.t + mv.a.dur)); this.update(); };
+    moves.forEach((mv, i) => {
+      const on = i === act;
+      const tag = el('span', { class: 'zm-tag' });
+      const b = el('div', { class: 'zm-box' + (on ? ' active' : '') + (isOut(mv.to) ? ' out' : ''), title: on ? 'This zoom move: what fills the screen when it’s done. Drag inside to move where it goes · drag a corner to come closer or go wider (⇧ from the centre)' : 'Click to work on this move' },
+        tag, ...(on ? [el('i', { class: 'dz-centre' }), ...['tl', 'tr', 'bl', 'br'].map(h => el('div', { class: 'h ' + h, 'data-h': h }))] : []));
+      boxes[i] = { el: b, tag };
+      if (!on) { tag.addEventListener('pointerdown', e => { if (e.button === 0) { e.preventDefault(); e.stopPropagation(); pick(i); } }); this.root.append(b); return; }
+      b.addEventListener('pointerdown', e => {
+        if (e.button !== 0) return;
+        e.preventDefault(); e.stopPropagation();
+        const h = e.target.dataset?.h || null, f0 = shotOf(zoomMoves(c)[i].to, fw, fh);
+        const x0 = e.clientX, y0 = e.clientY;
+        let moved = false;
+        b.setPointerCapture(e.pointerId);
+        const move = ev => {
+          if (!moved && Math.abs(ev.clientX - x0) + Math.abs(ev.clientY - y0) < 3) return;
+          if (!moved) { moved = true; this.dragging = true; app.beginChange(); }
+          const dx = (ev.clientX - x0) / r0.w, dy = (ev.clientY - y0) / r0.h; // in the picture's own fractions
+          let f;
+          if (!h) f = { ...f0, fx: f0.fx + dx, fy: f0.fy + dy };
+          else {
+            const sx = h.includes('l') ? -1 : 1, sy = h.includes('t') ? -1 : 1;
+            // the frame keeps the screen's shape: a corner moved grows it by the average of how far it went
+            const ds = ((sx * (ev.clientX - x0)) / W + (sy * (ev.clientY - y0)) / H) / 2 * (ev.shiftKey ? 2 : 1);
+            const s = clamp(f0.s + ds, MIN_S, MAX_S);
+            f = ev.shiftKey ? { ...f0, s } : { s, fx: f0.fx + sx * ((s - f0.s) * W / 2) / r0.w, fy: f0.fy + sy * ((s - f0.s) * H / 2) / r0.h }; // the opposite corner stays put
+          }
+          const live = (doc.clips.find(x => x.id === c.id) || c).actions.find(x => x.id === mv.a.id) || mv.a;
+          const p = propsOfShot(f, fw, fh);
+          live.props = { ...live.props, x: p.x, y: p.y, scale: p.scale };
+          draw();
+          app.changed({ light: true, keepInspector: true });
+        };
+        const up = () => { b.removeEventListener('pointermove', move); b.removeEventListener('pointerup', up); this.dragging = false; if (moved) app.endChange({ keepInspector: true }); else this.update(); };
+        b.addEventListener('pointermove', move); b.addEventListener('pointerup', up);
+      });
+      b.addEventListener('contextmenu', e => {
+        e.preventDefault();
+        popMenu(e.clientX, e.clientY, [
+          ['Back out to the whole picture', () => app.commit(() => { mv.a.props = { ...mv.a.props, x: 0.5, y: 0.5, scale: 1 }; })],
+          ['Centre it', () => app.commit(() => { const f = shotOf(mv.to, fw, fh), p = propsOfShot({ ...f, fx: 0.5, fy: 0.5 }, fw, fh); mv.a.props = { ...mv.a.props, ...p }; })],
+          ['Remove this move', () => { app.commit(() => { c.actions = c.actions.filter(x => x !== mv.a); }); this.zmIndex = Math.max(0, i - 1); }],
+          null, ['Done', () => app.cmd('zoom-moves-done')],
+        ]);
+      });
+      this.root.append(b);
+    });
+    // the one being worked on on top
+    if (act >= 0) this.root.append(boxes[act].el);
+    draw();
+    // the bar
+    const mv = moves[act];
+    const ease = el('select', { title: 'How it moves: smooth, steady, or easing in or out' }, ...DZ_EASES.map(([v, t]) => el('option', { value: v, text: t, selected: (mv?.a.ease || 'ease') === v })));
+    ease.disabled = !mv;
+    ease.addEventListener('change', () => app.commit(() => { if (mv) mv.a.ease = ease.value; }));
+    const speed = el('select', { title: 'How long the move takes' }, ...[0.3, 0.6, 1, 1.5, 2, 3].map(v => el('option', { value: v, text: `${v} s`, selected: mv && Math.abs(mv.a.dur - v) < 0.05 })));
+    if (mv && ![0.3, 0.6, 1, 1.5, 2, 3].some(v => Math.abs(mv.a.dur - v) < 0.05)) speed.prepend(el('option', { value: mv.a.dur, text: `${mv.a.dur.toFixed(1)} s`, selected: true }));
+    speed.disabled = !mv;
+    speed.addEventListener('change', () => app.commit(() => { if (mv) mv.a.dur = Math.max(0.05, Math.min(+speed.value, c.duration - mv.a.t)); }));
+    const add = () => {
+      // a new move at the playhead: closer in on what's in the middle of the screen now
+      const t = clamp(app.player.time - c.start, 0, Math.max(0, c.duration - 0.3));
+      const now = propsAt({ ...c, transIn: null, transOut: null }, t), f = shotOf(now, fw, fh);
+      const a = { id: uid('a'), t, dur: 0.6, ease: 'ease', props: propsOfShot({ ...f, s: clamp(f.s / 1.6, MIN_S, MAX_S) }, fw, fh) };
+      app.commit(() => { c.actions = [...(c.actions || []), a]; });
+      this.zmIndex = zoomMoves(c).findIndex(x => x.a.id === a.id);
+      this.update();
+    };
+    const bar = el('div', { class: 'dz-bar zm-bar' },
+      el('b', { class: 'dz-title', text: '🎯 ZOOM MOVES', title: 'Drag to move this bar' }),
+      el('button', { class: 'dz-mini', text: '◀', title: 'The move before', disabled: act <= 0, onclick: () => pick(act - 1) }),
+      el('span', { class: 'zm-count', text: moves.length ? `${act + 1} of ${moves.length}` : 'none yet' }),
+      el('button', { class: 'dz-mini', text: '▶', title: 'The next move', disabled: act < 0 || act >= moves.length - 1, onclick: () => pick(act + 1) }),
+      speed, ease,
+      el('button', { class: 'dz-mini', text: '＋ ADD', title: 'A new zoom move at the playhead', onclick: add }),
+      el('button', { class: 'dz-mini', text: '🗑', title: 'Remove this move', disabled: !mv, onclick: () => { app.commit(() => { c.actions = c.actions.filter(x => x !== mv.a); }); this.zmIndex = Math.max(0, act - 1); this.update(); } }),
+      el('button', { class: 'dz-done', text: 'DONE', title: 'Finish (Esc)', onclick: () => app.cmd('zoom-moves-done') }));
+    for (const ev of ['pointerdown', 'click']) bar.addEventListener(ev, e => e.stopPropagation());
+    this.root.append(bar);
+    if (this.zmBarAt) bar.style.translate = this.zmBarAt;
+    dragBy(bar, bar.querySelector('.dz-title'));
+    bar.querySelector('.dz-title').addEventListener('pointerup', () => { this.zmBarAt = bar.style.translate; });
   }
 
   box(c, r, W, H, kind) {

@@ -116,11 +116,51 @@ export function removeDynZoom(c) {
 
 /** The clip without its zoom: what the preview shows while you place the frames (the whole picture). */
 export function unzoomed(c) {
-  if (!c.keys || !DZ.some(p => c.keys[p])) return { ...c, props: { ...c.props, x: 0.5, y: 0.5, scale: 1 } };
+  // the zoom moves (actions with a position or scale, like Auto Edit's) leave too: only their other changes stay
+  const actions = c.actions?.length ? c.actions.map(a => (a.props && ['x', 'y', 'scale'].some(k => k in a.props) ? { ...a, props: Object.fromEntries(Object.entries(a.props).filter(([k]) => !['x', 'y', 'scale'].includes(k))) } : a)) : c.actions;
+  if (!c.keys || !DZ.some(p => c.keys[p])) return { ...c, actions, props: { ...c.props, x: 0.5, y: 0.5, scale: 1 } };
   const keys = { ...c.keys };
   for (const p of DZ) delete keys[p];
-  return { ...c, keys: Object.keys(keys).length ? keys : undefined, props: { ...c.props, x: 0.5, y: 0.5, scale: 1 } };
+  return { ...c, actions, keys: Object.keys(keys).length ? keys : undefined, props: { ...c.props, x: 0.5, y: 0.5, scale: 1 } };
 }
+
+// ------------------------------------------------------------------ zoom moves (actions: Auto Edit's push-ins)
+const isMove = a => a.props && ['x', 'y', 'scale'].some(k => k in a.props);
+const xys = p => ({ x: p.x ?? 0.5, y: p.y ?? 0.5, scale: p.scale ?? 1 });
+/** The clip's zoom moves in order: [{ a, from, to }], the position and scale before it and when it's done. */
+/** Takes the zoom moves out of a clip (actions that move or scale it): a move that also changes other things keeps
+ * those, the rest go. Returns how many moves were taken out. */
+export function dropZoomMoves(c) {
+  let n = 0;
+  c.actions = (c.actions || []).flatMap(a => {
+    if (!isMove(a)) return [a];
+    n++;
+    const props = Object.fromEntries(Object.entries(a.props).filter(([k]) => !['x', 'y', 'scale'].includes(k)));
+    return Object.keys(props).length ? [{ ...a, props }] : [];
+  });
+  return n;
+}
+/** How many zoom moves a clip has. */
+export const countZoomMoves = c => (c.actions || []).filter(isMove).length;
+export function zoomMoves(c) {
+  const all = [...(c.actions || [])].sort((x, y) => x.t - y.t);
+  const pr = xys(c.props || {});
+  const out = [];
+  for (const a of all) {
+    if (!isMove(a)) continue;
+    const from = { ...pr };
+    for (const k of ['x', 'y', 'scale']) if (k in a.props) pr[k] = a.props[k];
+    out.push({ a, from, to: { ...pr } });
+  }
+  return out;
+}
+/**
+ * What fills the screen for props p, on a picture that fills fw × fh of the canvas at scale 1 (fractions: a
+ * recording of another shape is letterboxed): its centre fx, fy in the picture, and s, the screen's size against
+ * the picture's whole view (0.5: twice as close).
+ */
+export const shotOf = (p, fw = 1, fh = 1) => { const q = xys(p); return { s: 1 / q.scale, fx: 0.5 - (q.x - 0.5) / (fw * q.scale), fy: 0.5 - (q.y - 0.5) / (fh * q.scale) }; };
+export const propsOfShot = ({ fx, fy, s }, fw = 1, fh = 1) => { const sc = 1 / clamp(s, MIN_S, MAX_S); return { scale: sc, x: 0.5 + (0.5 - fx) * fw * sc, y: 0.5 + (0.5 - fy) * fh * sc }; };
 
 /**
  * The Zoom lane: sets the zoom at clip-local time t to `scale` (a keyframe), keeping the same spot of the

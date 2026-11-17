@@ -1,7 +1,7 @@
 // Timeline: tracks with a Pro Tools–style header (solo, mute, hide, volume, pan, automation lane),
 // clips with their keyframes, automation lanes, markers and the playhead. Move, trim, snap, drop,
 // marquee-select, scrub (also while playing) and zoom from a single frame out to the whole project.
-import { el, $, popMenu, toast } from './ui.js';
+import { el, $, popMenu, toast, ask } from './ui.js';
 import { clipEnd, isFree, addTrack, snap, trim, setSpeed, SPEED_STEPS, mediaById, duration, fmtTime, keyAt, withGroups, TRACK_LANES, gainToPos, posToGain, fmtDb, fmtPan, clamp, neighbour, roll, KEY_EASES, split, tidyCrossfades, cutsOn, crossfadeOverlaps, fadeShape, putKey, emptyTracks, OVERLAP_CUTS, applyCut } from './model.js';
 import { peaksFor, posterFor } from './peaks.js';
 import { mapAt, addPoint, movePoint, removePoint, linearRetime } from './lib/retime.js';
@@ -17,7 +17,7 @@ import { dropPreset } from './fxlibrary.js';
 import { dial } from './gear.js';
 import { fxRack, fxRackH } from './fxrack.js';
 import { roleButton, tint } from './automix.js';
-import { setZoomAt, moveZoomKey, removeZoomKey, removeDynZoom } from './lib/dynzoom.js';
+import { setZoomAt, moveZoomKey, removeZoomKey, removeDynZoom, dropZoomMoves, countZoomMoves } from './lib/dynzoom.js';
 import { soundTracks, ROLES } from './lib/automix.js';
 import { addFiller, playRange, fillerMenu, removeFiller } from './fillers.js';
 
@@ -291,6 +291,7 @@ export class Timeline {
       null,
       hasKeys ? [`Remove all keyframes (${Object.values(c.keys).flat().length})`, () => app.commit(() => { delete c.keys; })] : ['No keyframes', null],
       nActions ? [`Remove all actions (${nActions})`, () => app.commit(() => { c.actions = []; }, { keepInspector: false })] : ['No actions', null],
+      ...this._everyClipActions(),
       null,
       c.type === 'media' && m?.kind !== 'image' ? [`Speed up (now ${Math.round((c.speed || 1) * 100)}%)`, () => app.cmd('speed-up'), '⌥⌘.'] : null,
       c.type === 'media' && m?.kind !== 'image' ? ['Slow down', () => app.cmd('speed-down'), '⌥⌘,'] : null,
@@ -366,7 +367,27 @@ export class Timeline {
       })],
       null,
       ['Delete every action on this clip', () => app.commit(() => { c.actions = []; app.selection.action = null; })],
+      ...this._everyClipActions(),
     ]);
+  }
+  /** Menu rows that clear actions from every clip in the project (asks first, says how many; ⌘Z brings them back). */
+  _everyClipActions() {
+    const app = this.app, clips = this.doc.clips;
+    const nAll = clips.reduce((n, k) => n + (k.actions || []).length, 0), withAny = clips.filter(k => (k.actions || []).length).length;
+    const nZoom = clips.reduce((n, k) => n + countZoomMoves(k), 0), withZoom = clips.filter(k => countZoomMoves(k)).length;
+    const s = (n, w) => `${n} ${w}${n === 1 ? '' : 's'}`;
+    return [
+      nZoom ? [`Delete every zoom move on every clip (${nZoom})…`, async () => {
+        if (!(await ask('Delete every zoom move?', `This takes out ${s(nZoom, 'zoom move')} on ${s(withZoom, 'clip')} (the push-ins and pans, like Auto Edit’s). Fades and other actions stay. ⌘Z brings them back.`, 'Delete zoom moves'))) return;
+        app.commit(() => { for (const k of this.doc.clips) dropZoomMoves(k); app.selection.action = null; }, { keepInspector: false });
+        toast(`Deleted ${s(nZoom, 'zoom move')}`);
+      }] : null,
+      nAll ? [`Delete every action on every clip (${nAll})…`, async () => {
+        if (!(await ask('Delete every action on every clip?', `This takes out all ${s(nAll, 'action')} on ${s(withAny, 'clip')}: zoom moves, fades and everything else. ⌘Z brings them back.`, 'Delete all actions'))) return;
+        app.commit(() => { for (const k of this.doc.clips) if ((k.actions || []).length) k.actions = []; app.selection.action = null; }, { keepInspector: false });
+        toast(`Deleted ${s(nAll, 'action')}`);
+      }] : null,
+    ];
   }
   get doc() { return this.app.doc; }
   get snapOn() { return $('#snap').checked; }

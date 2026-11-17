@@ -316,7 +316,7 @@ export async function autoTransitions(app, packId, { sounds = true, clipIds = nu
   });
   if (sounds && pairs.length) {
     const list = pairs.map(([a, b]) => ({ id: SFX_FOR[b.transIn.type], at: clipEnd(a) })).filter(x => x.id);
-    if (list.length) await addSounds(app, list);
+    if (list.length) await addSounds(app, list, 'auto-transitions'); // tagged: a redo of the transitions takes them away again
   }
   void doc;
   return pairs.length;

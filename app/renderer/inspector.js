@@ -12,7 +12,7 @@ import { canSeparate } from './ghost.js';
 import { captionPanel, captionStylePanel, annotationPanel } from './textops.js';
 import { filtersSection, matteSection, stabilizeSection } from './filters.js';
 import { MOTION_PRESETS, applyMotion, clearMotion } from './motion.js';
-import { hasDynZoom, getDynZoom, setDynZoomEase, swapDynZoom, removeDynZoom, DZ_EASES, setDynZoomTimes, addZoomBackOut, hasZoomBackOut } from './lib/dynzoom.js';
+import { hasDynZoom, getDynZoom, setDynZoomEase, swapDynZoom, removeDynZoom, DZ_EASES, setDynZoomTimes, addZoomBackOut, hasZoomBackOut, zoomMoves, shotOf } from './lib/dynzoom.js';
 import { ELEMENTS } from './lib/elements.js';
 import { pref } from './prefs.js';
 import { textKeys, withKeys } from './texttools.js';
@@ -385,6 +385,21 @@ export class Inspector {
 
   actionsPanel(c) {
     const app = this.app;
+    // 🎯 zoom moves first: where each push-in goes, one click from seeing and changing it on the picture
+    if (c.type === 'media') {
+      const moves = zoomMoves(c);
+      const dir = mv => {
+        // where the middle of the screen goes on the picture (a push-in to the top right: ↗)
+        const a = shotOf(mv.from), b = shotOf(mv.to), ds = (mv.to.scale ?? 1) - (mv.from.scale ?? 1), dx = b.fx - a.fx, dy = b.fy - a.fy;
+        const arrow = Math.hypot(dx, dy) < 0.02 ? '' : ['→', '↘', '↓', '↙', '←', '↖', '↑', '↗'][Math.round(((Math.atan2(dy, dx) * 180) / Math.PI + 360) % 360 / 45) % 8];
+        return `${ds > 0.02 ? 'zoom in' : ds < -0.02 ? 'zoom out' : 'pan'} ${arrow} ${Math.round((mv.to.scale ?? 1) * 100)}%`;
+      };
+      this.root.append(section('🎯 Zoom moves',
+        el('p', { class: 'note', text: moves.length ? `${moves.length} zoom move${moves.length === 1 ? '' : 's'} (Auto Edit’s push-ins, or yours). See where each one goes on the whole picture, and drag it where you want it.` : 'No zoom moves yet. Add one at the playhead and drag it where you want the picture to go.' }),
+        el('button', { class: 'tool hw amber zm-open', text: moves.length ? '🎯 SHOW AND EDIT ON THE PICTURE' : '🎯 ADD A ZOOM MOVE', onclick: () => app.zoomMovesEdit(c.id) }),
+        moves.length ? el('div', { class: 'action-list zm-list' }, ...moves.map((mv, i) => el('div', { class: 'act-item', title: 'Show it on the picture', onclick: () => app.zoomMovesEdit(c.id, mv.a.id) },
+          el('span', { text: `${i + 1}  ${fmtTime(c.start + mv.a.t).replace(/(\.\d)\d*$/, '$1')}  ${dir(mv)}` })))) : null));
+    }
     const list = el('div', { class: 'action-list' });
     for (const a of [...(c.actions || [])].sort((x, y) => x.t - y.t)) {
       const keys = Object.keys(a.props || {}).filter(k => ANIMATABLE.includes(k));

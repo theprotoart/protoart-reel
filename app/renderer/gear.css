@@ -2406,3 +2406,36 @@ html[data-theme="light"] .sp-place { background: rgba(0,0,0,.07); }
 .lscrub { position: relative; height: 16px; margin-top: 5px; border-radius: 3px; background: rgba(0,0,0,.55); box-shadow: inset 0 0 0 1px rgba(255,255,255,.08); cursor: pointer; overflow: hidden; }
 .lscrub > i { position: absolute; left: 0; top: 0; bottom: 0; width: 0; background: linear-gradient(90deg, rgba(255,176,42,.35), rgba(255,176,42,.75)); border-right: 2px solid #ffd27a; }
 .lscrub-t { position: absolute; right: 6px; top: 50%; transform: translateY(-50%); font: 600 10px/1 var(--font-mono, monospace); color: #f6eedb; text-shadow: 0 1px 2px #000; pointer-events: none; }
+
+/* 🎯 Zoom moves: each push-in as a numbered frame over the whole picture, arrows for where it goes */
+.zm-pill { position: absolute; left: 8px; top: 8px; z-index: 6; pointer-events: auto; border: 1px solid #000; border-radius: 14px; padding: 6px 12px; cursor: pointer;
+  font: 700 10.5px/1 var(--font-engrave, system-ui); letter-spacing: .1em; color: #2a1a00;
+  background: radial-gradient(ellipse at 50% 40%, var(--lit-hi, #ffe7a8), var(--lit-mid, #ffb02a) 55%, var(--lit-lo, #c76b00)); box-shadow: 0 2px 8px rgba(0,0,0,.55), 0 0 10px rgba(255,176,42,.4); }
+.zm-pill:hover { filter: brightness(1.1); }
+.zm-path { position: absolute; left: 0; top: 0; pointer-events: none; overflow: visible; }
+.zm-path line { stroke: #ffd27a; stroke-width: 2; stroke-dasharray: 7 5; opacity: .7; filter: drop-shadow(0 0 2px #000); }
+.zm-path line.on { stroke-width: 3; opacity: 1; stroke-dasharray: none; }
+.zm-path circle { fill: #ffd27a; stroke: #000; stroke-width: 1; opacity: .8; } .zm-path circle.on { opacity: 1; }
+.zm-box { position: absolute; box-sizing: border-box; border: 2px dashed rgba(255, 210, 122, .75); pointer-events: none; }
+.zm-box.out { border-color: rgba(255,255,255,.35); }
+.zm-box.active { pointer-events: auto; cursor: move; border: 3px solid #ffb02a; background: rgba(255,176,42,.08); box-shadow: 0 0 0 1px rgba(0,0,0,.6), inset 0 0 0 1px rgba(0,0,0,.35); color: #ffb02a; }
+.zm-box .h { position: absolute; width: 14px; height: 14px; background: #fff; border: 2px solid #ffb02a; border-radius: 2px; }
+.zm-box .h.tl { left: -8px; top: -8px; cursor: nwse-resize; } .zm-box .h.br { right: -8px; bottom: -8px; cursor: nwse-resize; }
+.zm-box .h.tr { right: -8px; top: -8px; cursor: nesw-resize; } .zm-box .h.bl { left: -8px; bottom: -8px; cursor: nesw-resize; }
+.zm-tag { position: absolute; left: 6px; top: 6px; font: 700 10px/1 var(--font-engrave, system-ui); letter-spacing: .1em; padding: 4px 6px; border-radius: 3px; white-space: nowrap; pointer-events: auto; cursor: pointer;
+  color: #2a1a00; background: rgba(255, 210, 122, .85); }
+.zm-box.active .zm-tag { background: #ffb02a; }
+.zm-box.out .zm-tag { background: rgba(255,255,255,.7); }
+.zm-bar .zm-count { font: 700 11px/1 var(--font-mono, monospace); min-width: 52px; text-align: center; }
+.zm-bar .dz-mini:disabled { opacity: .35; cursor: default; }
+.zm-open { width: 100%; margin: 4px 0 6px; }
+
+/* Auto Edit › REDO ONLY SOME PARTS */
+.ae-redo { margin: 6px 0 10px; padding: 8px 10px; border-radius: 6px; background: rgba(255,176,42,.07); border: 1px solid rgba(255,176,42,.25); }
+.ae-redo .ae-check b { font: 700 11px/1 var(--font-engrave, system-ui); letter-spacing: .1em; color: var(--lit-mid, #ffb02a); }
+.ae-redo-chips { display: flex; flex-wrap: wrap; gap: 6px; margin-top: 8px; }
+.ae-redo-chips.hidden { display: none; }
+.ae-chip { border: 1px solid #000; border-radius: 14px; padding: 5px 10px; font-size: 12px; cursor: pointer; background: #2b2d31; color: #cfc8b8; }
+.ae-chip.on { background: radial-gradient(ellipse at 50% 40%, var(--lit-hi, #ffe7a8), var(--lit-mid, #ffb02a) 60%, var(--lit-lo, #c76b00)); color: #2a1a00; font-weight: 700; }
+.ae.redoing .ae-recipes, .ae.redoing .ae-parts { opacity: .45; }
+.ae-redo .ae-check input { margin-right: 8px; }
