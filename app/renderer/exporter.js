@@ -71,7 +71,7 @@ export async function sendOverlays(app, doc, job, W, H, cursor, send) {
     }
   }
   await document.fonts?.ready;
-  const sources = { frame: () => null, image: id => images.get(id) || null, cursor, input: () => null, fx: () => null, lut: () => null, matte: () => null };
+  const sources = { frame: () => null, image: id => images.get(id) || null, cursor, input: cursor?.input || (() => null), fx: () => null, lut: () => null, matte: () => null };
   let prev = null;
   for (const fi of job.overlays) {
     const t = job.from + fi / job.fps;
@@ -323,7 +323,9 @@ export function openExport(app) {
     const cleanup = () => { for (const t of temps) app.api.fxRemoveTemp(app.token, t); };
     // the recorded clicks of clips that play click sounds, for the core to add them (read from the cursor files)
     const cursors = new Map();
-    if (SOUND.has(s.codec) && app.api.coreMixExport) {
+    // an MP4 the Rust core draws, with a loudness target (1.12): the core mixes and masters its sound too
+    const vidCore = !SOUND.has(s.codec) && !anim && pref('rustVideo') && !!app.api.coreVideoExport && !!app.api.coreMixToMedia && !st.motionBlur && loud != null && !plugChain.length;
+    if ((SOUND.has(s.codec) || vidCore) && app.api.coreMixExport) {
       for (const c of doc.clips.filter(x => x.cursor?.clickSound > 0 && !x.audio?.mute)) {
         const cm = mediaById(doc, c.media);
         if (!cm?.cursor || cursors.has(cm.id)) continue;
@@ -333,7 +335,8 @@ export function openExport(app) {
     // sound only, mastered (the built-in master and/or a loudness target, no master plug-ins): the Rust core does it all
     const rustLoud = SOUND.has(s.codec) && (loud != null || m.on) && !plugChain.length && !!app.api.coreMixExport
       && !!exportMixJob(doc, from, to, { codec: 'wav', loudness: loud, ceiling: m.ceiling, cursors, stretchMax: can('stretchLong').ok ? 1200 : 600, master: m }).job;
-    if (!anim && !rustLoud && (m.on || plugChain.length || loud != null)) {
+    const vidMix = vidCore ? exportMixJob(doc, from, to, { codec: 'wav', loudness: loud, ceiling: m.ceiling, cursors, stretchMax: can('stretchLong').ok ? 1200 : 600, master: m }).job : null;
+    if (!anim && !rustLoud && !vidMix && (m.on || plugChain.length || loud != null)) {
       try {
         status.textContent = 'Mixing and mastering the sound…';
         const mix = await mixToFile(app, { from, to, master: m, onProgress: f => { progress.firstChild.style.width = (f * 30).toFixed(1) + '%'; } });
@@ -383,20 +386,28 @@ export function openExport(app) {
     // an MP4 the Rust core can draw (Settings › Processing, while it's tested): the Mac's decoder, the core and the
     // Mac's encoder make it, with the sound mixed here first; anything it can't do exports the usual way below
     const fps0 = s.fps || 30;
-    if (!SOUND.has(s.codec) && !anim && pref('rustVideo') && app.api.coreVideoExport && !st.motionBlur && loud == null) {
+    if (!SOUND.has(s.codec) && !anim && pref('rustVideo') && app.api.coreVideoExport && !st.motionBlur && (loud == null || vidMix)) {
       // the recorded pointer of clips with pointer effects (the core draws those too), read as the editor's export does
       const tracks = new Map();
-      for (const c of doc.clips.filter(x => x.type === 'media' && x.start < to && x.start + x.duration > from && (x.cursor ? x.cursor.show !== false : mediaById(doc, x.media)?.pointerSeparate))) {
+      for (const c of doc.clips.filter(x => x.type === 'media' && x.start < to && x.start + x.duration > from && ((x.cursor ? x.cursor.show !== false : mediaById(doc, x.media)?.pointerSeparate) || x.keystrokes?.show))) {
         const cm = mediaById(doc, c.media);
         if (!cm?.cursor || tracks.has(cm.id)) continue;
         try { tracks.set(cm.id, await (await fetch(`app://reel/m/${app.token}/${encodeURIComponent(cm.cursor)}`)).json()); } catch { /* none: no effects drawn, as the editor */ }
       }
       const cursor = (c, st) => { const cm = mediaById(doc, c.media), data = cm && tracks.get(cm.id); return data ? cursorAt(data, cm.cursorOffset || 0, st, c.cursor?.smooth || 0) : null; };
+      cursor.input = c => { const cm = mediaById(doc, c.media); return (cm && tracks.get(cm.id)) || null; };
       const job = videoJob(doc, from, to, w, hh, fps0, { cursor });
       if (job.why) usual = `drawn the usual way: ${job.why}`;
       else {
         let sound = masterFile;
         try {
+          if (!sound && vidMix) {
+            // mixed, mastered and brought to the loudness target by the core, into a WAV beside the media
+            status.textContent = 'Mixing and mastering the sound (Rust core)…';
+            sound = await app.api.coreMixToMedia(app.token, vidMix);
+            if (!sound) throw new Error('this build’s core can’t master the sound');
+            temps.push(sound);
+          }
           if (!sound) {
             status.textContent = 'Mixing the sound…';
             sound = await mixToFile(app, { from, to, master: null, onProgress: f => { progress.firstChild.style.width = (f * 15).toFixed(1) + '%'; } });
@@ -431,6 +442,15 @@ export function openExport(app) {
           usual = 'drawn the usual way: the Rust core failed';
         }
       }
+    }
+    // the core was to master the sound with the picture but the picture went the usual way: the built-in master the
+    // JavaScript way (the export below brings it to the loudness target)
+    if (vidMix && !masterFile && m.on) {
+      try {
+        status.textContent = 'Mixing and mastering the sound…';
+        masterFile = await mixToFile(app, { from, to, master: m, onProgress: f => { progress.firstChild.style.width = (f * 30).toFixed(1) + '%'; } });
+        temps.push(masterFile);
+      } catch (err) { cleanup(); app.api.exportCancel(h.id); reject(new Error(`Mastering failed: ${err.message}`)); return; }
     }
     worker = new Worker('export-worker.js', { type: 'module' });
     worker.onmessage = async e => {

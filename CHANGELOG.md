@@ -2,6 +2,9 @@
 
 ## 1.11.0 — 2026-11-16
 
+- 🎙 with a clip selected listens to just that clip's recording (it was listening to every recording on the track). With a recording's picture and microphone selected together, it listens to the microphone.
+- Rust-drawn exports now also cover a loudness target (the core mixes and masters the sound to it) and the keystroke display. Only master plug-ins with a loudness target still export the usual way.
+
 - A word cut off by mistake: drag the clip's edge out past the clip next to it and that clip (with its sound, and everything after it on those tracks) moves along instead of being cut off or stopping the drag. Out past the clip before works too: the clip and what follows move right.
 - The 🎙 button now looks like a shotgun mic in a long furry windshield on its pistol grip.
 

@@ -1493,10 +1493,9 @@ handle('export:finish', async (id, head) => {
 // isn't in this build (the editor then exports in JavaScript); the export handle stays open for that.
 const coreMixes = new Map();
 let coreVersion = null; // asked once
-handle('core:mixExport', async (id, token, job) => {
-  if (!core.available()) return null;
-  const h = handleOf(id, 'export');
-  const p = projectOf(token);
+/** Checks a core mix job from the editor (lib/mixplan.js): its media (checked names in project p, plain files), its
+ * numbers. Returns { sources, codec }, or null when this core is too old for it. */
+async function checkMix(p, job) {
   if (!job || typeof job !== 'object' || !Array.isArray(job.sources) || !Array.isArray(job.plans) || job.sources.length > 2000 || job.plans.length > 20000) throw new Error('Bad mix');
   const sources = [];
   for (const name of job.sources) {
@@ -1544,6 +1543,28 @@ handle('core:mixExport', async (id, token, job) => {
     if (L.master != null && !(Array.isArray(L.master) && L.master.length <= 400 && L.master.every(Number.isFinite))) throw new Error('Bad master');
     if (!(L && (L.target == null || (L.target > -70 && L.target < 0)) && L.ceil > 0 && L.ceil <= 1 && L.rel >= 0 && L.rel < 1 && Number.isInteger(L.look) && L.look >= 1 && L.look <= 4800 && L.measure > 0)) throw new Error('Bad loudness target');
   }
+  return { sources, codec };
+}
+// the sound of an export the Rust core draws, when it has a loudness target (1.12): the core mixes and masters it
+// into a new WAV in the project's media folder (master-mix…, removed after), as the sound-only export does
+handle('core:mixToMedia', async (token, job) => {
+  if (!core.available()) return null;
+  const p = projectOf(token);
+  if (!job || job.codec !== 'wav') throw new Error('Bad mix');
+  const checked = await checkMix(p, job);
+  if (!checked) return null;
+  const name = await freeMediaName(p, 'master-mix-core.wav'), out = path.join(mediaDir(p), name);
+  try { await core.mix({ ...job, codec: 'wav', sources: checked.sources, bitrate: 192000 }, out, () => {}); }
+  catch (e) { await fs.promises.rm(out, { force: true }).catch(() => {}); throw e; }
+  return name;
+});
+handle('core:mixExport', async (id, token, job) => {
+  if (!core.available()) return null;
+  const h = handleOf(id, 'export');
+  const p = projectOf(token);
+  const checked = await checkMix(p, job);
+  if (!checked) return null;
+  const { sources, codec } = checked;
   const tmp = `${h.dst}.${process.pid}.core.tmp`;
   await fs.promises.rm(tmp, { force: true });
   const send = f => { if (win && !win.isDestroyed()) win.webContents.send('core:progress', id, f); };
@@ -1593,7 +1614,7 @@ handle('core:videoExport', async (id, token, job) => {
   // the sound: the mix Reel wrote for this export (in the project's media folder), or none
   let sound = null;
   if (job.sound != null) {
-    if (!validate.mediaName(job.sound) || !/^master-mix/.test(job.sound)) throw new Error('Bad export sound');
+    if (!validate.mediaName(job.sound) || !/^master-(mix|mastered)/.test(job.sound)) throw new Error('Bad export sound');
     sound = path.join(mediaDir(p), job.sound);
     if (!(await fs.promises.lstat(sound)).isFile()) throw new Error('Bad export sound');
   }

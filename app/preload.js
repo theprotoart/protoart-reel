@@ -81,6 +81,7 @@ contextBridge.exposeInMainWorld('reel', {
   coreUmFind: (model, samples) => invoke('core:umFind', model, samples),
   coreAnalyze: (token, name) => invoke('core:analyze', token, name),
   coreMixExport: (id, token, job) => invoke('core:mixExport', id, token, job),
+  coreMixToMedia: (token, job) => invoke('core:mixToMedia', token, job),
   coreWatch: (id, token, name, opts) => invoke('core:watch', id, token, name, opts),
   coreVideoExport: (id, token, job) => invoke('core:videoExport', id, token, job),
   coreOverlay: (id, data) => invoke('core:overlay', id, data),

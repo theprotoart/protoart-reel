@@ -78,7 +78,8 @@ export function framePlan(doc, t, W, H, size = m => ({ w: m.width || 0, h: m.hei
     const filtered = !!(p.blur || fblur) || (p.bright != null && Math.abs(p.bright - 1) > 0.005) || (p.sat != null && Math.abs(p.sat - 1) > 0.005);
     if (filtered && (p.radius || p.shadow > 0 || p.border > 0 || (c.stab && m.kind === 'video'))) return { why: 'blur and exposure moves on a rounded, bordered or stabilized picture' };
     if (c.frame && c.frame.type && c.frame.type !== 'none') return { why: 'device frames' };
-    if (c.keystrokes && c.keystrokes.show) return { why: 'keystroke display' };
+    // the keys pressed (1.12): words the editor draws over the frame, from the recording's pointer file
+    if (c.keystrokes && c.keystrokes.show) { if (!cursor) return { why: 'keystroke display' }; overlay = true; }
     // pointer effects (1.11): drawn by the core as ink layers, from the recorded pointer (cursor(c, st), as the
     // editor's sources.cursor); not yet on a turned, stabilized, bordered or blurred picture
     const fxOn = !!((c.cursor && c.cursor.show !== false) || m.pointerSeparate);

@@ -34,7 +34,14 @@ export function drawFrame(ctx, doc, t, sources, opts = {}) {
   // and drawings stay visible even on a track below a full-frame video (they used to vanish under it)
   const overlay = k => k.type !== 'media' && !(k.type === 'element' && isBackgroundElement(k.element));
   const here = activeClips(doc, t);
-  if (opts.overlayOnly) framePointer = pointerOnCanvas(doc, t, here.filter(k => !overlay(k)), sources, W, H);
+  if (opts.overlayOnly) {
+    framePointer = pointerOnCanvas(doc, t, here.filter(k => !overlay(k)), sources, W, H);
+    // the keys pressed in a recording: words over the picture, so the editor's to draw
+    for (const k of here.filter(k => !overlay(k) && k.type === 'media' && k.keystrokes?.show && sources.input)) {
+      const m = mediaById(doc, k.media), c = animated(k, t - k.start);
+      if (m) drawKeystrokes(ctx, c, m, sources.input(c), sourceTime(c, t), W, H, W / doc.canvas.width);
+    }
+  }
   for (const k of opts.overlayOnly ? here.filter(overlay) : [...here.filter(k => !overlay(k)), ...here.filter(overlay)]) {
     const local = t - k.start;
     const c = animated(opts.unzoom === k.id ? unzoomed(k) : k, local); // keyframed values at this moment (the whole picture while its dynamic zoom is being framed)
