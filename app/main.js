@@ -1444,6 +1444,12 @@ handle('export:begin', async (token, suggested, kind) => {
 });
 /** Batch export: pick a folder once, then each item is written there without asking again. */
 const batchFolders = new Map();
+// an export left running (a batch): the Mac doesn't go to sleep under it (the screen still may)
+let exportAwake = null;
+handle('export:keepAwake', async on => {
+  if (on && (exportAwake == null || !powerSaveBlocker.isStarted(exportAwake))) exportAwake = powerSaveBlocker.start('prevent-app-suspension');
+  else if (!on && exportAwake != null) { if (powerSaveBlocker.isStarted(exportAwake)) powerSaveBlocker.stop(exportAwake); exportAwake = null; }
+});
 handle('export:pickFolder', async () => {
   const r = await dialog.showOpenDialog(win, { title: 'Export the batch to…', defaultPath: app.getPath('videos'), properties: ['openDirectory', 'createDirectory'] });
   if (r.canceled || !r.filePaths[0]) return null;

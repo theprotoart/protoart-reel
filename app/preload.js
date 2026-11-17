@@ -91,6 +91,7 @@ contextBridge.exposeInMainWorld('reel', {
   hideWindow: () => invoke('rec:hideWindow'),
   exportBegin: (token, name, kind) => invoke('export:begin', token, name, kind),
   exportPickFolder: () => invoke('export:pickFolder'),
+  keepAwake: on => invoke('export:keepAwake', !!on),
   exportBeginIn: (token, folderId, name, kind) => invoke('export:beginIn', token, folderId, name, kind),
   exportChunk: (id, data) => ipcRenderer.send('export:chunk', id, data),
   exportFinish: (id, head) => invoke('export:finish', id, head),

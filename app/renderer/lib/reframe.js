@@ -2,6 +2,8 @@
 // the new frame and then follows where the action is (the pointer on a screen recording, otherwise where
 // things move), like a camera operator: it holds still inside a dead zone, then glides, never showing past
 // the picture's edges. Pure, so it can be tested.
+import { mediaById, uid, addTrack, putKey } from '../model.js';
+
 
 export const FORMATS = {
   vertical: { w: 1080, h: 1920, label: '9:16 vertical — Shorts, Reels, TikTok' },
@@ -52,3 +54,52 @@ export function reframeKeys(focus, { srcW, srcH, W, H, scale, duration, dead = 0
   }
   return keys;
 }
+
+/** A clip Make Vertical moves: a picture shown whole, in the middle, at its own size. */
+export function reframeable(doc, c) {
+  return c.type === 'media' && !c.audioOnly && !c.disabled && ['video', 'image'].includes(mediaById(doc, c.media)?.kind) && Math.abs((c.props?.scale ?? 1) - 1) < 0.05 && Math.abs((c.props?.x ?? 0.5) - 0.5) < 0.05 && Math.abs((c.props?.y ?? 0.5) - 0.5) < 0.05;
+}
+/**
+ * Makes doc d the shape F ({ w, h }): each clip in ids fills the new frame (mode: 'follow' the action, with plans from
+ * reframeFocus; 'blur' or 'zoom' over a copy of itself; 'bars' whole, with black above and below), and titles are
+ * resized to suit. Changes d (a project being committed, or a copy for an export).
+ */
+export function reframeDoc(d, F, mode, ids, plans = new Map()) {
+  const W = F.w, H = F.h, k = W / d.canvas.width;
+  d.canvas = { ...d.canvas, width: W, height: H };
+  const set = new Set(ids);
+  for (const c of [...d.clips]) {
+    if (c.type === 'text' && c.text) c.text = { ...c.text, size: Math.max(18, Math.round((c.text.size || 96) * Math.max(k, 0.5))) };
+    if (!set.has(c.id)) continue;
+    const m = mediaById(d, c.media), sw = m.width || 1920, sh = m.height || 1080;
+    const crop = c.props?.crop || [0, 0, 0, 0], cw = sw * (1 - crop[0] - crop[2]), ch = sh * (1 - crop[1] - crop[3]);
+    const s = coverScale(cw, ch, W, H);
+    // zoom / pan actions were made for the old frame
+    c.actions = (c.actions || []).filter(a => Object.keys(a.props || {}).some(key => !['x', 'y', 'scale'].includes(key)));
+    if (c.keys) { for (const p of ['props.x', 'props.y', 'props.scale']) delete c.keys[p]; if (!Object.keys(c.keys).length) delete c.keys; }
+    if (mode === 'bars') continue; // the whole picture, black above and below
+    if (mode === 'blur' || mode === 'zoom') {
+      // the whole picture in the middle, over a copy of itself that fills the frame: blurred, or just zoomed in
+      const bg = structuredClone(c); bg.id = uid('c'); bg.props = { ...bg.props, scale: s, x: 0.5, y: 0.5 };
+      bg.filters = mode === 'blur'
+        ? [...(bg.filters || []), { id: uid('f'), type: 'blur', amount: 40 }, { id: uid('f'), type: 'color', exposure: -0.35, saturation: 0.1 }]
+        : [...(bg.filters || []), { id: uid('f'), type: 'color', exposure: -0.12 }];
+      bg.audio = { ...(bg.audio || {}), mute: true };
+      const i = d.tracks.findIndex(t => t.id === c.track);
+      // its own Background track under the video (never one of the user's tracks)
+      let tr = d.tracks.slice(i + 1).find(t => /^background$/i.test(t.name || '') && !d.clips.some(o => o.track === t.id && o.start < bg.start + bg.duration && o.start + o.duration > bg.start));
+      if (!tr) { tr = addTrack(d, i + 1); tr.name = 'Background'; }
+      bg.track = tr.id; d.clips.push(bg);
+      continue;
+    }
+    c.props = { ...c.props, scale: s, x: 0.5, y: 0.5 };
+    const focus = plans.get(c.id);
+    if (mode === 'follow' && focus && focus.length) {
+      const ks = reframeKeys(focus, { srcW: cw, srcH: ch, W, H, scale: s, duration: c.duration });
+      for (const q of ks) { putKey(c, 'props.x', q.t, q.x, 1 / 60, 'ease'); putKey(c, 'props.y', q.t, q.y, 1 / 60, 'ease'); }
+      c.props.x = ks[0]?.x ?? 0.5; c.props.y = ks[0]?.y ?? 0.5;
+    }
+  }
+  return d;
+}
+

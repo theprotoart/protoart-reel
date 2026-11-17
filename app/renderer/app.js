@@ -34,7 +34,7 @@ import * as ops from './clipops.js';
 import * as textops from './textops.js';
 import { openTitles } from './titles.js';
 import { autoZoom, cursorAt } from './cursor.js';
-import { FORMATS as VFORMATS, coverScale, reframeKeys } from './lib/reframe.js';
+import { FORMATS as VFORMATS, reframeable, reframeDoc } from './lib/reframe.js';
 import { STYLES as ZOOM_STYLES, analyse as zoomAnalyse, plan as zoomPlan, frameFraction, findPointer } from './autozoom.js';
 import { LAPSE_PRESETS, plan as lapsePlan, apply as lapseApply, activityOf } from './timelapse.js';
 import { showAbout } from './about.js';
@@ -1924,77 +1924,54 @@ class App {
     modal('Make Vertical', body,
       [{ label: 'Cancel', onClick: c => c() }, { label: 'Make it vertical', cls: 'hw amber', onClick: c => { c(); this._reframe(VFORMATS[fmt], mode); } }]);
   }
-  async _reframe(F, mode) {
-    const doc = this.doc, token = this.token, W = F.w, H = F.h, oldW = doc.canvas.width;
-    const full = c => c.type === 'media' && !c.audioOnly && !c.disabled && ['video', 'image'].includes(mediaById(doc, c.media)?.kind) && Math.abs((c.props?.scale ?? 1) - 1) < 0.05 && Math.abs((c.props?.x ?? 0.5) - 0.5) < 0.05 && Math.abs((c.props?.y ?? 0.5) - 0.5) < 0.05;
-    const clips = doc.clips.filter(full);
+  /**
+   * Where the action is in each clip a reframe moves (Make Vertical's "follow"): the pointer from its recording, else
+   * what moves in the picture. range: { in, out } to watch only the clips there (the part being exported); the rest
+   * are reframed on their middle. Returns { clips, watched, plans: Map(clip id → focus) }; throws when stopped.
+   */
+  async reframeFocus(doc, { range = null, signal = null, onStatus = null, onProgress = null } = {}) {
+    const token = this.token;
+    const clips = doc.clips.filter(c => reframeable(doc, c));
     const plans = new Map();
-    // In and Out set: only the clips in that part are watched (the part being exported); the rest are reframed on
-    // their middle, so a long project doesn't wait on footage that won't be used
-    const R = doc.range && doc.range.out > doc.range.in ? doc.range : null;
+    const R = range && range.out > range.in ? range : null;
     const watch = R ? clips.filter(c => c.start < R.out && c.start + c.duration > R.in) : clips;
-    if (mode === 'follow' && watch.length) {
+    for (const [k, c] of watch.entries()) {
+      if (signal?.aborted) throw new Error('Cancelled');
+      const m = mediaById(doc, c.media);
+      onStatus?.(`Watching “${c.name || m.name}” (${k + 1} of ${watch.length}${R ? ', between In and Out' : ''})…`);
+      let focus = [];
+      if (m.cursor) {
+        const data = await api.readJson(token, m.cursor).catch(() => null);
+        for (let t = 0; t <= c.duration; t += 0.2) { const p = data && cursorAt(data, m.cursorOffset || 0, (c.in || 0) + t * (c.speed || 1), 0.3); if (p && p.x >= -0.02 && p.x <= 1.02 && p.y >= -0.02 && p.y <= 1.02) focus.push({ t, x: p.x, y: p.y, w: p.click != null ? 3 : 1 }); }
+      }
+      if (!focus.length && m.kind === 'video') {
+        // a time limit (as Auto Edit has): a clip that won't play smoothly stops there and is framed from what was
+        // seen, so one stubborn recording can't hold up the rest
+        const res = await zoomAnalyse(this, c, m, { budget: Math.max(25, c.duration * 0.4), signal, onProgress: v => onProgress?.((k + v) / watch.length) });
+        focus = res.samples.map(s => s.motion > 0.01 ? { t: s.t, x: s.cx, y: s.cy, w: 0.3 + s.motion * 4 } : { t: s.t, x: s.detail?.x ?? 0.5, y: s.detail?.y ?? 0.5, w: 0.15 });
+      }
+      if (this.token !== token) throw new Error('Cancelled');
+      plans.set(c.id, focus);
+      onProgress?.((k + 1) / watch.length);
+    }
+    return { clips, watched: watch.length, plans };
+  }
+
+  async _reframe(F, mode) {
+    const doc = this.doc, token = this.token;
+    // In and Out set: only the clips in that part are watched (the part being exported)
+    const R = doc.range && doc.range.out > doc.range.in ? doc.range : null;
+    let clips = doc.clips.filter(c => reframeable(doc, c)), plans = new Map(), watched = clips.length;
+    if (mode === 'follow' && clips.length) {
       const ctl = new AbortController(), bar = el('div', { class: 'progress' }, el('i')), what = el('p', { class: 'note', text: 'Finding the action…' });
       const dlg = modal('Make Vertical', el('div', {}, what, bar), [{ label: 'Stop', onClick: x => x() }], { onClose: () => ctl.abort() });
       try {
-        for (const [k, c] of watch.entries()) {
-          const m = mediaById(doc, c.media);
-          what.textContent = `Watching “${c.name || m.name}” (${k + 1} of ${watch.length}${R ? ', between In and Out' : ''})…`;
-          let focus = [];
-          if (m.cursor) {
-            const data = await api.readJson(token, m.cursor).catch(() => null);
-            for (let t = 0; t <= c.duration; t += 0.2) { const p = data && cursorAt(data, m.cursorOffset || 0, (c.in || 0) + t * (c.speed || 1), 0.3); if (p && p.x >= -0.02 && p.x <= 1.02 && p.y >= -0.02 && p.y <= 1.02) focus.push({ t, x: p.x, y: p.y, w: p.click != null ? 3 : 1 }); }
-          }
-          if (!focus.length && m.kind === 'video') {
-            // a time limit (as Auto Edit has): a clip that won't play smoothly stops there and is framed from what was
-            // seen, so one stubborn recording can't hold up the rest
-            const res = await zoomAnalyse(this, c, m, { budget: Math.max(25, c.duration * 0.4), signal: ctl.signal, onProgress: v => { bar.firstChild.style.width = Math.round(((k + v) / watch.length) * 100) + '%'; } });
-            focus = res.samples.map(s => s.motion > 0.01 ? { t: s.t, x: s.cx, y: s.cy, w: 0.3 + s.motion * 4 } : { t: s.t, x: s.detail?.x ?? 0.5, y: s.detail?.y ?? 0.5, w: 0.15 });
-          }
-          if (this.token !== token) return;
-          plans.set(c.id, focus);
-          bar.firstChild.style.width = Math.round(((k + 1) / watch.length) * 100) + '%';
-        }
-      } catch (e) { if (!ctl.signal.aborted) toast(e.message, 5000); return; } finally { dlg.close(); }
+        ({ clips, plans, watched } = await this.reframeFocus(doc, { range: R, signal: ctl.signal, onStatus: t => { what.textContent = t; }, onProgress: v => { bar.firstChild.style.width = Math.round(v * 100) + '%'; } }));
+      } catch (e) { if (!ctl.signal.aborted && this.token === token && e.message !== 'Cancelled') toast(e.message, 5000); return; } finally { dlg.close(); }
     }
-    this.commit(d => {
-      const k = W / oldW;
-      d.canvas = { ...d.canvas, width: W, height: H };
-      for (const c of d.clips) {
-        if (c.type === 'text' && c.text) c.text = { ...c.text, size: Math.max(18, Math.round((c.text.size || 96) * Math.max(k, 0.5))) };
-        if (!clips.some(x => x.id === c.id)) continue;
-        const m = mediaById(d, c.media), sw = m.width || 1920, sh = m.height || 1080;
-        const crop = c.props?.crop || [0, 0, 0, 0], cw = sw * (1 - crop[0] - crop[2]), ch = sh * (1 - crop[1] - crop[3]);
-        const s = coverScale(cw, ch, W, H);
-        // zoom / pan actions were made for the old frame
-        c.actions = (c.actions || []).filter(a => Object.keys(a.props || {}).some(key => !['x', 'y', 'scale'].includes(key)));
-        if (c.keys) { for (const p of ['props.x', 'props.y', 'props.scale']) delete c.keys[p]; if (!Object.keys(c.keys).length) delete c.keys; }
-        if (mode === 'bars') continue; // the whole picture, black above and below
-        if (mode === 'blur' || mode === 'zoom') {
-          // the whole picture in the middle, over a copy of itself that fills the frame: blurred, or just zoomed in
-          const bg = structuredClone(c); bg.id = uid('c'); bg.props = { ...bg.props, scale: s, x: 0.5, y: 0.5 };
-          bg.filters = mode === 'blur'
-            ? [...(bg.filters || []), { id: uid('f'), type: 'blur', amount: 40 }, { id: uid('f'), type: 'color', exposure: -0.35, saturation: 0.1 }]
-            : [...(bg.filters || []), { id: uid('f'), type: 'color', exposure: -0.12 }];
-          bg.audio = { ...(bg.audio || {}), mute: true };
-          const i = d.tracks.findIndex(t => t.id === c.track);
-          // its own Background track under the video (never one of the user's tracks)
-          let tr = d.tracks.slice(i + 1).find(t => /^background$/i.test(t.name || '') && !d.clips.some(o => o.track === t.id && o.start < bg.start + bg.duration && o.start + o.duration > bg.start));
-          if (!tr) { tr = addTrack(d, i + 1); tr.name = 'Background'; }
-          bg.track = tr.id; d.clips.push(bg);
-          continue;
-        }
-        c.props = { ...c.props, scale: s, x: 0.5, y: 0.5 };
-        const focus = plans.get(c.id);
-        if (mode === 'follow' && focus && focus.length) {
-          const ks = reframeKeys(focus, { srcW: cw, srcH: ch, W, H, scale: s, duration: c.duration });
-          for (const q of ks) { putKey(c, 'props.x', q.t, q.x, 1 / 60, 'ease'); putKey(c, 'props.y', q.t, q.y, 1 / 60, 'ease'); }
-          c.props.x = ks[0]?.x ?? 0.5; c.props.y = ks[0]?.y ?? 0.5;
-        }
-      }
-    });
+    this.commit(d => { reframeDoc(d, F, mode, clips.map(c => c.id), plans); });
     this.renderAll?.(); this.player.resize();
-    toast(`Now ${W} × ${H}. ${clips.length} clip${clips.length === 1 ? '' : 's'} reframed${mode === 'follow' ? (R && watch.length < clips.length ? `, the ${watch.length} between In and Out to follow the action` : ' to follow the action') : ''}. ⌘Z undoes it.`, 6000);
+    toast(`Now ${F.w} × ${F.h}. ${clips.length} clip${clips.length === 1 ? '' : 's'} reframed${mode === 'follow' ? (R && watched < clips.length ? `, the ${watched} between In and Out to follow the action` : ' to follow the action') : ''}. ⌘Z undoes it.`, 6000);
   }
 
   /**

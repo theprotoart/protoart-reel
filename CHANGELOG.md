@@ -2,6 +2,8 @@
 
 ## 1.11.0 — 2026-11-16
 
+- Wide and vertical in one go: a vertical preset on a wide project now makes the export vertical by itself (following the action, or over a blurred or zoomed copy, or with bars), and the project stays wide. In Export, ＋ Wide + vertical pair puts ★ YouTube 1080p and ★ TikTok · Reels · Shorts in the batch; EXPORT BATCH… and leave it. The Mac stays awake while exports run and says when the batch is done.
+
 - Make Vertical with In and Out set watches only the clips between them (the part you're exporting); the rest are reframed on their middle straight away.
 
 - The callouts used most are on the preview now, under ✎ and 🎯: ▭ Area and 🔍 Magnify (drag a box right on the picture and it's added at the playhead for 4 s) and 〰 Freehand (draw round what matters).

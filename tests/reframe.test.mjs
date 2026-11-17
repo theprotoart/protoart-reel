@@ -20,3 +20,23 @@ test('the frame follows the action left then right, holds while it is still, and
   // still action: no new keys between 2 s and 4.5 s
   assert.ok(k.filter(x => x.t > 2 && x.t < 4.5).length <= 1);
 });
+
+test('a vertical copy for an export: the clips fill the tall frame and follow the action, the project untouched', async () => {
+  const { reframeDoc, reframeable } = await import('../app/renderer/lib/reframe.js');
+  const doc = { canvas: { width: 1920, height: 1080, fps: 30 }, media: [{ id: 'm', kind: 'video', width: 1920, height: 1080 }], tracks: [{ id: 't1' }],
+    clips: [{ id: 'a', type: 'media', media: 'm', track: 't1', start: 0, duration: 4, in: 0, props: { x: 0.5, y: 0.5, scale: 1 } },
+      { id: 'b', type: 'media', media: 'm', track: 't1', start: 4, duration: 4, in: 0, props: { x: 0.3, y: 0.5, scale: 0.4 } }] };
+  const before = JSON.stringify(doc);
+  const copy = structuredClone(doc);
+  const ids = copy.clips.filter(c => reframeable(copy, c)).map(c => c.id);
+  assert.deepEqual(ids, ['a'], 'a picture-in-picture is left where it is');
+  reframeDoc(copy, { w: 1080, h: 1920 }, 'follow', ids, new Map([['a', [{ t: 0, x: 0.8, y: 0.5, w: 1 }, { t: 4, x: 0.8, y: 0.5, w: 1 }]]]));
+  assert.deepEqual([copy.canvas.width, copy.canvas.height], [1080, 1920]);
+  const a = copy.clips[0];
+  assert.ok(a.props.scale > 3, 'filling the tall frame');
+  assert.ok(a.props.x < 0.5, 'moved so the action on the right is in view');
+  assert.equal(JSON.stringify(doc), before, 'the project itself is as it was');
+  const blur = reframeDoc(structuredClone(doc), { w: 1080, h: 1920 }, 'blur', ['a']);
+  assert.equal(blur.clips.length, 3, 'a blurred copy behind it');
+  assert.ok(blur.clips[2].audio.mute, 'the copy is silent');
+});

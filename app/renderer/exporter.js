@@ -12,6 +12,7 @@ import { builtInPresets, GROUPS, QUALITY, SIZE_LIMITS, presetFps, videoBitrate, 
 import { exportMixJob } from './lib/mixplan.js';
 import { videoJob } from './lib/videoplan.js';
 import { cursorAt } from './cursor.js';
+import { FORMATS as VFORMATS, reframeDoc, reframeable } from './lib/reframe.js';
 
 const SOUND = new Set(['aac', 'wav']); // sound-only formats
 const FORMATS = [['avc', 'MP4 · H.264 (plays everywhere)'], ['hevc', 'MP4 · HEVC (smaller, newer devices)'], ['aac', 'Sound only · AAC (.m4a)'], ['wav', 'Sound only · WAV (uncompressed, 24-bit)'], ['gif', 'Animated GIF'], ['apng', 'Animated PNG']];
@@ -55,6 +56,9 @@ export function openExport(app) {
   if (!doc || !duration(doc)) { toast('Nothing on the timeline yet.'); return; }
   let last = null; try { last = JSON.parse(localStorage.getItem('reel.exportLast') || 'null'); } catch { /* fine */ }
   const st = { codec: 'avc', height: 1080, mbps: 12, fps: doc.canvas.fps || 30, width: 640, dither: true, loop: true, ...(last || {}), presetId: last?.presetId || 'web' };
+  st.vauto = last?.vauto ?? true; st.vfit = last?.vfit || 'follow';
+  const wide = doc.canvas.width > doc.canvas.height;
+  const VFITS = [['follow', 'Follow the action'], ['blur', 'Over a blurred copy'], ['zoom', 'Over a zoomed copy'], ['bars', 'Whole, with black bars']];
   st.range = doc.range && doc.range.out > doc.range.in ? 'inout' : 'all';
   const sel = app.selection.clips.map(id => doc.clips.find(c => c.id === id)).filter(Boolean);
   const ranges = [['all', `Whole timeline (${fmtTime(duration(doc))})`]];
@@ -68,7 +72,7 @@ export function openExport(app) {
     if (r === 'markers') { const ms = doc.markers.slice().sort((a, b) => a.t - b.t); from = ms[0].t; to = ms[1].t; }
     return { from, to };
   };
-  const remember = () => { try { localStorage.setItem('reel.exportLast', JSON.stringify({ codec: st.codec, height: st.height, mbps: st.mbps, q: st.q, targetMB: st.targetMB, abr: st.abr, hw: st.hw, fps: st.fps, width: st.width, dither: st.dither, loop: st.loop, presetId: st.presetId })); } catch { /* fine */ } };
+  const remember = () => { try { localStorage.setItem('reel.exportLast', JSON.stringify({ codec: st.codec, height: st.height, mbps: st.mbps, q: st.q, targetMB: st.targetMB, abr: st.abr, hw: st.hw, fps: st.fps, width: st.width, dither: st.dither, loop: st.loop, presetId: st.presetId, vauto: st.vauto, vfit: st.vfit })); } catch { /* fine */ } };
 
   // ---------------------------------------------------------------- the form
   const info = el('p', { class: 'note export-est' });
@@ -112,11 +116,23 @@ export function openExport(app) {
       cur?.hint ? el('p', { class: 'note', text: cur.hint }) : null,
       cur?.why ? el('p', { class: 'note', text: `★ ${cur.why}.` }) : null,
       // a vertical preset on a wide project: the export keeps the project's shape, so offer the vertical copy
-      cur?.vertical && doc.canvas.width > doc.canvas.height ? el('p', { class: 'note warn' }, 'This project is wide, so this exports 1920 × 1080. For a full-screen 9:16 video, make a vertical copy first: ',
-        el('button', { class: 'mini', text: 'Make Vertical…', onclick: () => { app.cmd('make-vertical'); } })) : null);
+      cur?.vertical && wide ? (() => {
+        // a vertical export of a wide project: made vertical just for the export (the project stays wide), so a wide
+        // and a vertical version can go in one batch and be left running
+        const box = el('input', { type: 'checkbox', checked: st.vauto });
+        const fit = el('select', { title: 'How the wide picture fills the tall frame', disabled: !st.vauto }, ...VFITS.map(([v, t]) => el('option', { value: v, text: t, selected: v === st.vfit })));
+        box.addEventListener('change', () => { st.vauto = box.checked; fit.disabled = !box.checked; remember(); describe(); });
+        fit.addEventListener('change', () => { st.vfit = fit.value; remember(); });
+        return el('div', { class: 'note warn vert-auto' },
+          el('label', {}, box, ' Make it vertical (1080 × 1920) for this export: the project stays wide '), fit,
+          el('span', { text: ' · or make the project itself vertical: ' }), el('button', { class: 'mini', text: 'Make Vertical…', onclick: () => { app.cmd('make-vertical'); } }));
+      })() : null);
   };
   const custom = () => { st.presetId = ''; remember(); drawPresets(); describe(); };
-  const describeShort = () => { const { w, h } = sizeFor(st, doc.canvas); return SOUND.has(st.codec) ? (st.codec === 'wav' ? 'Sound only · WAV' : 'Sound only') : `${FORMATS.find(f => f[0] === st.codec)[1].split(' (')[0]} ${w}×${h} ${st.fps} fps`; };
+  /** The canvas an export with settings s is drawn on: the project's, or the vertical one it's made into. */
+  const canvasOf = s => (s.vertical ? { ...doc.canvas, width: VFORMATS.vertical.w, height: VFORMATS.vertical.h } : doc.canvas);
+  const verticalNow = () => { const cur = allPresets().find(p => p.id === st.presetId); return cur?.vertical && wide && st.vauto ? st.vfit : null; };
+  const describeShort = () => { const { w, h } = sizeFor({ ...st, vertical: verticalNow() }, canvasOf({ vertical: verticalNow() })); return SOUND.has(st.codec) ? (st.codec === 'wav' ? 'Sound only · WAV' : 'Sound only') : `${FORMATS.find(f => f[0] === st.codec)[1].split(' (')[0]} ${w}×${h} ${st.fps} fps`; };
   const drawSettings = () => {
     const anim = ANIM.has(st.codec), audioOnly = SOUND.has(st.codec);
     settingsBox.replaceChildren(...[
@@ -140,7 +156,7 @@ export function openExport(app) {
   };
   const describe = () => {
     const { from, to } = rangeOf(st.range);
-    const e = estimate(st, doc.canvas, to - from);
+    const e = estimate(st, canvasOf({ vertical: verticalNow() }), to - from);
     const mb = e.mb < 1 ? `${Math.max(0.1, e.mb).toFixed(1)} MB` : e.mb < 1000 ? `${Math.round(e.mb)} MB` : `${(e.mb / 1000).toFixed(1)} GB`;
     const tm = e.time < 60 ? `${Math.max(1, Math.round(e.time))} s` : `${Math.round(e.time / 60)} min`;
     info.textContent = st.codec === 'wav' ? `WAV 24-bit stereo, 48 kHz (uncompressed, for editing or mastering elsewhere) · about ${mb} · about ${tm} to export.` : st.codec === 'aac' ? `AAC 192 kbps stereo, 48 kHz · about ${mb} · about ${tm} to export.`
@@ -165,15 +181,29 @@ export function openExport(app) {
   // ---------------------------------------------------------------- batch
   const batch = [];
   const batchBox = el('div', { class: 'batch' });
+  // one click for the usual pair: the wide version for YouTube and a vertical one for Shorts, Reels and TikTok
+  const addPair = () => {
+    const { from, to } = rangeOf(st.range), rl = ranges.find(r => r[0] === st.range)[1].replace(/ \(.*/, '');
+    for (const id of ['rec-youtube', 'rec-vertical']) {
+      const p = allPresets().find(x => x.id === id);
+      if (!p) continue;
+      const { fpsMax, why, hint, name, group, id: pid, vertical, ...rest } = p; void fpsMax; void why; void hint; void group; void pid;
+      const s = { codec: 'avc', height: 0, mbps: 0, q: 1, targetMB: 0, abr: 0, hw: undefined, dither: true, loop: true, ...rest, fps: presetFps(p, doc.canvas.fps || 30), vertical: vertical && wide ? (st.vfit || 'follow') : null };
+      const { w, h } = sizeFor(s, canvasOf(s));
+      batch.push({ s, from, to, label: `${name.replace(/^★\s*/, '')} · ${w}×${h}`, rangeLabel: rl, suffix: vertical ? 'vertical' : 'wide' });
+    }
+    drawBatch();
+  };
   const drawBatch = () => {
-    batchBox.replaceChildren(...(batch.length ? [el('div', { class: 'engr', text: `Batch · ${batch.length}` }),
+    const pair = el('button', { class: 'mini', text: '＋ Wide + vertical pair', title: 'Add two versions to the batch: ★ YouTube 1080p (wide) and ★ TikTok · Reels · Shorts (vertical, made from the wide project). Then EXPORT BATCH and leave it running', onclick: addPair });
+    batchBox.replaceChildren(...(batch.length ? [el('div', { class: 'row' }, el('div', { class: 'engr', style: { flex: 1 }, text: `Batch · ${batch.length}` }), wide ? pair : null),
       ...batch.map((b, i) => el('div', { class: 'row batch-item' + (b.state ? ' ' + b.state : '') },
         el('span', { class: 'bname', text: `${b.label} · ${b.rangeLabel}` }),
         el('span', { class: 'note', text: b.state === 'done' ? 'done' : b.state === 'running' ? 'exporting…' : b.state === 'failed' ? 'failed' : '' }),
-        b.state ? null : el('button', { class: 'mini', text: '×', title: 'Remove from the batch', onclick: () => { batch.splice(i, 1); drawBatch(); } })))] : []));
+        b.state ? null : el('button', { class: 'mini', text: '×', title: 'Remove from the batch', onclick: () => { batch.splice(i, 1); drawBatch(); } })))] : wide ? [el('div', { class: 'row' }, el('span', { class: 'note', style: { flex: 1 }, text: 'Need it for several platforms? Add versions to a batch and leave it running.' }), pair)] : []));
   };
 
-  drawPresets(); drawSettings();
+  drawPresets(); drawSettings(); drawBatch();
   const masterBox = el('span', { style: { flex: 1 } }, masterSummary());
   const body = el('div', { class: 'export' },
     presetRow, settingsBox,
@@ -194,12 +224,31 @@ export function openExport(app) {
   let worker = null, handle = null, running = false, stopBatch = false;
 
   /** Runs one export into an open file handle. Resolves to the saved name, or throws. */
+  const project = doc;
+  let vctl = null;
   const runOne = (s, from, to, h) => new Promise(async (resolve, reject) => {
     handle = h;
-    const { w, h: hh } = sizeFor(s, doc.canvas);
     const started = performance.now();
     progress.classList.remove('hidden'); progress.firstChild.style.width = '0%';
     status.textContent = 'Starting…';
+    // a vertical version of a wide project: a vertical copy made for this export (where the action is, found in the
+    // part being exported), the project left as it is
+    let doc = project;
+    if (s.vertical) {
+      vctl = new AbortController();
+      try {
+        const copy = structuredClone(project);
+        const { clips, plans } = s.vertical === 'follow'
+          ? await app.reframeFocus(copy, { range: { in: from, out: to }, signal: vctl.signal, onStatus: t => { status.textContent = `Vertical version · ${t}`; }, onProgress: v => { progress.firstChild.style.width = (v * 100).toFixed(1) + '%'; } })
+          : { clips: copy.clips.filter(c => reframeable(copy, c)), plans: new Map() };
+        doc = reframeDoc(copy, VFORMATS.vertical, s.vertical, clips.map(c => c.id), plans);
+      } catch (err) {
+        app.api.exportCancel(h.id);
+        reject(new Error(vctl.signal.aborted || err.message === 'Cancelled' ? 'Export cancelled.' : `Couldn’t make the vertical version: ${err.message}`)); return;
+      } finally { vctl = null; }
+      progress.firstChild.style.width = '0%';
+    }
+    const { w, h: hh } = sizeFor(s, doc.canvas);
     // your plug-ins on tracks are rendered now, at the very end (unless they already are)
     try { await renderPending(app, { onStatus: (t, v) => { status.textContent = t; progress.firstChild.style.width = Math.round(v * 100) + '%'; } }); }
     catch (e) { toast(`A plug-in couldn’t render: ${e.message}`, 7000); }
@@ -357,7 +406,7 @@ export function openExport(app) {
     } });
   });
   const kindOf = s => (s.codec === 'aac' ? 'm4a' : s.codec === 'wav' ? 'wav' : ANIM.has(s.codec) ? s.codec : 'mp4');
-  const snapshot = () => ({ codec: st.codec, height: st.height, width: st.width, mbps: st.mbps, q: st.q, targetMB: st.targetMB, abr: st.abr, hw: st.hw, fps: st.fps, dither: st.dither, loop: st.loop });
+  const snapshot = () => ({ vertical: verticalNow(), codec: st.codec, height: st.height, width: st.width, mbps: st.mbps, q: st.q, targetMB: st.targetMB, abr: st.abr, hw: st.hw, fps: st.fps, dither: st.dither, loop: st.loop });
 
   const exportBtn = { label: 'Export…', cls: 'hw amber', onClick: async (c, btn) => {
     if (running) return;
@@ -365,8 +414,10 @@ export function openExport(app) {
     const h = await app.api.exportBegin(app.token, doc.name, kindOf(s));
     if (!h) return;
     running = true; btn.disabled = true;
+    app.api.keepAwake?.(true);
     try { const r = await runOne(s, from, to, h); status.replaceChildren(`Saved “${r.name}” in ${fmtTime(r.secs)}${r.how ? ` (${r.how})` : ''}. `, el('button', { class: 'mini', text: 'Show in Finder', onclick: () => app.api.exportReveal(r.name) })); }
     catch (err) { status.textContent = err.message; }
+    app.api.keepAwake?.(false);
     running = false; btn.disabled = false; void c;
   } };
   const addBtn = { label: 'Add to batch', cls: 'hw', onClick: () => {
@@ -380,19 +431,23 @@ export function openExport(app) {
     const folder = await app.api.exportPickFolder();
     if (!folder) return;
     running = true; stopBatch = false; btn.disabled = true;
+    app.api.keepAwake?.(true); // left running: the Mac stays awake until the batch is done
     let ok = 0;
     for (const b of batch) {
       if (stopBatch) break;
       if (b.state === 'done') continue;
       b.state = 'running'; drawBatch();
       try {
-        const h = await app.api.exportBeginIn(app.token, folder.id, `${doc.name} - ${b.suffix}`.replace(/[·]/g, '-'), kindOf(b.s));
+        const h = await app.api.exportBeginIn(app.token, folder.id, `${doc.name} - ${b.suffix}`.replace(/[·]/g, '-').replace(/★\s*/g, '').replace(/\s+/g, ' ').trim(), kindOf(b.s));
         await runOne(b.s, b.from, b.to, h);
         b.state = 'done'; ok++;
       } catch (err) { b.state = 'failed'; toast(err.message, 5000); }
       drawBatch();
     }
+    app.api.keepAwake?.(false);
     status.textContent = `Batch finished: ${ok} of ${batch.length} saved in “${folder.name}”.`;
+    // you may be away: a notice from the Mac when it's done
+    try { new Notification('ProtoArt Reel', { body: `${ok} of ${batch.length} export${batch.length === 1 ? '' : 's'} saved in “${folder.name}”.`, silent: false }); } catch { /* no notices */ }
     running = false; btn.disabled = false; void c;
   } };
 
@@ -402,6 +457,7 @@ export function openExport(app) {
   ], { onClose: () => { if (running) cancel(); } });
   const cancel = () => {
     stopBatch = true;
+    vctl?.abort();
     if (worker) { worker.postMessage({ type: 'cancel' }); setTimeout(() => { if (worker) { worker.terminate(); worker = null; } }, 1500); }
     if (handle) app.api.exportCancel(handle.id);
     running = false;

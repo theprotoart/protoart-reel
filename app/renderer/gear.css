@@ -2674,3 +2674,5 @@ html[data-theme="light"] .lib-item .lsound.on { color: #1d1a14; }
 .mk-toggle.mk-area { top: 102px; font-size: 18px; }
 .mk-toggle.mk-free { top: 144px; font-size: 16px; }
 .mk-toggle.mk-mag { top: 186px; font-size: 15px; }
+.export .vert-auto { display: flex; flex-wrap: wrap; align-items: center; gap: 6px; }
+.export .vert-auto label { display: inline-flex; align-items: center; gap: 6px; }
