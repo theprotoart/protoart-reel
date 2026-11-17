@@ -254,6 +254,13 @@ fn read_layer(inp: &mut Input, npics: usize) -> Result<frame::Layer, String> {
     // each a kind u8 and its numbers: 0 gradient x, y, r0, r1, c0, c1 · 1 disc x, y, r, c · 2 ring x, y, r, w, c ·
     // 3 outline: how many points u32, the points, fill, u8 1 + outline width, colour or 0, u8 1 + shadow blur, dy,
     // colour or 0), a colour being r, g, b (0..255) and a (0..1) f64
+    // 1.13: a place in the stack for the editor's own drawing (a background graphic): which slot u32 (< 64); what's
+    // drawn there comes on the overlay stream after a mark for it (overlay.rs)
+    if src == u32::MAX as usize - 3 {
+        let k = inp.u32()?;
+        if k >= 64 { return Err("bad slot".into()); }
+        return Ok(frame::slot_layer(k));
+    }
     // 1.13: a transition's shape (compositor.js maskPath) the next layer is seen through: how many shapes u32, each
     // a kind u8 (0 outline: how many points u32, then x, y f64 each · 1 circle: x, y, r f64), canvas px; then that layer
     if src == u32::MAX as usize - 2 {
@@ -340,7 +347,7 @@ fn frame_job(inp: &mut Input) -> Result<String, String> {
     let out = inp.path()?;
     // 1.12: the editor's drawing over it (overlay.rs's steps for one frame), when the job goes on
     let steps = if inp.at < inp.b.len() { let mut r = std::io::Cursor::new(&inp.b[inp.at..]); Some(overlay::read(&mut r, w, h, &std::sync::Arc::new(Vec::new()))?) } else { None };
-    let px = frame::draw_then(w, h, bg, &pictures, &layers, |acc| { if let Some(s) = &steps { overlay::apply(acc, w, h, s); } });
+    let px = frame::draw_then(w, h, bg, &pictures, &layers, |g, acc| { if let Some(s) = &steps { overlay::apply_group(acc, w, h, s, g); } });
     use std::io::Write;
     let mut f = std::fs::OpenOptions::new().write(true).create_new(true).open(&out).map_err(|e| format!("can't write the file: {e}"))?;
     f.write_all(&px).map_err(|e| e.to_string())?;

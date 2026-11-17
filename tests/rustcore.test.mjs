@@ -786,6 +786,16 @@ test('a transition through a shape (barn doors, iris…) is drawn by the core (1
   assert.equal(maskShapes({ type: 'blinds', k: 0.5 }, 64, 36).length, 8);
 });
 
+test('a background graphic gets its own place in the core\u2019s stack, for the editor to draw into (1.13)', () => {
+  const media = [{ id: 'scr', kind: 'video', width: 128, height: 72 }];
+  const d = frameDoc([{ media: 'scr' }], media);
+  d.tracks.push({ id: 'tb' });
+  d.clips.unshift({ id: 'bg', type: 'element', track: 'tb', start: 0, duration: 5, props: {}, element: { kind: 'bgFlow' } });
+  const p = framePlan(d, 1, 64, 36);
+  assert.ok(!p.why && p.overlay && p.needs13, p.why);
+  assert.equal(p.layers.filter(l => l.slot === 0).length, 1, 'one slot, numbered 0');
+});
+
 test('a frame that needs more than pictures says why, for the JavaScript to draw', () => {
   const media = [{ id: 'scr', kind: 'video', width: 128, height: 72 }];
   const fr = frameDoc([{ media: 'scr' }], media); fr.clips[0].frame = { type: 'phone' };

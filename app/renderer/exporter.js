@@ -5,7 +5,8 @@ import { renderPending } from './trackplugins.js';
 import { can } from './capability.js';
 import { pref } from './prefs.js';
 import { el, modal, toast, selectRow, promptText } from './ui.js';
-import { duration, fmtTime, clipEnd, toSRT, mediaById } from './model.js';
+import { duration, fmtTime, clipEnd, toSRT, mediaById, activeClips } from './model.js';
+import { isBackgroundElement } from './lib/elements.js';
 import { masterOf, openMaster, LOUDNESS, mixToFile, addMasterPlugin } from './master-ui.js';
 import { LOUDNESS_TARGETS } from './lib/master.js';
 import { builtInPresets, GROUPS, QUALITY, SIZE_LIMITS, presetFps, videoBitrate, fromHandBrake } from './lib/exportpresets.js';
@@ -95,7 +96,10 @@ export async function sendOverlays(app, doc, job, W, H, cursor, send) {
       for (let y = 0; y < h; y++) px.set(d.subarray(((y0 + y) * W + x0) * 4, ((y0 + y) * W + x1 + 1) * 4), y * w * 4);
       parts.push({ x: x0, y: y0, w, h, px }); size += 17 + px.length;
     };
-    drawFrame(ctx, doc, t, sources, { overlayOnly: true, lens: L => { flush(); if (L.blurOut) { parts.push({ blur: L }); size += 1 + 16 + 4 + L.pts.length * 16; } else { parts.push({ lens: L }); size += 1 + 40 + 4 + L.pts.length * 16; } } });
+    // background graphics (1.13): each into its slot, numbered as lib/frameplan.js numbers them
+    const bgIds = activeClips(doc, t).filter(k => k.type === 'element' && isBackgroundElement(k.element)).map(k => k.id);
+    const slot = id => { flush(); const k = id == null ? -1 : bgIds.indexOf(id); parts.push({ mark: k < 0 ? 0xffffffff : k }); size += 5; };
+    drawFrame(ctx, doc, t, sources, { overlayOnly: true, slot, lens: L => { flush(); if (L.blurOut) { parts.push({ blur: L }); size += 1 + 16 + 4 + L.pts.length * 16; } else { parts.push({ lens: L }); size += 1 + 40 + 4 + L.pts.length * 16; } } });
     flush();
     // overlay.rs's format
     const out = new Uint8Array(size), dv = new DataView(out.buffer);
@@ -103,7 +107,8 @@ export async function sendOverlays(app, doc, job, W, H, cursor, send) {
     const u32 = v => { dv.setUint32(o, v, true); o += 4; }, f64 = v => { dv.setFloat64(o, v, true); o += 8; };
     u32(parts.length);
     for (const p of parts) {
-      if (p.blur) { out[o++] = 2; f64(p.blur.sigma); f64(p.blur.alpha); u32(p.blur.pts.length); for (const [x, y] of p.blur.pts) { f64(x); f64(y); } }
+      if (p.mark != null) { out[o++] = 3; u32(p.mark); }
+      else if (p.blur) { out[o++] = 2; f64(p.blur.sigma); f64(p.blur.alpha); u32(p.blur.pts.length); for (const [x, y] of p.blur.pts) { f64(x); f64(y); } }
       else if (p.lens) { out[o++] = 1; [p.lens.cx, p.lens.cy, p.lens.zoom, p.lens.blur, p.lens.alpha].forEach(f64); u32(p.lens.pts.length); for (const [x, y] of p.lens.pts) { f64(x); f64(y); } }
       else { out[o++] = 0; [p.x, p.y, p.w, p.h].forEach(u32); out.set(p.px, o); o += p.px.length; }
     }

@@ -42,7 +42,15 @@ export function drawFrame(ctx, doc, t, sources, opts = {}) {
       if (m) drawKeystrokes(ctx, c, m, sources.input(c), sourceTime(c, t), W, H, W / doc.canvas.width);
     }
   }
-  for (const k of opts.overlayOnly ? here.filter(overlay) : [...here.filter(k => !overlay(k)), ...here.filter(overlay)]) {
+  // overlayOnly with opts.slot (1.13): the background graphics too, each said first with opts.slot(its id), then
+  // opts.slot(null) before what goes over everything: each goes into its own place in the core's stack
+  const bgs = opts.overlayOnly && opts.slot ? here.filter(k => !overlay(k) && k.type === 'element') : [];
+  let inSlot = false;
+  for (const k of opts.overlayOnly ? [...bgs, ...here.filter(overlay)] : [...here.filter(k => !overlay(k)), ...here.filter(overlay)]) {
+    if (bgs.length) {
+      const bg = bgs.includes(k);
+      if (bg) { opts.slot(k.id); inSlot = true; } else if (inSlot) { opts.slot(null); inSlot = false; }
+    }
     const local = t - k.start;
     const c = animated(opts.unzoom === k.id ? unzoomed(k) : k, local); // keyframed values at this moment (the whole picture while its dynamic zoom is being framed)
     const p = propsAt(c, local);
@@ -83,6 +91,7 @@ export function drawFrame(ctx, doc, t, sources, opts = {}) {
       ctx.save(); ctx.globalAlpha = clamp(p.dip.amount, 0, 1); ctx.fillStyle = p.dip.color; ctx.fillRect(0, 0, W, H); ctx.restore();
     }
   }
+  if (inSlot) opts.slot(null);
   // captions: burned into the export when asked; shown in the preview when the caption view is on
   const cs = { ...CAPTION_STYLE, ...(doc.captionStyle || {}) };
   if (cs.burn || opts.showCaptions) { const cap = captionAt(doc, t); if (cap) drawCaption(ctx, cap, cs, W, H, sx); }

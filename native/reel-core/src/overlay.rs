@@ -13,6 +13,9 @@
 //!       lens's): everything outside the outline blurred, as compositor.js drawCallout (the canvas's blur filter
 //!       over a copy of the frame, the focus area put back sharp)
 //!
+//!   3 · a mark (1.13): which slot layer the steps after it belong to u32 (a background graphic's place in the
+//!       stack, frame.rs SLOT), or 0xffffffff: over everything again. Steps before any mark go over everything.
+//!
 //! Pictures are laid down in order, so a lens or a blur sees what came before it.
 
 use crate::frame::par_rows;
@@ -22,6 +25,7 @@ pub enum Step {
     Picture { x: usize, y: usize, w: usize, h: usize, rgba: Vec<u8> },
     Lens { cx: f64, cy: f64, zoom: f64, blur: f64, alpha: f64, pts: Vec<(f64, f64)> },
     Blur { sigma: f64, alpha: f64, pts: Vec<(f64, f64)> },
+    Mark(Option<usize>),
 }
 
 /// An outline: how many points u32, then x, y f64 each.
@@ -82,16 +86,24 @@ pub fn read(r: &mut dyn Read, fw: usize, fh: usize, last: &std::sync::Arc<Vec<St
                 let pts = read_pts(r, &bad)?;
                 steps.push(Step::Blur { sigma: f[0], alpha: f[1], pts });
             }
+            3 => { let k = u32_(r)?; steps.push(Step::Mark(if k == u32::MAX as usize { None } else if k < 64 { Some(k) } else { return Err(bad()) })); }
             _ => return Err(bad()),
         }
     }
     Ok(std::sync::Arc::new(steps))
 }
 
-/// Lays the steps over acc (w × h, opaque RGB 0..255).
-pub fn apply(acc: &mut [[f64; 3]], w: usize, h: usize, steps: &[Step]) {
+/// Lays the steps over acc (w × h, opaque RGB 0..255): those over everything.
+#[allow(dead_code)]
+pub fn apply(acc: &mut [[f64; 3]], w: usize, h: usize, steps: &[Step]) { apply_group(acc, w, h, steps, None) }
+/// Lays the steps of one group over acc: slot layer k's (Some(k)), or those over everything (None).
+pub fn apply_group(acc: &mut [[f64; 3]], w: usize, h: usize, steps: &[Step], group: Option<usize>) {
+    let mut now = None;
     for s in steps {
+        if let Step::Mark(g) = s { now = *g; continue; }
+        if now != group { continue; }
         match s {
+            Step::Mark(_) => {}
             Step::Picture { x, y, w: pw, h: ph, rgba } => {
                 let (x, y, pw) = (*x, *y, *pw);
                 par_rows(&mut acc[y * w..(y + ph) * w], w, |j, row| {
@@ -299,6 +311,26 @@ mod tests {
         data.extend(3u32.to_le_bytes()); for v in [0.0f64, 0.0, 5.0, 0.0, 0.0, 5.0] { data.extend(v.to_le_bytes()); }
         let s = read(&mut std::io::Cursor::new(data), 10, 10, &std::sync::Arc::new(vec![])).unwrap();
         assert!(matches!(s[0], Step::Blur { sigma, alpha, .. } if sigma == 3.0 && alpha == 0.5));
+    }
+    #[test]
+    fn marked_steps_go_in_their_slot() {
+        // a picture over everything, then a mark for slot 0 and a picture there, then a mark back to the top
+        let mut data = vec![]; data.extend(4u32.to_le_bytes());
+        data.push(0); for v in [0u32, 0, 1, 1] { data.extend(v.to_le_bytes()); } data.extend([255, 0, 0, 255]);
+        data.push(3); data.extend(0u32.to_le_bytes());
+        data.push(0); for v in [1u32, 0, 1, 1] { data.extend(v.to_le_bytes()); } data.extend([0, 255, 0, 255]);
+        data.push(3); data.extend(u32::MAX.to_le_bytes());
+        let s = read(&mut std::io::Cursor::new(data), 2, 1, &std::sync::Arc::new(vec![])).unwrap();
+        let mut acc = vec![[0.0; 3]; 2];
+        apply_group(&mut acc, 2, 1, &s, Some(0));
+        assert_eq!(acc, vec![[0.0; 3], [0.0, 255.0, 0.0]], "only the slot's");
+        apply_group(&mut acc, 2, 1, &s, None);
+        assert_eq!(acc[0], [255.0, 0.0, 0.0], "then the top's");
+        // and in a frame: the slot drawn where its layer is, under a fill laid over it at half
+        let layers = vec![crate::frame::slot_layer(0), crate::frame::fill_layer([0, 0, 0], 0.5)];
+        let px = crate::frame::draw_then(2, 1, [0, 0, 255], &[], &layers, |g, acc| apply_group(acc, 2, 1, &s, g));
+        assert_eq!(&px[4..8], &[0, 128, 0, 255], "green in its slot (over the blue), halved by the fill over it");
+        assert_eq!(&px[0..4], &[255, 0, 0, 255], "red over everything");
     }
     #[test]
     fn a_lens_shows_the_middle_bigger() {

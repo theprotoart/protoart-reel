@@ -45,9 +45,10 @@ JavaScript runs, as before). When little JavaScript is left, the window itself c
    - **Done (1.3–1.13): drawing and encoding.** Frames decoded by the Mac (VideoToolbox), drawn by the core (placed,
      scaled, cropped, turned, faded, rounded, bordered, shadowed, blurred, colour filters and green screen, pointer
      effects, the pointer magnifier), titles, call-outs and graphics laid over as the editor draws them, magnifying
-     and blurring call-outs, shaped transitions (wipes, iris, clock, barn doors, blinds), motion blur, and the sound
+     and blurring call-outs, shaped transitions (wipes, iris, clock, barn doors, blinds), motion blur, background
+     graphics (the editor draws them into their place in the core's stack), and the sound
      mixed and mastered; encoded by VideoToolbox. Each checked frame by frame against the editor's own drawing.
-   - Still drawn by the editor (an export that needs them goes the usual way): background graphics, device frames,
+   - Still drawn by the editor (an export that needs them goes the usual way): device frames,
      LUT files and background removal, the text reveal, and the transitions that read the picture (glitch, film
      burn, light leak, vertigo, radial shutter).
 6. **Recording:** screen, window and camera through ScreenCaptureKit.

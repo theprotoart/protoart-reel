@@ -39,10 +39,18 @@ export function framePlan(doc, t, W, H, size = m => ({ w: m.width || 0, h: m.hei
   // the core draws (as drawFrame puts them over the pictures), and they come to the core as pictures
   let overlay = !!(cs.burn && (doc.captions || []).some(c => t >= c.t && t < c.end)), blur = false;
   const layers = [];
+  let slots = 0;
   for (const k of activeClips(doc, t)) {
     if (k.type !== 'media') {
-      if (k.type === 'element' && isBackgroundElement(k.element)) return { why: 'background graphics' };
       const q = propsAt(animated(k, t - k.start), t - k.start);
+      // a background graphic (1.13): the editor draws it, into its place in the stack (a slot the core leaves for it)
+      if (k.type === 'element' && isBackgroundElement(k.element)) {
+        if (q.vertigo || q.blocks > 0.03 || q.streak || q.holes > 0.02 || q.glitch > 0.05 || q.leak > 0.01 || q.grain > 0.02 || q.flare || (q.bars || 0) > 0.001 || (q.shutter != null && q.shutter < 1))
+          return { why: 'transition effects on a background graphic' };
+        if (slots >= 64) return { why: 'too many background graphics' };
+        layers.push({ slot: slots++ }); overlay = true; blur = true; // (needs the 1.13 core)
+        continue;
+      }
       // transitions that read the picture under them, and a blurring call-out, still go the editor's way
       if (q.vertigo || q.blocks > 0.03 || q.streak || q.holes > 0.02 || q.glitch > 0.05 || q.leak > 0.01 || q.grain > 0.02 || q.flare || (q.bars || 0) > 0.001 || (q.shutter != null && q.shutter < 1))
         return { why: 'transition effects on a title or graphic' };
@@ -285,6 +293,7 @@ export function encodeLayers(layers, srcOf, push) {
         else { u8(0); u32(s.poly.length); for (const [x, y] of s.poly) { f64(x); f64(y); } }
       }
     }
+    if (l.slot != null) { u32(0xfffffffc); f64(1); u32(l.slot); continue; }
     if (l.fill) { u32(0xffffffff); f64(l.alpha); push(Uint8Array.from(l.fill)); continue; }
     if (l.ink) {
       // pointer effects (main.rs read_ink)

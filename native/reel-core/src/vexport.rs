@@ -143,7 +143,7 @@ pub fn run<W: Write + Send>(w: usize, h: usize, bg: [u8; 3], sources: &mut [Sour
                     prev = crate::overlay::read(r, w, h, &prev)?;
                     Some(prev.clone())
                 } else { None };
-                let px = frame::draw_then(w, h, bg, &pics, &plan.layers, |acc| { if let Some(s) = &steps { crate::overlay::apply(acc, w, h, s); } });
+                let px = frame::draw_then(w, h, bg, &pics, &plan.layers, |g, acc| { if let Some(s) = &steps { crate::overlay::apply_group(acc, w, h, s, g); } });
                 if samples > 1 {
                     if sub == 0 { avg = px; } else { blend_into(&mut avg, &px, 1.0 / (sub + 1) as f64); }
                     sub += 1;

@@ -195,15 +195,22 @@ fn sample(p: &Picture, r: &[f64; 4], u: f64, v: f64) -> [f64; 4] {
 
 /// Draws the layers over `bg` onto a new w × h canvas (RGBA, opaque).
 #[cfg_attr(not(test), allow(dead_code))]
-pub fn draw(w: usize, h: usize, bg: [u8; 3], pictures: &[Picture], layers: &[Layer]) -> Vec<u8> { draw_then(w, h, bg, pictures, layers, |_| {}) }
+pub fn draw(w: usize, h: usize, bg: [u8; 3], pictures: &[Picture], layers: &[Layer]) -> Vec<u8> { draw_then(w, h, bg, pictures, layers, |_, _| {}) }
+
+/// A layer that's a place in the stack for the editor's own drawing (1.13: a background graphic): src SLOT + which.
+pub const SLOT: usize = 1 << 40;
+/// The slot layer `k` (its drawing comes on the overlay stream, marked for it).
+pub fn slot_layer(k: usize) -> Layer { Layer { src: SLOT + k, alpha: 1.0, m: [1.0, 0.0, 0.0, 1.0, 0.0, 0.0], rect: [0.0, 0.0, 1.0, 1.0], look: None, fill: None, filter: None, grade: None, ink: None, mask: None } }
 /// draw, with `then` laying more over the canvas (RGB 0..255) before it's made bytes (1.12: the editor's drawing).
-pub fn draw_then(w: usize, h: usize, bg: [u8; 3], pictures: &[Picture], layers: &[Layer], then: impl FnOnce(&mut [[f64; 3]])) -> Vec<u8> {
+/// `at(Some(k), acc)` where slot layer k is (the editor's drawing in the stack), `at(None, acc)` over everything at the end.
+pub fn draw_then(w: usize, h: usize, bg: [u8; 3], pictures: &[Picture], layers: &[Layer], mut at: impl FnMut(Option<usize>, &mut [[f64; 3]])) -> Vec<u8> {
     let mut acc: Vec<[f64; 3]> = vec![[bg[0] as f64, bg[1] as f64, bg[2] as f64]; w * h];
     for l in layers {
         // a transition's shape (1.13): what the layer draws is kept only inside it, as the canvas's clip
         let before = l.mask.as_ref().map(|_| acc.clone());
         'one: {
         // pointer effects (1.11): shapes over what's drawn so far
+        if l.src >= SLOT && l.src != usize::MAX { at(Some(l.src - SLOT), &mut acc); break 'one; }
         if let Some(ink) = &l.ink { crate::ink::draw(&mut acc, w, h, ink, l.alpha.clamp(0.0, 1.0)); break 'one; }
         if let Some(rgb) = l.fill {
             let a = l.alpha.clamp(0.0, 1.0);
@@ -377,7 +384,7 @@ pub fn draw_then(w: usize, h: usize, bg: [u8; 3], pictures: &[Picture], layers: 
         }
         if let (Some(mask), Some(before)) = (&l.mask, before) { apply_mask(&mut acc, &before, w, mask); }
     }
-    then(&mut acc);
+    at(None, &mut acc);
     let mut out = vec![255u8; w * h * 4];
     for (i, c) in acc.iter().enumerate() { for ch in 0..3 { out[i * 4 + ch] = c[ch].round().clamp(0.0, 255.0) as u8; } }
     out

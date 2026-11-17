@@ -28,7 +28,7 @@ export function videoJob(doc, from, to, W, H, fps, { maxSources = 48, cursor = n
     const p = framePlan(doc, t, W, H, undefined, cursor);
     if (p.why) return { why: p.why, at: t };
     for (const l of p.layers) {
-      if (l.fill || l.ink) continue;
+      if (l.fill || l.ink || l.slot != null) continue;
       const m = mediaById(doc, l.media);
       if (!m || (m.kind !== 'video' && m.kind !== 'image')) return { why: 'a clip that’s neither a video nor a picture', at: t };
       if (m.kind === 'image' && /\.(svg|gif)$/i.test(m.file || '')) return { why: 'an SVG or GIF picture', at: t };
@@ -62,7 +62,7 @@ export function videoJob(doc, from, to, W, H, fps, { maxSources = 48, cursor = n
     blur ||= !!p.needs13;
     const uses = new Map();
     for (const l of p.layers) {
-      if (l.fill || l.ink) continue;
+      if (l.fill || l.ink || l.slot != null) continue;
       let s = srcOf.get(l.clip);
       if (s == null) {
         const m = mediaById(doc, l.media), z = size(m);

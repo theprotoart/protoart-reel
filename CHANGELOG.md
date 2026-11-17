@@ -2,6 +2,8 @@
 
 ## 1.11.0 — 2026-11-16
 
+- Rust core 1.13: background graphics (Gradient flow, Tech grid, Bokeh…) no longer send an export the slow way: the editor draws them into their own place in the core's stack (under or between the videos, as on the timeline).
+
 - Rust core 1.13: Motion blur on export is drawn by the core too (four moments a frame, averaged exactly as before), so ticking it no longer sends the whole export the slow way.
 
 - Rust core 1.13: blurring call-outs (Blur outside) and the shaped transitions (wipes, iris, clock, barn doors, blinds, diagonal, fast wipe) are drawn by the core, so an export with them no longer falls back to the slower drawing. Matches the preview to within a level or two (checked frame against frame). Your Video 3 project now exports entirely through the core. Needs Build ProtoArt Reel.
