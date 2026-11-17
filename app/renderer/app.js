@@ -69,7 +69,7 @@ import { openClapFinder, clapsOnTimeline, addClapMarkers } from './clapscan.js';
 import { initToolbarGroups } from './toolbar.js';
 import { calloutsMenu, openCalloutPlanner } from './callouts.js';
 import { openTakes, initTakesButton, closeTakes } from './takes.js';
-import { openUms, closeUms, umCount, refreshUms } from './umspanel.js';
+import { openUms, closeUms, umCount, refreshUms, scanFillers } from './umspanel.js';
 import { teachUms } from './umvoice.js';
 import { applyDynZoom, hasDynZoom, zoomMoves } from './lib/dynzoom.js';
 
@@ -162,6 +162,8 @@ class App {
       b.classList.add('spinning');
       try { await tryAnother(this, c); } finally { b.classList.remove('spinning'); this.updateTape(); }
     });
+    // 🎙 the shotgun mic: scan for fillers (the selected clips, or the whole project), counted on the deck's counter
+    document.getElementById('filler-scan')?.addEventListener('click', () => scanFillers(this));
     document.getElementById('remix')?.addEventListener('change', e => {
       setPref('remix', e.target.checked);
       this.timeline?.render();
@@ -1190,6 +1192,8 @@ class App {
   }
   /** Lights the cassette when there's a remixed song to try again. */
   updateTape() {
+    // the fillers counter follows the project's list of fillers
+    if (this.doc) this.deck?.fillers((this.doc.ums || []).filter(u => u.kind !== 'find').length);
     const b = document.getElementById('remix-tape');
     if (!b) return;
     const c = this.remixTarget();

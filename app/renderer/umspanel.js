@@ -37,7 +37,7 @@ const CATS = [['all', 'All'], ['um', 'Um · uh'], ['phrase', 'Like · you know']
  * Listens to the speech and replaces the project's list of ums (words you looked for stay). With ums you taught
  * Reel (🎙), it also listens for those in your voice, and the guessed "sounds between words" are left out.
  */
-async function listen(app, { locale, track }, onStatus) {
+async function listen(app, { locale, track, ranges = null }, onStatus) {
   app.deck?.tally(0, 'filler words found', { done: false });
   const words = await timelineWords(app, { locale, track }, onStatus);
   ctxWords = words; ctxSig = layoutSig(app.doc);
@@ -55,9 +55,11 @@ async function listen(app, { locale, track }, onStatus) {
     found = findUms(words, levelOnTimeline(sources));
   }
   const trackAt = t => clips.find(c => t >= c.start - 0.01 && t < c.start + c.duration)?.track;
-  found = found.sort((a, b) => a.t - b.t).map(u => ({ id: uid('um'), t: +u.t.toFixed(3), end: +u.end.toFixed(3), text: u.text, kind: u.kind, cut: u.cut, track: trackAt(u.t) }));
-  app.commit(d => { d.ums = [...found, ...(d.ums || []).filter(u => u.kind === 'find')]; });
-  app.deck?.tally(found.length, 'filler words found');
+  // just some clips (the selected ones): what's found in them replaces what was listed there, the rest stays
+  const within = u => !ranges || ranges.some(([a, b]) => u.t >= a - 0.01 && u.t < b);
+  found = found.filter(within).sort((a, b) => a.t - b.t).map(u => ({ id: uid('um'), t: +u.t.toFixed(3), end: +u.end.toFixed(3), text: u.text, kind: u.kind, cut: u.cut, track: trackAt(u.t) }));
+  app.commit(d => { d.ums = [...found, ...(d.ums || []).filter(u => u.kind === 'find' || (ranges && !within(u)))].sort((a, b) => a.t - b.t); });
+  app.deck?.tally(ranges ? (app.doc.ums || []).filter(u => u.kind !== 'find').length : found.length, 'filler words found');
   return found;
 }
 
@@ -79,6 +81,34 @@ async function findWord(app, { locale, track }, query) {
   app.commit(d => { d.ums = [...(d.ums || []).filter(u => !(u.kind === 'find' && u.text === q.join(' '))), ...hits].sort((x, y) => x.t - y.t); });
   return hits;
 }
+
+/**
+ * 🎙 (the shotgun mic beside the cassette): listens for fillers in the selected clips, or the whole project when
+ * none with sound are selected, with the counter beside the time counting them up. The FILLERS panel lists them.
+ */
+let scanning = false;
+export async function scanFillers(app) {
+  const doc = app.doc;
+  if (!doc || scanning) return;
+  const p = speechPrefs();
+  const picked = app.selection.clips.map(id => doc.clips.find(c => c.id === id)).filter(c => c && speechClips(doc).includes(c));
+  // the track listened to: the selected clips', else the one you chose before (or the one that sounds like a voice)
+  const voice = doc.tracks.find(t => /voice|mic|dialog|vo\b/i.test(t.name || '') && speechClips(doc, t.id).length);
+  const track = picked.length ? (picked.every(c => c.track === picked[0].track) ? picked[0].track : '') : (p.track && doc.tracks.some(t => t.id === p.track) ? p.track : voice?.id || '');
+  const ranges = picked.length ? picked.map(c => [c.start, c.start + c.duration]) : null;
+  if (!speechClips(doc, track).length) { toast('No speech to listen to: put a recording with sound on the timeline (or select one).', 4500); return; }
+  scanning = true;
+  const btn = document.getElementById('filler-scan');
+  btn?.classList.add('listening');
+  try {
+    const found = await listen(app, { locale: p.locale, track, ranges }, t => { if (btn) btn.title = t; });
+    const n = found.filter(u => u.cut).length;
+    toast(found.length ? `${found.length} filler${found.length === 1 ? '' : 's'} found${picked.length ? ` in the ${picked.length} selected clip${picked.length === 1 ? '' : 's'}` : ''}, ${n} marked CUT. FILLERS lists them; click the counter to open it.` : `No fillers found${picked.length ? ' in the selected clips' : ''}.`, 6000);
+    refreshUms();
+  } catch (e) { toast(e.message, 6000); app.deck?.untally(); }
+  finally { scanning = false; btn?.classList.remove('listening'); if (btn) btn.title = SCAN_TITLE; }
+}
+export const SCAN_TITLE = 'Scan for fillers (the shotgun mic): listens to the selected clips, or the whole project, for ums, uhs and other fillers, and counts them on the counter beside the time. FILLERS lists them to keep or cut.';
 
 let panel = null;
 export function openUms(app) {

@@ -147,7 +147,8 @@ export class Deck {
     this.counter = makeCounter();
     // the fillers counter: only shown while Reel counts filler words (a FILLERS scan, Auto Edit, Remove fillers), then it slides away
     this.zeroBtn = el('span', { class: 'deck-zero engr', text: 'FILLERS' });
-    const index = this.index = el('div', { class: 'deck-index', title: TAPE_TITLE, onclick: () => this.untally() },
+    // shown while the project has fillers listed (and while a scan counts them); click it for the FILLERS list
+    const index = this.index = el('div', { class: 'deck-index', title: TAPE_TITLE, onclick: () => app.cmd('ums') },
       el('div', { class: 'drum-window' }, this.counter.el),
       this.zeroBtn);
     this.tallying = false; this.tallyAt = 0; this.tallyRaf = 0; this.tallyHide = 0;
@@ -234,10 +235,19 @@ export class Deck {
       this.tallyAt = from + (n - from) * e;
       this.counter.set(this.tallyAt);
       if (k < 1) this.tallyRaf = requestAnimationFrame(roll);
-      else { this.tallyAt = n; if (done) this.tallyHide = setTimeout(() => this.untally(), 8000); }
+      // the final count stays up while there are fillers listed; none left, and it slides away
+      else { this.tallyAt = n; this.counting = !done; if (done) this.shownFillers = n; if (done && n === 0) this.tallyHide = setTimeout(() => this.untally(), 3000); }
     };
+    this.counting = !done;
     this.tallyRaf = requestAnimationFrame(roll);
-    this.index.title = `${n} ${label}${done ? '' : ' so far'}. Click to put it away.`;
+    this.index.title = `${n} ${label}${done ? '' : ' so far'}. Click for the list of fillers.`;
+  }
+  /** The project's fillers as they stand (the list changed: some cut, a project opened): the counter follows. */
+  fillers(n) {
+    if (this.counting || n === this.shownFillers) return;
+    this.shownFillers = n;
+    if (n > 0) this.tally(n, 'fillers listed', { from: this.tallying ? null : n });
+    else this.untally();
   }
   /** Puts the fillers counter away. */
   untally() {

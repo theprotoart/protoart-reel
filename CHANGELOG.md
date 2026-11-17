@@ -2,6 +2,8 @@
 
 ## 1.11.0 — 2026-11-16
 
+- 🎙 Scan for fillers: a shotgun mic in its furry windshield beside the cassette. It listens to the selected clips (or the whole project) and counts the fillers on the counter beside the time, which now stays up while the project has fillers listed; click the counter for the FILLERS list.
+
 - Rust core 1.12: exports with titles, call-outs (Area and Magnify too), graphics, shapes, drawings and burned captions can now go through the Rust core. The editor draws those exactly as in the preview and hands them over frame by frame; the core lays them over the video it draws (a magnifier's lens is drawn by the core, from the frame under it). Checked side by side against the editor's own frames. Still the usual way: keystrokes, background graphics, blurring call-outs and transitions that read the picture under them.
 
 - Presets search: what you type shows (the box was white with light text), and it finds things on the other pages too: “subscribe” on Motion shows the Subscribe graphics.
