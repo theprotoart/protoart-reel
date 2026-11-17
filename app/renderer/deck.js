@@ -101,7 +101,7 @@ function makeVu(label) {
  * turns smoothly; each higher drum rolls over only while the one below goes from 9 to 0, as on a
  * real odometer.
  */
-const TAPE_TITLE = 'Ums counter: the filler words Reel finds as it scans (FILLERS, Auto Edit, Remove fillers). Click to put it away.';
+const TAPE_TITLE = 'Fillers counter: the filler words Reel finds as it scans (FILLERS, Auto Edit, Remove fillers). Click to put it away.';
 
 function makeCounter() {
   const drums = [];
@@ -145,8 +145,8 @@ export class Deck {
     const counters = el('div', { class: 'deck-counter' }, ...['#timecode', '#duration'].map(s => host.querySelector(s)));
     // mechanical tape counter with a ZERO button
     this.counter = makeCounter();
-    // only shown while Reel counts filler words (a FILLERS scan, Auto Edit, Remove fillers), then it slides away
-    this.zeroBtn = el('span', { class: 'deck-zero engr', text: 'UMS' });
+    // the fillers counter: only shown while Reel counts filler words (a FILLERS scan, Auto Edit, Remove fillers), then it slides away
+    this.zeroBtn = el('span', { class: 'deck-zero engr', text: 'FILLERS' });
     const index = this.index = el('div', { class: 'deck-index', title: TAPE_TITLE, onclick: () => this.untally() },
       el('div', { class: 'drum-window' }, this.counter.el),
       this.zeroBtn);
@@ -216,7 +216,7 @@ export class Deck {
   }
 
   /**
-   * The ums counter: it shows up beside the time when a scan for filler words starts (at 0000), rolls up to n as they're
+   * The fillers counter: it shows up beside the time when a scan for filler words starts (at 0000), rolls up to n as they're
    * found, the drums turning one by one, and slides away a few seconds after the last count (or when clicked).
    * label says what it counts, for its tooltip. done: that's the final count (it goes away after it).
    */
@@ -238,7 +238,7 @@ export class Deck {
     this.tallyRaf = requestAnimationFrame(roll);
     this.index.title = `${n} ${label}${done ? '' : ' so far'}. Click to put it away.`;
   }
-  /** Puts the ums counter away. */
+  /** Puts the fillers counter away. */
   untally() {
     if (!this.tallying) return;
     cancelAnimationFrame(this.tallyRaf); clearTimeout(this.tallyHide);

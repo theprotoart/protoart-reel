@@ -9,6 +9,22 @@ import { timelineWords, speechClips, speechPrefs, saveSpeechPrefs, trackSelect, 
 import { peaksFor } from './peaks.js';
 import { umModel, teachUms, findYourUms, teachFromTimeline, notAnUm } from './umvoice.js';
 
+// the words on the timeline as last heard (the transcript is cached, so getting them again is quick): each um is
+// shown in its sentence, the words either side, so you can tell what was picked up without playing it
+let ctxWords = null, ctxLoading = false, ctxSig = '';
+// the words move when the edit does: heard again (from the cache) after a cut or a move
+const layoutSig = doc => (doc?.clips || []).map(c => `${c.id}:${c.start}:${c.in || 0}:${c.duration}:${c.speed || 1}`).join('|');
+/** The words just before and after t..end (up to 6 each side, within 4 s), and the ones inside it. */
+export function contextOf(words, t, end) {
+  const before = [], inside = [], after = [];
+  for (const w of words) {
+    if (w.end <= t + 0.03) { if (w.t >= t - 4) before.push(w.text); }
+    else if (w.t >= end - 0.03) { if (w.t <= end + 4 && after.length < 6) after.push(w.text); }
+    else inside.push(w.text);
+  }
+  return { before: before.slice(-6).join(' '), inside: inside.join(' '), after: after.join(' ') };
+}
+
 const fmt = t => { const m = Math.floor(t / 60), s = t % 60; return `${m}:${s.toFixed(1).padStart(4, '0')}`; };
 const umsOf = doc => (doc?.ums || []).slice().sort((a, b) => a.t - b.t);
 export const umCount = doc => umsOf(doc).filter(u => u.cut).length;
@@ -24,6 +40,7 @@ const CATS = [['all', 'All'], ['um', 'Um · uh'], ['phrase', 'Like · you know']
 async function listen(app, { locale, track }, onStatus) {
   app.deck?.tally(0, 'filler words found', { done: false });
   const words = await timelineWords(app, { locale, track }, onStatus);
+  ctxWords = words; ctxSig = layoutSig(app.doc);
   onStatus?.('Looking for ums between the words…', 1);
   const clips = speechClips(app.doc, track);
   const trained = !!umModel();
@@ -49,6 +66,7 @@ async function findWord(app, { locale, track }, query) {
   const q = query.toLowerCase().replace(/[^\p{L}\p{N}' ]+/gu, ' ').trim().split(/\s+/).filter(Boolean);
   if (!q.length) return [];
   const words = await timelineWords(app, { locale, track });
+  ctxWords = words; ctxSig = layoutSig(app.doc);
   const norm = w => String(w.text).toLowerCase().replace(/[^\p{L}\p{N}']+/gu, '');
   const clips = speechClips(app.doc, track);
   const trackAt = t => clips.find(c => t >= c.start - 0.01 && t < c.start + c.duration)?.track;
@@ -157,6 +175,13 @@ export function openUms(app) {
     allBtn.textContent = ums.length && ums.every(u => u.cut) ? 'ALL KEEP' : 'ALL CUT';
     if (!app.doc.ums) { list.replaceChildren(el('p', { class: 'takes-empty', text: 'Press LISTEN FOR FILLERS. Reel listens to the speech on the track you choose and lists every um, uh and filler it hears. 🎙 TEACH REEL YOUR UMS first and it finds them in your voice too.' })); return; }
     if (!ums.length) { list.replaceChildren(el('p', { class: 'takes-empty', text: all.length ? 'None here: pick another filter, track or clip.' : 'No ums found. Nice and clean.' })); return; }
+    // the words around each one: fetched once (from the cached transcript), then the list is drawn again with them
+    if (ctxWords && ctxSig !== layoutSig(app.doc)) ctxWords = null;
+    if (!ctxWords && !ctxLoading) {
+      ctxLoading = true;
+      const sigNow = layoutSig(app.doc);
+      timelineWords(app, { locale: lang.value, track: '' }).then(w => { ctxWords = w; ctxSig = sigNow; }, () => { ctxWords = []; ctxSig = sigNow; }).finally(() => { ctxLoading = false; refresh(true); });
+    }
     list.replaceChildren(
       el('div', { class: 'engr takes-rec ums-sum' }, el('span', { text: `${ums.length} shown · ${n} marked CUT` }), allBtn),
       ...ums.map(u => {
@@ -177,10 +202,17 @@ export function openUms(app) {
             } }) : null;
         const name = cat === 'sound' ? '(sound)' : cat === 'voice' ? `${u.text} ✦` : `“${u.text}”`;
         const tip = cat === 'sound' ? 'A short sound between words: often an um the speech recogniser left out. Play it to check.' : cat === 'voice' ? 'Sounds like the ums you taught Reel (in your voice)' : cat === 'find' ? 'A word you looked for' : 'Heard as a word';
-        return el('div', { class: 'take-row' + (u.cut ? ' dropped' : '') + (cat === 'sound' ? ' ums-sound' : '') + (cat === 'voice' ? ' ums-voice' : '') }, play,
+        // the sentence it was said in: the words either side, the picked-up part lit
+        const cx = ctxWords?.length ? contextOf(ctxWords, u.t, u.end) : null;
+        const said = cx && (cx.inside || (cat === 'sound' || cat === 'voice' ? '(sound)' : u.text));
+        const ctx = cx && (cx.before || cx.after || cx.inside) ? el('div', { class: 'ums-ctx', title: 'What was said around it (click to go there)', onclick: () => app.seek(Math.max(0, u.t - 1)) },
+          cx.before ? el('span', { class: 'ums-ctx-side', text: '…' + cx.before + ' ' }) : null,
+          el('mark', { text: said }),
+          cx.after ? el('span', { class: 'ums-ctx-side', text: ' ' + cx.after + '…' }) : null) : null;
+        return el('div', { class: 'take-row ums-row' + (u.cut ? ' dropped' : '') + (cat === 'sound' ? ' ums-sound' : '') + (cat === 'voice' ? ' ums-voice' : '') }, play,
           el('span', { class: 'take-name', text: name, title: tip }),
           el('span', { class: 'take-time', text: `${fmt(u.t)} · ${(u.end - u.t).toFixed(1)} s`, onclick: () => app.seek(u.t), title: 'Go there' }),
-          toggle, teach, del);
+          toggle, teach, del, ctx);
       }));
   };
   track.addEventListener('change', () => { saveSpeechPrefs({ ...speechPrefs(), track: track.value }); refresh(true); });

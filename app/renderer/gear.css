@@ -656,7 +656,7 @@ input.switch:focus-visible, .row > input[type=checkbox]:focus-visible { outline:
 .deck-zero { border: 0; cursor: pointer; padding: 2px 6px; border-radius: 2px; font: 700 7.5px/1 var(--font-engrave, "Avenir Next Condensed", sans-serif);
   letter-spacing: .16em; color: #2a2620; background: linear-gradient(#e9e5dc, #b9b3a8 60%, #8e887e);
   box-shadow: inset 0 1px 0 rgba(255,255,255,.7), 0 2px 0 #000; transform: translateY(-1px); }
-/* the counter as a filler-word tally: the window lit amber from behind, the units drum the same ivory as the rest */
+/* the fillers counter: the window lit amber from behind, the units drum the same ivory as the rest */
 .deck-index.tally .drum-window { cursor: pointer; box-shadow: inset 0 2px 3px rgba(0,0,0,.95), 0 0 0 1px #8a6a1c, 0 0 10px 1px rgba(255,180,60,.55);
   animation: tally-glow 2.4s ease-in-out infinite; }
 .deck-index.tally .drum.units { background: linear-gradient(#8f897e, #efe9dc 30%, #fbf7ee 50%, #efe9dc 70%, #8f897e); }
@@ -1996,7 +1996,14 @@ body.rec-paused #keypanel #btn-record .dot { animation: rk-blink 2s steps(2, sta
 .ums-opts select { flex: 1; min-width: 0; }
 .ums-sum { display: flex; align-items: center; justify-content: space-between; gap: 8px; }
 .ums-sum span { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-.ums-panel .take-row .take-name { flex: 0 1 120px; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.ums-panel .take-row .take-name { flex: 1 1 120px; min-width: 0; overflow-wrap: anywhere; white-space: normal; }
+/* each one in its sentence, under its row: the words either side dimmed, the part picked up lit */
+.ums-panel .take-row.ums-row { display: grid; grid-template-columns: auto minmax(0, 1fr) auto auto auto auto; align-items: center; column-gap: 6px; row-gap: 3px; }
+.ums-ctx { grid-column: 1 / -1; padding: 0 4px 2px 34px; font-size: 13px; line-height: 1.4; cursor: pointer; color: var(--ink, #e9e3d6); }
+.ums-ctx-side { opacity: .62; }
+.ums-ctx mark { background: rgba(245, 185, 66, .28); color: inherit; font-weight: 700; padding: 0 3px; border-radius: 3px; box-shadow: inset 0 -2px 0 rgba(245,185,66,.8); }
+.ums-panel .take-row.dropped .ums-ctx mark { background: rgba(220, 70, 50, .3); box-shadow: inset 0 -2px 0 rgba(220,70,50,.85); text-decoration: line-through; }
+html[data-theme="light"] .ums-ctx { color: #2a2620; }
 .ums-panel .take-row.ums-sound .take-name { font-style: italic; opacity: .8; }
 .ums-panel .ums-del { flex: none; }
 .ums-status:empty { display: none; }
