@@ -9,6 +9,9 @@ import { soundOf, speechClips } from './transcript.js';
 import { fmtTime as fmt } from './model.js';
 import { playRange, setFillerWord, teachFillers, soundWords, newSoundWord, cutFillers } from './fillers.js';
 
+/** Takes of each sound Reel needs to find it well (fewer: it's marked as needing more). */
+export const ENOUGH = 10;
+
 const KEY = 'reel.umvoice';
 let cached;
 /** Your trained model, or null. */
@@ -46,13 +49,13 @@ export function teachUms(app, { onDone } = {}) {
   const recB = el('button', { class: 'hw kit-rec-btn', text: '● RECORD' });
   const saveB = el('button', { class: 'hw amber', text: 'LEARN MY UMS', disabled: true });
   const draw = () => {
-    // a step is learned when you recorded it now, or Reel already has 3 or more takes of that sound (the sentence:
+    // a step is learned when you recorded it now, or Reel already has ENOUGH (10) or more takes of that sound (the sentence:
     // when it has heard your ordinary speech): solid green; still needed: yellow with a black zig-zag
     const m = umModel();
-    // green: learned (3 or more takes, or recorded now); blue: started (1 or 2 takes); yellow zig-zag: not taught yet
+    // green: learned (ENOUGH or more takes, or recorded now); blue: started (fewer); yellow zig-zag: not taught yet
     const takesOf = i => (STEPS[i].word === 'speech' ? (m?.near ? 3 : 0) : (m?.words.find(w => w.word === STEPS[i].word)?.prints.length || 0));
-    const state = i => (takes[i] || takesOf(i) >= 3 ? 'known' : takesOf(i) > 0 ? 'started' : 'needed');
-    const tip = { known: 'Learned', started: 'Started: a few more takes make it better', needed: 'Not taught yet' };
+    const state = i => (takes[i] || takesOf(i) >= ENOUGH ? 'known' : takesOf(i) > 0 ? 'started' : 'needed');
+    const tip = { known: 'Learned', started: `Started: ${ENOUGH} or more takes find it best`, needed: 'Not taught yet' };
     list.replaceChildren(...STEPS.map((s, i) => el('div', { class: 'umt-step' + (i === cur ? ' on' : '') + (takes[i] ? ' done' : '') + ' ' + state(i), title: tip[state(i)], onclick: () => { if (!rec) { cur = i; draw(); } } },
       el('span', { class: 'umt-n', text: takes[i] ? '✓' : String(i + 1) }), el('span', { class: 'umt-say', text: s.say + (takes[i]?.from ? ' · from the timeline' : '') }),
       takes[i]?.blob ? el('button', { class: 'mini', text: '▶', title: 'Listen back', onclick: e => { e.stopPropagation(); new Audio(URL.createObjectURL(takes[i].blob)).play(); } }) : null,
@@ -192,16 +195,16 @@ export function teachUms(app, { onDone } = {}) {
   const drawKnown = (reread = false) => {
     const m = reread ? reloadModel() : umModel(), name = w => (w === 'umm' ? 'um' : w);
     const words = m ? m.words : [];
-    const few = words.filter(w => w.prints.length < 3);
+    const few = words.filter(w => w.prints.length < ENOUGH);
     const missing = SUGGEST.filter(w => !words.some(x => x.word === w));
     // in the dialog's bottom row: ↻ at the far left, then what Reel knows (FORGET MY UMS and CLOSE on the right)
     known.replaceChildren(
       el('button', { class: 'hw umt-refresh', text: '↻', title: 'Show what Reel knows now', onclick: () => drawKnown(true) }),
       el('div', { class: 'umt-known-text' },
       el('b', { text: m ? 'REEL KNOWS' : 'Reel doesn’t know your ums yet.' }),
-      words.length ? el('div', { class: 'umt-chips' }, ...words.map(w => el('button', { class: 'umt-chip' + (w.prints.length < 3 ? ' few' : ''), type: 'button', title: `${w.prints.length} take${w.prints.length === 1 ? '' : 's'} learned. Click to take some back (a sound taught by mistake).`, text: `${name(w.word)} · ${w.prints.length} ▾`, onclick: e => chipMenu(e, w.word, w.prints.length) })),
+      words.length ? el('div', { class: 'umt-chips' }, ...words.map(w => el('button', { class: 'umt-chip' + (w.prints.length < ENOUGH ? ' few' : ''), type: 'button', title: `${w.prints.length} take${w.prints.length === 1 ? '' : 's'} learned. Click to take some back (a sound taught by mistake).`, text: `${name(w.word)} · ${w.prints.length} ▾`, onclick: e => chipMenu(e, w.word, w.prints.length) })),
         m.nots?.length ? el('button', { class: 'umt-chip not', type: 'button', title: 'Sounds you told Reel aren’t ums. Click to take some back.', text: `not an um · ${m.nots.length} ▾`, onclick: e => chipMenu(e, 'not', m.nots.length) }) : null) : null,
-      few.length ? el('div', { text: `Needs more takes (3 or more find them best): ${few.map(w => `${name(w.word)} (${3 - w.prints.length} more)`).join(', ')}.` }) : null,
+      few.length ? el('div', { class: 'umt-few', text: `Needs more takes (${ENOUGH} or more of each find them best): ${few.map(w => `${name(w.word)} (${ENOUGH - w.prints.length} more)`).join(', ')}.` }) : null,
       missing.length ? el('div', { text: `Not taught yet: ${missing.map(name).join(', ')}.` }) : null));
   };
   drawKnown();
@@ -211,8 +214,8 @@ export function teachUms(app, { onDone } = {}) {
     list, el('div', { class: 'row kit-rec-row' }, recB, meter));
   const body = el('div', { class: 'umt' },
     el('p', { text: model
-      ? 'Reel already knows how you say your ums. To teach it more (or other sounds, like breaths), mark them in your recording with 〰 FILLER and send them below, or record more takes.'
-      : 'Record each one in a quiet room with the microphone you record with. Reel learns how your ums and uhs sound, then finds them in your videos for 💬 FILLER WORDS and AUTO EDIT, even the ones speech recognition leaves out. Nothing leaves this Mac.' }),
+      ? `Reel already knows how you say your ums. To teach it more (or other sounds, like breaths), mark them in your recording with 〰 FILLER and send them below, or record more takes. Give Reel at least ${ENOUGH} of each sound, new ones too: the more it hears, the better it finds them.`
+      : `Say each one at least ${ENOUGH} times (slow, normal, quick, the way you really say it), in a quiet room with the microphone you record with. A new sound you add later needs ${ENOUGH} too. Reel learns how your ums and uhs sound, then finds them in your videos for 💬 FILLER WORDS and AUTO EDIT, even the ones speech recognition leaves out. Nothing leaves this Mac.` }),
     takesBox, status, fillBox,
     el('p', { class: 'note umt-tip', text: 'Particular words (curse words, “basically”, “actually”…) are found by their spelling, not by ear: type them in Find a word in 💬 FILLER WORDS. Everything you add is added to what Reel knows; FORGET MY UMS starts over.' }));
   draw();
