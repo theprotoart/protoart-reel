@@ -41,6 +41,9 @@ function actLabel(a) {
   return len;
 }
 
+/** A short track's own classes: its knobs fold away (compact), then all but its name (tiny). */
+const rowClass = h => (h < 34 ? ' rh-compact rh-tiny' : h < 50 ? ' rh-compact' : '');
+
 export class Timeline {
   constructor(app) {
     this.app = app;
@@ -481,7 +484,7 @@ export class Timeline {
   fitTracks() {
     if (!this.doc) return;
     if (this._fitBack) { const b = this._fitBack; this._fitBack = null; this.applyTrackHeight(b, true); return; }
-    const n = this.doc.tracks.length || 1, extra = this.layout().reduce((a, r) => a + (r.end - r.top - r.h), 0);
+    const n = this.doc.tracks.reduce((a, t) => a + (t.hk > 0 ? t.hk : 1), 0) || 1, extra = this.layout().reduce((a, r) => a + (r.end - r.top - r.h), 0); // lanes and racks under tracks
     const room = this.scroll.clientHeight - 30 - this.capH() - extra;
     const was = this.trackH();
     this.applyTrackHeight(Math.floor(room / n), true);
@@ -491,16 +494,23 @@ export class Timeline {
 
   // ---------------------------------------------------------------- layout
   trackH() { return parseFloat(getComputedStyle(document.documentElement).getPropertyValue('--track-h')) || 58; }
+  /** One track's own height: the tracks' height times its own factor (⌃ ⌄ on its header, or drag its lower edge). */
+  rowH(tr) { return Math.round(Math.min(320, Math.max(22, this.trackH() * (tr.hk > 0 ? tr.hk : 1)))); }
+  /** Makes one track taller or shorter (factor on the tracks' height), as one ⌘Z. */
+  setRowH(tr, hk) {
+    const k = Math.round(Math.min(6, Math.max(0.25, hk)) * 100) / 100;
+    this.app.commit(() => { if (Math.abs(k - 1) < 0.03) delete tr.hk; else tr.hk = k; });
+  }
   /** Rows top to bottom: { tr, top, h (clip row), lane, laneTop }. */
   /** Height of the caption lane above the tracks (shown when there are captions or you open it). */
   capH() { return this.doc && ((this.doc.captions || []).length || this.app.showCaptionLane) ? CAP_H : 0; }
   layout() {
-    const th = this.trackH();
     let y = this.capH();
     return this.doc.tracks.map(tr => {
       const lane = LANE[tr.lane] ? tr.lane : null;
       const fxH = tr.fxOpen ? fxRackH(tr) : 0;
-      const r = { tr, top: y, h: th, lane, laneTop: y + th, fxTop: y + th + (lane ? LANE_H : 0), fxH, end: y + th + (lane ? LANE_H : 0) + fxH };
+      const h = this.rowH(tr);
+      const r = { tr, top: y, h, lane, laneTop: y + h, fxTop: y + h + (lane ? LANE_H : 0), fxH, end: y + h + (lane ? LANE_H : 0) + fxH };
       y = r.end;
       return r;
     });
@@ -523,7 +533,8 @@ export class Timeline {
     if (this.capH()) { this.tracksEl.append(this._captionLane(W)); this.heads.append(this._captionHead()); }
     for (const [i, row] of this.layout().entries()) {
       const tr = row.tr;
-      const r = el('div', { class: 'tl-row' + (tr.locked ? ' locked-track' : '') + (tr.hidden ? ' hidden-track' : '') + (anySolo && !tr.solo ? ' unsoloed' : ''), 'data-track': tr.id });
+      const r = el('div', { class: 'tl-row' + (tr.locked ? ' locked-track' : '') + (tr.hidden ? ' hidden-track' : '') + (anySolo && !tr.solo ? ' unsoloed' : '') + rowClass(row.h), 'data-track': tr.id, style: { height: row.h + 'px' } });
+      r.style.setProperty('--track-h', row.h + 'px'); // its clips are sized from it
       for (const c of doc.clips.filter(c => c.track === tr.id)) r.append(this._clipEl(c, sel.has(c.id)));
       // a ⧓ on every cut where two pictures meet: click to pick a transition (CapCut-style)
       for (const [a, b] of cutsOn(doc, tr.id)) {
@@ -720,7 +731,28 @@ export class Timeline {
     const grip = el('span', { class: 'th-grip', text: '☰', title: 'Drag to move this track up or down' });
     grip.addEventListener('pointerdown', e => this._dragTrack(e, tr));
     const sound = isSound;
-    const head = el('div', { class: 'tl-head' + (tr.solo ? ' soloed' : ''), 'data-track': tr.id, style: { height: this.trackH() + 'px' }, oncontextmenu: e => { if (e.target.closest('select, input')) return; e.preventDefault(); app.trackMenu(tr, e.clientX, e.clientY); } },
+    const rh = this.rowH(tr);
+    // ScreenFlow's ⌃ ⌄: this track taller or shorter on its own (⌥-click: back to the others' height); or drag its lower edge
+    const sizeKeys = el('span', { class: 'th-size' },
+      el('button', { type: 'button', text: '⌃', title: 'Make this track taller (⌥-click: the same height as the others)', onclick: e => { e.stopPropagation(); this.setRowH(tr, e.altKey ? 1 : (tr.hk || 1) * 1.3); } }),
+      el('button', { type: 'button', text: '⌄', title: 'Make this track shorter (⌥-click: the same height as the others)', onclick: e => { e.stopPropagation(); this.setRowH(tr, e.altKey ? 1 : (tr.hk || 1) / 1.3); } }));
+    const edge = el('div', { class: 'th-resize', title: 'Drag to make this track taller or shorter · double-click: the same height as the others', ondblclick: () => this.setRowH(tr, 1) });
+    edge.addEventListener('pointerdown', e => {
+      if (e.button !== 0) return;
+      e.preventDefault(); e.stopPropagation();
+      const y0 = e.clientY, h0 = rh, base = this.trackH();
+      let moved = false;
+      const move = ev => {
+        if (!moved && Math.abs(ev.clientY - y0) < 2) return;
+        if (!moved) { moved = true; this.app.beginChange(); }
+        tr.hk = Math.min(6, Math.max(0.25, (h0 + ev.clientY - y0) / base));
+        const mid = this.scroll.scrollTop; this.render(); this.scroll.scrollTop = mid;
+      };
+      // on the window: the timeline is drawn again as it goes, which replaces this edge
+      const up = () => { window.removeEventListener('pointermove', move); window.removeEventListener('pointerup', up); if (moved) { if (Math.abs(tr.hk - 1) < 0.03) delete tr.hk; this.app.endChange(); } };
+      window.addEventListener('pointermove', move); window.addEventListener('pointerup', up);
+    });
+    const head = el('div', { class: 'tl-head' + (tr.solo ? ' soloed' : '') + rowClass(rh), 'data-track': tr.id, style: { height: rh + 'px' }, oncontextmenu: e => { if (e.target.closest('select, input')) return; e.preventDefault(); app.trackMenu(tr, e.clientX, e.clientY); } },
       el('div', { class: 'th-top' }, grip,
         el('span', { class: 'tname', text: tr.name, title: 'Drag to move the track · double-click to rename', ondblclick: () => app.renameTrack(tr), onpointerdown: e => this._dragTrack(e, tr, true) }),
         sound ? roleButton(app, tr, { dot: true }) : null,
@@ -734,6 +766,8 @@ export class Timeline {
       el('div', { class: 'th-bottom' }, laneSel,
         el('span', { class: 'th-k' }, el('i', { text: 'VOL' }), knob('volume')),
         el('span', { class: 'th-k' }, el('i', { text: 'PAN' }), knob('pan'))));
+    head.append(sizeKeys, edge);
+    head.style.setProperty('--track-h', rh + 'px');
     tint(head, tr);
     return head;
   }

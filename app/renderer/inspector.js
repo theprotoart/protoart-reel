@@ -15,6 +15,9 @@ import { MOTION_PRESETS, applyMotion, clearMotion } from './motion.js';
 import { hasDynZoom, getDynZoom, setDynZoomEase, swapDynZoom, removeDynZoom, DZ_EASES, setDynZoomTimes, addZoomBackOut, hasZoomBackOut, zoomMoves, shotOf } from './lib/dynzoom.js';
 import { ELEMENTS } from './lib/elements.js';
 import { pref } from './prefs.js';
+import { addPush, pushOf, pushAt, setPush, removePush, PUSH_DEFAULTS } from './lib/push.js';
+import { cursorAt } from './cursor.js';
+import { frameFraction } from './autozoom.js';
 import { textKeys, withKeys } from './texttools.js';
 
 export const TRANSITIONS = [['none', 'None'], ['fade', 'Fade'], ['dip-black', 'Dip to black'], ['dip-white', 'Dip to white'], ['flash', 'Flash'],
@@ -47,6 +50,24 @@ export function defaultTab(doc, ids) {
   }
   return kinds.size === 1 && !kinds.has('other') ? [...kinds][0] : null;
 }
+
+// the tabs' icons: thin line drawings, like ScreenFlow's
+const svg = d => `<svg viewBox="0 0 24 24" width="20" height="20" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round">${d}</svg>`;
+const TAB_ICONS = {
+  video: svg('<rect x="3" y="5" width="18" height="14" rx="1.5"/><path d="M3 9h18M3 15h18M7 5v4M7 15v4M17 5v4M17 15v4"/><path d="M10.5 10.5v3l2.6-1.5z" fill="currentColor"/>'),
+  audio: svg('<path d="M4 9.5h3l4-3.5v12l-4-3.5H4z"/><path d="M15 9a4 4 0 0 1 0 6M17.5 6.5a7.5 7.5 0 0 1 0 11"/>'),
+  music: svg('<path d="M9 17V6l10-2v11"/><circle cx="7" cy="17" r="2"/><circle cx="17" cy="15" r="2"/>'),
+  speed: svg('<path d="M5 17a8 8 0 1 1 14 0"/><path d="M12 13l4-4"/><circle cx="12" cy="13" r="1" fill="currentColor"/>'),
+  motion: svg('<path d="M12 4a8 8 0 1 1-7.4 5" stroke-dasharray="2.2 2.2"/><path d="M12 12h4M12 12V8"/><path d="M3 5l1.6 4L8.5 8"/>'),
+  screen: svg('<circle cx="12" cy="12" r="8.5"/><path d="M9.5 7.5l6.5 4-3 .8-1.4 2.8z" fill="currentColor"/>'),
+  callout: svg('<circle cx="9.5" cy="10.5" r="5.5"/><circle cx="14.5" cy="13.5" r="5.5"/>'),
+  text: svg('<path d="M5 6h14M12 6v13"/>'),
+  fx: svg('<path d="M12 3v4M12 17v4M3 12h4M17 12h4M6 6l2.5 2.5M15.5 15.5L18 18M18 6l-2.5 2.5M8.5 15.5L6 18"/>'),
+};
+const TAB_TITLES = { video: 'Video', audio: 'Audio', music: 'Music', speed: 'Speed & timing', motion: 'Video motion', screen: 'Screen recording', callout: 'Callout', text: 'Text', fx: 'Filters & effects' };
+const FOLD_KEY = 'reel.inspFold';
+const foldedSet = () => { try { return new Set(JSON.parse(localStorage.getItem(FOLD_KEY) || '[]')); } catch { return new Set(); } };
+const setFolded = (key, on) => { const s = foldedSet(); if (on) s.add(key); else s.delete(key); try { localStorage.setItem(FOLD_KEY, JSON.stringify([...s].slice(-200))); } catch { /* not remembered */ } };
 
 export class Inspector {
   constructor(app) { this.app = app; this.root = document.getElementById('inspector'); }
@@ -119,7 +140,7 @@ export class Inspector {
       if (/^music/.test(t)) return 'music';
       if (/^position|^crop|^style|^transitions|^video levels|^picture in picture|^stabili[sz]e|^colou?r|^match colou?r|^green screen|^remove background/.test(t)) return 'video';
       if (/^audio/.test(t)) return 'audio';
-      if (/^actions|^keyframes|^motion presets/.test(t)) return 'motion';
+      if (/^actions|^keyframes|^motion presets|^dynamic zoom|^quick push|^🎯 zoom moves/.test(t)) return 'motion';
       if (/^pointer|^keystrokes/.test(t)) return 'screen';
       if (/^callout|^shape|^annotation|^element/.test(t)) return 'callout';
       if (/^text|^caption/.test(t)) return 'text';
@@ -135,17 +156,63 @@ export class Inspector {
     const fits = k => k !== 'all' && present.has(k) && !(kind === 'audio' && ['video', 'motion', 'screen', 'callout', 'text'].includes(k));
     const tabs = CATS.filter(([k]) => fits(k));
     if (kind === 'audio') for (const sec of secs) if (['video', 'motion', 'screen', 'callout', 'text'].includes(sec.dataset.cat)) sec.remove();
-    if (tabs.length < 2) return; // one kind of setting: nothing to switch
+    if (!tabs.length) return;
     let cur = this.tab && fits(this.tab) ? this.tab : kind && fits(kind) ? kind : tabs[0][0];
-    const bar = el('div', { class: 'insp-tabs', role: 'tablist' });
+    const app = this.app, doc = this.doc;
+    const c = app.selection.clips.length >= 1 ? doc.clips.find(x => x.id === (this.focus && app.selection.clips.includes(this.focus) ? this.focus : app.selection.clips[0])) : null;
+    const act = c && app.selection.action ? (c.actions || []).find(x => x.id === app.selection.action) : null;
+    const visual = c && (c.type !== 'media' || ['video', 'image'].includes(mediaById(doc, c.media)?.kind)) && !c.audioOnly;
+    // ScreenFlow's way: a row of icon tabs, then a header with the tab's name and + Action
+    const bar = el('div', { class: 'insp-tabs icons', role: 'tablist' });
+    const title = el('span', { class: 'ih-title' });
+    const foldAll = el('button', { class: 'ih-fold', type: 'button', title: 'Fold or unfold every section on this tab' });
+    const addAct = visual ? el('button', { class: 'ih-act', type: 'button', text: '+ Action', title: 'An action at the playhead: then change any setting on this tab (position, size, opacity, crop…) and it animates there (⌘K)', onclick: () => app.cmd('insert-action') }) : null;
+    const head = el('div', { class: 'insp-head' }, title, el('span', { class: 'spacer' }), foldAll, addAct);
+    // an action being edited: what it is, its length and easing, and Done, right under the header
+    const actBar = act ? el('div', { class: 'insp-actbar' },
+      el('span', { class: 'ia-what', text: `${act.push ? (act.pushPart === 'in' ? 'Push in' : 'Push out') : 'Action'} at ${fmtTime(c.start + act.t).replace(/(\.\d)\d*$/, '$1')}` }),
+      (() => { const i = el('input', { type: 'number', min: 0.05, max: Math.max(0.05, c.duration - act.t), step: 0.05, value: act.dur.toFixed(2), title: 'How long it takes (s)' }); i.addEventListener('change', () => this.edit(() => { act.dur = clamp(+i.value || act.dur, 0.05, Math.max(0.05, c.duration - act.t)); })); return el('label', { class: 'ia-len' }, i, el('span', { text: 's' })); })(),
+      selectRow('', act.ease || 'ease', [['ease', 'Smooth'], ['linear', 'Steady'], ['in', 'Ease in'], ['out', 'Ease out']], v => this.edit(() => { act.ease = v; })),
+      el('button', { class: 'ia-done', type: 'button', text: 'Done', title: 'Stop editing this action: settings change the clip itself again', onclick: () => app.select([c.id], null) })) : null;
+    const folded = foldedSet();
+    const secsOf = k => secs.filter(sec => sec.dataset.cat === k);
     const apply = () => {
-      for (const sec of secs) sec.classList.toggle('tab-hidden', cur !== 'all' && sec.dataset.cat !== cur && sec.dataset.cat !== 'other');
+      for (const sec of secs) sec.classList.toggle('tab-hidden', sec.dataset.cat !== cur && sec.dataset.cat !== 'other');
       for (const b of bar.children) b.classList.toggle('lit', b.dataset.k === cur);
+      const t = CATS.find(x => x[0] === cur);
+      title.textContent = cur === 'callout' && c?.type === 'element' ? 'Graphic' : TAB_TITLES[cur] || (t ? t[1] : '');
+      const mine = secsOf(cur).filter(sec => sec.classList.contains('foldable'));
+      foldAll.hidden = mine.length < 2;
+      foldAll.textContent = mine.some(sec => !sec.classList.contains('folded')) ? '▸ Fold all' : '▾ Unfold all';
+      if (addAct) addAct.hidden = !['video', 'motion', 'callout', 'text', 'screen'].includes(cur);
     };
-    for (const [k, label, title] of tabs) {
-      bar.append(el('button', { class: 'insp-tab', 'data-k': k, type: 'button', role: 'tab', text: label, title, onclick: () => { cur = k; this.tab = k === 'all' ? null : k; apply(); this.root.scrollTop = 0; } }));
+    // every section folds from its title (remembered), and Fold all does a whole tab at once
+    // the Motion tab in order of use: quick push, zoom moves, actions, then the rest
+    const RANK = [/^quick push/, /^🎯 zoom moves/, /^actions/, /^dynamic zoom/, /^keyframes/, /^motion presets/];
+    const rank = sec => { const t = (sec.querySelector(':scope > .engr')?.textContent || '').toLowerCase(); const i = RANK.findIndex(r => r.test(t)); return i < 0 ? RANK.length : i; };
+    const motion = secs.filter(sec => sec.dataset.cat === 'motion').sort((x, y) => rank(x) - rank(y));
+    if (motion.length > 1) { const after = motion[0].previousSibling; const frag = document.createDocumentFragment(); motion.forEach(x => frag.append(x)); this.root.insertBefore(frag, after ? after.nextSibling : this.root.firstChild); }
+    for (const sec of secs) {
+      const h = sec.querySelector(':scope > .engr');
+      if (!h || sec.dataset.cat === 'other') continue;
+      h.classList.add('sec-title');
+      const key = h.textContent.trim().toLowerCase();
+      sec.classList.add('foldable');
+      if (folded.has(key)) sec.classList.add('folded');
+      h.addEventListener('click', () => { sec.classList.toggle('folded'); setFolded(key, sec.classList.contains('folded')); apply(); });
     }
-    this.root.prepend(bar);
+    foldAll.addEventListener('click', () => {
+      const mine = secsOf(cur).filter(sec => sec.classList.contains('foldable')), fold = mine.some(sec => !sec.classList.contains('folded'));
+      for (const sec of mine) { sec.classList.toggle('folded', fold); setFolded(sec.querySelector('.sec-title').textContent.trim().toLowerCase(), fold); }
+      apply();
+    });
+    for (const [k, label, tip] of tabs) {
+      const b = el('button', { class: 'insp-tab', 'data-k': k, type: 'button', role: 'tab', title: `${label[0] + label.slice(1).toLowerCase()}: ${tip}`, 'aria-label': label, onclick: () => { cur = k; this.tab = k; apply(); this.root.scrollTop = 0; } });
+      b.innerHTML = TAB_ICONS[k] || '';
+      bar.append(b);
+    }
+    const top = el('div', { class: 'insp-top' }, tabs.length > 1 ? bar : null, head, actBar);
+    this.root.prepend(top);
     apply();
   }
 
@@ -270,15 +337,6 @@ export class Inspector {
     if (c.type === 'media' && m && m.kind === 'image') {
       head.append(this.sl('Duration', () => c.duration, v => { c.duration = v; }, { min: 0.5, max: 60, step: 0.1, fmt: v => v.toFixed(1) + 's' }));
     }
-    // picture in picture, one click away for any video or picture
-    if (c.type === 'media' && m && (m.kind === 'video' || m.kind === 'image') && !act) {
-      const p = c.props || {}, small = (p.scale ?? 1) < 0.5;
-      const at = k => small && Math.abs((p.x ?? 0.5) - (k[1] === 'r' ? 0.85 : 0.15)) < 0.02 && Math.abs((p.y ?? 0.5) - (k[0] === 'b' ? 0.8 : 0.2)) < 0.02;
-      head.append(el('div', { class: 'pip-row', title: 'Picture in picture: this clip small in a corner, rounded with a shadow, over the video on the tracks below' },
-        el('span', { class: 'engr', text: 'PICTURE IN PICTURE' }),
-        ...[['tl', '↖'], ['tr', '↗'], ['bl', '↙'], ['br', '↘']].map(([k, a]) => el('button', { class: 'tool' + (at(k) ? ' lit' : ''), text: a, title: { tl: 'Top left', tr: 'Top right', bl: 'Bottom left', br: 'Bottom right' }[k], onclick: () => app.pictureInPicture(k) })),
-        el('button', { class: 'tool' + (!small ? ' lit' : ''), text: 'FULL', title: 'Full frame (no picture in picture)', onclick: () => app.pictureInPicture('off') })));
-    }
     this.root.append(head);
     if (speedSec) this.root.append(speedSec);
     if (c.type === 'media' && m && m.kind !== 'image' && !c.reversed && !act) this.root.append(retimeSection(app, this, c, m));
@@ -290,11 +348,11 @@ export class Inspector {
     if (c.type === 'element') this.root.append(elementPanel(this, c));
 
     if (visual) {
+      if (c.type === 'media') this.root.append(pushSection(app, this, c, m));
       if (!act) this.root.append(dynZoomSection(app, this, c));
       this.root.append(motionSection(this, c));
       const pos = section(act ? 'Position (action target)' : 'Position & size');
-      if (act) pos.append(el('div', { class: 'editing-action' }, `Editing the action at ${fmtTime(c.start + act.t)}. Changes animate over ${act.dur.toFixed(1)} s. `,
-        el('button', { class: 'mini', text: 'Done', onclick: () => app.select([c.id], null) })));
+
       const P = (k, label, o) => (act ? this.sl(label, () => getP(k), v => setP(k, v), o) : this.ksl(c, 'props.' + k, label, o));
       pos.append(
         P('x', 'X', { min: -0.5, max: 1.5, step: 0.001, fmt: v => (v * 100).toFixed(0) + '%' }),
@@ -412,10 +470,7 @@ export class Inspector {
       list,
       el('div', { class: 'btn-row' }, el('button', { class: 'tool', text: '+ Action at playhead', onclick: () => app.cmd('insert-action') }), el('button', { class: 'tool', text: '+ Snapback', title: 'Return to how it was before the last action (⇧⌘K)', onclick: () => app.cmd('snapback') })));
     const act = app.selection.action ? c.actions.find(a => a.id === app.selection.action) : null;
-    if (act) {
-      sec.append(this.sl('Length', () => act.dur, v => { act.dur = Math.min(v, c.duration - act.t); }, { min: 0, max: Math.max(0.1, Math.min(10, c.duration - act.t)), step: 0.05, fmt: v => v.toFixed(2) + 's' }),
-        selectRow('Easing', act.ease || 'ease', [['ease', 'Smooth'], ['linear', 'Linear'], ['in', 'Ease in'], ['out', 'Ease out']], v => this.edit(() => { act.ease = v; })));
-    }
+    void act; // its length and feel are in the bar under the header
     this.root.append(sec);
   }
 
@@ -744,4 +799,53 @@ function elementPanel(insp, c) {
     colorRow('Colour', d.color, v => insp.edit(() => { c.element = { ...c.element, color: v }; })),
     colorRow('Accent', d.accent, v => insp.edit(() => { c.element = { ...c.element, accent: v }; })),
     insp.sl('Length', () => c.duration, v => { c.duration = v; }, { min: 0.5, max: 20, step: 0.1, fmt: v => v.toFixed(1) + ' s' }));
+}
+
+// ---------------------------------------------------------------- quick push in / push out
+const PUSH_PREF = 'reel.push';
+const pushPrefs = () => { try { return { ...PUSH_DEFAULTS, ...(JSON.parse(localStorage.getItem(PUSH_PREF) || '{}') || {}) }; } catch { return { ...PUSH_DEFAULTS }; } };
+const savePush = v => { try { localStorage.setItem(PUSH_PREF, JSON.stringify({ zoom: v.zoom, inDur: v.inDur, hold: v.hold, outDur: v.outDur, ease: v.ease })); } catch { /* fine */ } };
+
+/**
+ * Quick push: a zoom in at the playhead, a hold and a zoom back out, in one click, toward the pointer when the
+ * recording has one (else the middle). The one under the playhead (or selected) shows its zoom, how fast it goes
+ * in, how long it holds and how fast it comes out, each changed for both halves at once. New ones use the last
+ * settings.
+ */
+function pushSection(app, ins, c, m) {
+  const local = clamp(app.player.time - c.start, 0, c.duration);
+  const sel = app.selection.action ? pushOf(c, app.selection.action) : null;
+  const p = sel || pushAt(c, local);
+  const add = kind => {
+    const v = pushPrefs(), local = clamp(app.player.time - c.start, 0, c.duration); // where the playhead is now
+    // toward the pointer at the playhead, when there's one to follow
+    let aim = null;
+    const data = m?.cursor && app.player.cursors?.get?.(m.id);
+    if (data && kind !== 'out') { const q = cursorAt(data, m.cursorOffset || 0, (c.in || 0) + local * (c.speed || 1), 0.3); if (q && q.x >= 0 && q.x <= 1 && q.y >= 0 && q.y <= 1) aim = { fx: q.x, fy: q.y }; }
+    const ff = m ? frameFraction(app.doc.canvas, m, c.props.crop || [0, 0, 0, 0]) : { fw: 1, fh: 1 };
+    let id = null;
+    app.commit(() => { id = addPush(c, local, { kind, aim, ...ff, ...v }); });
+    if (!id) { toast('Not enough of the clip left after the playhead for a push.'); return; }
+    const first = c.actions.find(a => a.push === id);
+    app.select([c.id], first.id);
+  };
+  const sec = section('Quick push',
+    el('p', { class: 'note', text: p ? 'This push: how far in, how fast it goes in, how long it stays and how fast it comes back. Both halves change together; drag their bars on the timeline too.' : `A quick zoom at the playhead${m?.cursor ? ', toward the pointer' : ''}: in, hold, back out. Then set its speed and length here.` }),
+    el('div', { class: 'btn-row push-row' },
+      el('button', { class: 'tool hw amber', text: '⤢ Push in & out', title: 'Zoom in at the playhead, hold, and zoom back out', onclick: () => add('inout') }),
+      el('button', { class: 'tool', text: 'In', title: 'Zoom in at the playhead and stay in', onclick: () => add('in') }),
+      el('button', { class: 'tool', text: 'Out', title: 'Zoom back out at the playhead (to how it was before the last push in)', onclick: () => add('out') })));
+  if (p) {
+    const id = (p.in || p.out).id;
+    const set = (k, v) => { setPush(c, id, { [k]: v }); savePush({ ...pushOf(c, id) }); };
+    if (p.in) sec.append(ins.sl('Zoom', () => p.zoom, v => set('zoom', v), { min: 1.1, max: 3, step: 0.05, fmt: v => Math.round(v * 100) + '%' }));
+    if (p.in) sec.append(ins.sl('In speed', () => p.inDur, v => set('inDur', v), { min: 0.1, max: 3, step: 0.05, fmt: v => `${v.toFixed(2)} s` }));
+    if (p.in && p.out) sec.append(ins.sl('Hold', () => p.hold, v => set('hold', v), { min: 0, max: Math.max(0.5, Math.min(30, c.duration - p.in.t - p.in.dur - 0.1)), step: 0.1, fmt: v => v.toFixed(1) + ' s' }));
+    if (p.out) sec.append(ins.sl('Out speed', () => p.outDur, v => set('outDur', v), { min: 0.1, max: 3, step: 0.05, fmt: v => `${v.toFixed(2)} s` }));
+    sec.append(selectRow('Feel', p.ease, [['ease', 'Smooth'], ['linear', 'Steady'], ['in', 'Slow start'], ['out', 'Slow finish']], v => app.commit(() => set('ease', v))),
+      el('div', { class: 'btn-row' },
+        p.in ? el('button', { class: 'tool', text: '🎯 Aim it', title: 'Show where it pushes in on the picture, and drag it there', onclick: () => app.zoomMovesEdit(c.id, p.in.id) }) : null,
+        el('button', { class: 'tool', text: 'Remove', title: 'Take this push out (both halves)', onclick: () => { app.commit(() => removePush(c, id)); app.select([c.id], null); } })));
+  }
+  return sec;
 }

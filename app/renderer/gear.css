@@ -2439,3 +2439,91 @@ html[data-theme="light"] .sp-place { background: rgba(0,0,0,.07); }
 .ae-chip.on { background: radial-gradient(ellipse at 50% 40%, var(--lit-hi, #ffe7a8), var(--lit-mid, #ffb02a) 60%, var(--lit-lo, #c76b00)); color: #2a1a00; font-weight: 700; }
 .ae.redoing .ae-recipes, .ae.redoing .ae-parts { opacity: .45; }
 .ae-redo .ae-check input { margin-right: 8px; }
+
+/* ---------------------------------------------------------------- slim tool strip (the right column's default) */
+#keypanel.strip { gap: 7px; padding: 8px 8px 8px; }
+#keypanel.strip .more-row { display: none; }
+.kstrip-row { display: grid; grid-template-columns: repeat(auto-fill, minmax(42px, 1fr)); gap: 4px; }
+.kstrip-row.hidden, .tools-head.hidden { display: none; }
+#keypanel .kstrip { position: relative; display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 2px; height: 42px; padding: 3px 2px 2px;
+  border-radius: 5px; border: 1px solid rgba(0,0,0,.75); background: linear-gradient(#3a3c40, #2a2b2e); box-shadow: inset 0 1px 0 rgba(255,255,255,.08), 0 1px 0 rgba(0,0,0,.6);
+  color: #e9e3d6; cursor: pointer; overflow: visible; }
+#keypanel .kstrip:hover { background: linear-gradient(#45474c, #303135); }
+#keypanel .kstrip:active { background: #232427; box-shadow: inset 0 1px 3px rgba(0,0,0,.7); }
+#keypanel .kstrip b { font-size: 16px; line-height: 1; font-weight: 400; }
+#keypanel .kstrip small { font: 600 8.5px/1 var(--font-engrave, system-ui); letter-spacing: .06em; text-transform: uppercase; color: #b9b2a4; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; max-width: 100%; }
+#keypanel .kstrip.auto { background: linear-gradient(#f3c14a, #d79a1c); border-color: #6b4a08; color: #2a1c02; }
+#keypanel .kstrip.auto small { color: #3b2804; }
+#keypanel .kstrip .kn { position: absolute; top: 2px; right: 3px; min-width: 14px; padding: 1px 3px; border-radius: 7px; background: #f3c14a; color: #1b1302; font: 700 8.5px/1.2 var(--font-mono, monospace); font-style: normal; }
+body.simple #keypanel .kstrip.adv { display: none; }
+#keypanel .kstrip-gear b { font-size: 14px; color: #a49d8f; }
+html[data-theme="light"] #keypanel .kstrip { background: linear-gradient(#fbf8f1, #e9e3d6); border-color: #b8ad98; color: #2b261c; }
+html[data-theme="light"] #keypanel .kstrip small { color: #5c5546; }
+#keypanel .tools-all { width: auto; padding: 3px 8px; margin-right: 6px; background: none; border: 1px solid rgba(255,255,255,.12); border-radius: 4px; color: #b9b2a4; font: 700 9px/1 var(--font-engrave, system-ui); letter-spacing: .12em; }
+#keypanel .tools-all:hover { color: #fff; border-color: rgba(255,255,255,.3); }
+
+/* ---------------------------------------------------------------- inspector, ScreenFlow's layout in Reel's look */
+.insp-top { position: sticky; top: 0; z-index: 6; margin: -2px -2px 4px; background: linear-gradient(#232120, #1b1a19); box-shadow: 0 1px 0 #000, 0 2px 6px rgba(0,0,0,.45); }
+.insp-top .insp-tabs { position: static; margin: 0; box-shadow: none; background: none; padding: 7px 8px 4px; gap: 2px; flex-wrap: nowrap; justify-content: space-between; }
+.insp-tabs.icons .insp-tab { flex: 1 1 0; min-width: 0; max-width: 44px; height: 32px; padding: 0; display: grid; place-items: center; background: none; box-shadow: none; transform: none; color: #a8a090; border-radius: 6px; }
+.insp-tabs.icons .insp-tab:hover { color: #f2ead8; background: rgba(255,255,255,.05); }
+.insp-tabs.icons .insp-tab.lit { color: var(--lit-hi, #ffc24a); background: rgba(255,194,74,.12); box-shadow: inset 0 0 0 1px rgba(255,194,74,.35); transform: none; }
+.insp-head { display: flex; align-items: center; gap: 6px; padding: 6px 12px 8px; border-top: 1px solid rgba(255,255,255,.05); }
+.insp-head .spacer { flex: 1; }
+.ih-title { font: 600 16px/1.2 var(--font-ui, system-ui); color: #f2ead8; letter-spacing: .01em; }
+.ih-act { padding: 5px 11px; border-radius: 6px; border: 1px solid rgba(0,0,0,.7); background: linear-gradient(#4a4740, #35322d); color: #f2ead8; font: 600 12.5px/1 var(--font-ui, system-ui); cursor: pointer; box-shadow: inset 0 1px 0 rgba(255,255,255,.1); }
+.ih-act:hover { background: linear-gradient(#57534a, #3d3a34); }
+.ih-fold { padding: 4px 6px; border: 0; background: none; color: #a8a090; font: 600 11px/1 var(--font-ui, system-ui); cursor: pointer; border-radius: 4px; }
+.ih-fold:hover { color: #f2ead8; background: rgba(255,255,255,.06); }
+.ih-fold[hidden], .ih-act[hidden] { display: none; }
+/* the action being edited: amber, with its length, feel and Done */
+.insp-actbar { display: flex; align-items: center; gap: 6px; flex-wrap: wrap; padding: 7px 12px; background: rgba(255,194,74,.14); border-top: 1px solid rgba(255,194,74,.45); border-bottom: 1px solid rgba(255,194,74,.45); }
+.insp-actbar .ia-what { font: 600 12px/1.2 var(--font-ui, system-ui); color: #ffd27a; flex: 1 1 auto; }
+.insp-actbar .ia-len { display: flex; align-items: center; gap: 3px; color: #e8dfcb; font-size: 11px; }
+.insp-actbar .ia-len input { width: 54px; }
+.insp-actbar .row { margin: 0; padding: 0; }
+.insp-actbar .row > label:empty { display: none; }
+.insp-actbar .ia-done { padding: 4px 10px; border-radius: 5px; border: 0; background: #ffc24a; color: #241600; font: 700 11.5px/1 var(--font-ui, system-ui); cursor: pointer; }
+/* sections: calm titles that fold, like ScreenFlow's disclosure rows */
+#inspector .insp-section.foldable > .engr.sec-title { cursor: pointer; user-select: none; text-transform: none; letter-spacing: .02em; font: 600 13px/1.3 var(--font-ui, system-ui); color: #e8dfcb; margin-bottom: 8px; }
+#inspector .insp-section.foldable > .engr.sec-title::before { content: '▾'; display: inline-block; width: 14px; color: #8e8676; font-size: 10px; transition: transform .12s; }
+#inspector .insp-section.foldable.folded > .engr::before { transform: rotate(-90deg); }
+#inspector .insp-section.foldable.folded > .engr { margin-bottom: 0; }
+#inspector .insp-section.foldable.folded > :not(.sec-title) { display: none !important; }
+#inspector .insp-section.foldable > .engr.sec-title:hover { color: #fff; }
+#inspector .insp-section { padding: 9px 12px; }
+/* buttons inside the inspector: words as written, not shouted */
+#inspector .insp-section .tool:not(.hw) { text-transform: none; letter-spacing: .02em; font: 600 11.5px/1.1 var(--font-ui, system-ui); }
+.push-row .tool.hw { flex: 1 1 auto; }
+html[data-theme="light"] .insp-top { background: linear-gradient(#ecebe7, #dcdbd6); }
+html[data-theme="light"] .ih-title, html[data-theme="light"] #inspector .insp-section.foldable > .engr.sec-title { color: #26221b; }
+html[data-theme="light"] .insp-tabs.icons .insp-tab { color: #5f584b; }
+html[data-theme="light"] .insp-tabs.icons .insp-tab.lit { color: #9a5e00; background: rgba(214,140,20,.14); box-shadow: inset 0 0 0 1px rgba(214,140,20,.45); }
+html[data-theme="light"] .ih-act { background: linear-gradient(#fff, #e9e6de); color: #26221b; border-color: #b9b2a3; }
+html[data-theme="light"] .insp-actbar .ia-what { color: #8a5400; }
+
+/* the clip's name row: small and quiet */
+#inspector .insp-section[data-cat="other"] > .engr { font: 600 12px/1.3 var(--font-ui, system-ui); letter-spacing: .02em; text-transform: none; color: #cfc6b2; margin-bottom: 2px; }
+#inspector .insp-section[data-cat="other"] { padding-top: 7px; padding-bottom: 7px; }
+#inspector .insp-section[data-cat="other"] .note { margin: 0; font-size: 11px; }
+/* the settings' names: plain words, like ScreenFlow's */
+#inspector .insp-section .row > label { text-transform: none; letter-spacing: .01em; font: 500 12px/1.2 var(--font-ui, system-ui); color: #cfc6b2; }
+html[data-theme="light"] #inspector .insp-section .row > label { color: #4a443a; }
+
+/* each track its own height (ScreenFlow's ⌃ ⌄), and a short one folds its knobs away like all-short tracks do */
+.tl-head { position: relative; }
+.tl-head .th-size { position: absolute; left: 1px; top: 50%; transform: translateY(-50%); display: flex; flex-direction: column; gap: 0; z-index: 2; opacity: .55; }
+.tl-head:hover .th-size { opacity: 1; }
+.tl-head .th-size button { width: 12px; height: 13px; padding: 0; border: 0; background: none; color: #d8cfbd; font: 700 11px/1 system-ui; cursor: pointer; border-radius: 3px; }
+.tl-head .th-size button:hover { background: rgba(255,255,255,.12); color: #fff; }
+.tl-head .th-resize { position: absolute; left: 0; right: 0; bottom: -3px; height: 6px; cursor: row-resize; z-index: 3; }
+.tl-head .th-resize:hover { background: rgba(255,194,74,.45); }
+.tl-head.rh-compact { gap: 0; padding-top: 0; padding-bottom: 0; }
+.tl-head.rh-compact .th-bottom { display: none; }
+.tl-row.rh-compact .cbadges, .tl-row.rh-compact .sync-badge { display: none; }
+.tl-head.rh-tiny .th-top > :not(.th-grip):not(.tname) { display: none; }
+.tl-head.rh-tiny .th-size { flex-direction: row; left: auto; right: 2px; }
+.tl-row.rh-tiny .clip .cname { font-size: 10px; line-height: 1; padding-top: 1px; }
+.tl-row.rh-tiny .clip .strip { opacity: .55; }
+html[data-theme="light"] .tl-head .th-size button { color: #4a443a; }
+.tl-head { padding-left: 15px; }

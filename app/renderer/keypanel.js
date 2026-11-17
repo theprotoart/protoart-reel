@@ -14,6 +14,14 @@ export const MODULES = [
   { id: 'picture', label: 'Picture', ids: ['btn-aiimage', 'btn-thumb'] },
 ];
 const ROWS = [['', ['btn-record', 'btn-export']], ...MODULES.map(m => [m.id, m.ids])];
+// the slim strip (the right-hand column's default, so the inspector gets the room): each tool as a small key
+export const STRIP = {
+  'btn-takes': ['✂', 'Takes'], 'btn-ums': ['💬', 'Fillers'], 'btn-import': ['＋', 'Media'], 'btn-autoedit': ['⚡', 'Auto'],
+  'btn-voices': ['🗣', 'Voices'], 'btn-clonevoice': ['🎙', 'Clone'], 'btn-teachums': ['〰', 'Ums'],
+  'btn-styles': ['🎬', 'Styles'], 'btn-filmcuts': ['🎞', 'Cuts'],
+  'btn-automix': ['⚖', 'Mix'], 'btn-sound': ['🎚', 'Mixer'], 'btn-spectral': ['🌈', 'Spectral'],
+  'btn-aiimage': ['🖼', 'AI'], 'btn-thumb': ['▣', 'Thumb'],
+};
 const IDS = ROWS.flatMap(r => r[1]);
 
 // the layout: { order: [module ids], folded: [module ids], hidden: [module ids], tools: false when all folded }
@@ -27,7 +35,7 @@ export function loadLayout() {
 export function normalizeLayout(s) {
   const known = MODULES.map(m => m.id), list = v => (Array.isArray(v) ? v.filter(x => known.includes(x)) : []);
   const order = [...new Set([...list(s?.order), ...known])];
-  return { order, folded: [...new Set(list(s?.folded))], hidden: [...new Set(list(s?.hidden))], tools: s?.tools !== false };
+  return { order, folded: [...new Set(list(s?.folded))], hidden: [...new Set(list(s?.hidden))], tools: s?.tools !== false, strip: s?.strip !== false };
 }
 const saveLayout = l => { try { localStorage.setItem(LAYOUT_KEY, JSON.stringify(l)); } catch { /* private window: not remembered */ } };
 
@@ -106,6 +114,8 @@ export function initKeyPanel(app) {
     const r = gear.getBoundingClientRect();
     const set = fn => { fn(); saveLayout(layout); draw(); };
     popMenu(r.left, r.bottom + 4, [
+      [layout.strip ? 'Big tool keys (more room for them, less for the inspector)' : 'Slim tool strip (more room for the inspector)', () => set(() => { layout.strip = !layout.strip; })],
+      null,
       ...MODULES.map(m => [`${layout.hidden.includes(m.id) ? '   ' : '✓ '}${m.label}`, () => set(() => { layout.hidden = layout.hidden.includes(m.id) ? layout.hidden.filter(x => x !== m.id) : [...layout.hidden, m.id]; })]),
       null,
       ['Unfold every group', () => set(() => { layout.folded = []; layout.tools = true; })],
@@ -113,7 +123,30 @@ export function initKeyPanel(app) {
       ['Reset the tool panel', () => set(() => { layout = normalizeLayout(null); })],
     ]);
   });
-  const toolsHead = el('div', { class: 'tools-head' }, toolsBtn, el('span', { class: 'spacer' }), gear);
+  // one click to fold or unfold every group (instead of one at a time)
+  const allBtn = el('button', { class: 'tools-all', title: 'Fold or unfold every group at once' });
+  allBtn.addEventListener('click', () => { const anyOpen = MODULES.some(m => !layout.folded.includes(m.id) && !layout.hidden.includes(m.id)); layout.folded = anyOpen ? MODULES.map(m => m.id) : []; layout.tools = true; saveLayout(layout); draw(); });
+  const toolsHead = el('div', { class: 'tools-head' }, toolsBtn, el('span', { class: 'spacer' }), allBtn, gear);
+  // the slim strip: a small key for each tool, which presses the real one (kept, out of sight, in its group)
+  const stripEl = el('div', { class: 'kstrip-row' });
+  const stripGear = el('button', { class: 'kstrip kstrip-gear', title: 'Tools: big keys or the slim strip, which groups show', onclick: () => gear.click() }, el('b', { text: '⚙' }));
+  const drawStrip = () => {
+    const keys = [];
+    for (const id of layout.order) {
+      if (layout.hidden.includes(id)) continue;
+      for (const k of mods.get(id).m.ids) {
+        const b = document.getElementById(k), [icon, label] = STRIP[k] || ['•', k];
+        if (!b) continue;
+        const n = b.querySelector('.n')?.textContent || '';
+        const key = el('button', { class: 'kstrip' + (b.classList.contains('adv') ? ' adv' : '') + (k === 'btn-autoedit' ? ' auto' : ''), type: 'button', title: b.title || label, 'data-for': k, onclick: () => b.click() },
+          el('b', { text: icon }), el('small', { text: label }), n ? el('i', { class: 'kn', text: n }) : null);
+        keys.push(key);
+      }
+    }
+    stripEl.replaceChildren(...keys, stripGear);
+  };
+  // the counts on TAKES and FILLER WORDS show on their small keys too
+  new MutationObserver(() => { if (layout.strip) drawStrip(); }).observe(modsEl, { subtree: true, characterData: true, childList: true });
   const draw = () => {
     modsEl.replaceChildren(...layout.order.map(id => mods.get(id).box));
     for (const [id, x] of mods) {
@@ -124,10 +157,15 @@ export function initKeyPanel(app) {
       const keys = x.m.ids.map(k => document.getElementById(k)).filter(b => b && !(document.body.classList.contains('simple') && b.classList.contains('adv')));
       x.count.textContent = folded ? keys.map(b => b.textContent.replace(/[^\p{L}\s]/gu, '').trim().split(/\s+/)[0]).filter(Boolean).join(' · ') : '';
     }
-    modsEl.classList.toggle('hidden', !layout.tools);
+    modsEl.classList.toggle('hidden', !layout.tools || layout.strip);
+    toolsHead.classList.toggle('hidden', layout.strip);
+    stripEl.classList.toggle('hidden', !layout.strip);
+    deck.classList.toggle('strip', layout.strip);
     toolsChev.textContent = layout.tools ? '▾' : '▸';
+    allBtn.textContent = MODULES.some(m => !layout.folded.includes(m.id) && !layout.hidden.includes(m.id)) ? '▸ FOLD ALL' : '▾ UNFOLD ALL';
+    if (layout.strip) drawStrip();
   };
-  deck.append(recRow, toolsHead, modsEl, exportRow);
+  deck.append(recRow, toolsHead, modsEl, stripEl, exportRow);
   const rows = [{ ids: ['btn-record', 'btn-export'], row: recRow }, ...MODULES.map(m => ({ ids: m.ids, row: mods.get(m.id).body }))];
   draw();
   new MutationObserver(draw).observe(document.body, { attributes: true, attributeFilter: ['class'] }); // SIMPLE / FULL

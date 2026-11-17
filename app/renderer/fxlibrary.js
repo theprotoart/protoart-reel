@@ -397,7 +397,7 @@ function withStar(node, kind, id, name, onChange) {
 // ------------------------------------------------------------------ the browser
 let panel = null;
 /** The preset pages: [key, label]. The left panel shows them as tabs beside MEDIA. */
-export const PRESET_PAGES = [['fav', '★ FAVORITES'], ['title', 'TITLES'], ['trans', 'TRANSITIONS'], ['cut', 'CUT TRANSITIONS'], ['element', 'ELEMENTS'], ['motion', 'MOTION'], ['sound', 'SOUNDS'], ['style', 'STYLE PACKS'], ['film', 'FILM CUTS'], ['auto', 'AUTO']];
+export const PRESET_PAGES = [['fav', '★ FAVORITES'], ['title', 'TITLES'], ['trans', 'TRANSITIONS'], ['cut', 'CUT TRANSITIONS'], ['element', 'GRAPHICS'], ['motion', 'MOTION'], ['sound', 'SOUNDS'], ['style', 'STYLE PACKS'], ['film', 'FILM CUTS'], ['auto', 'AUTO']];
 /** Kinds of preset that can be dragged onto the timeline (the rest are whole-edit clicks). */
 const DRAGGABLE = new Set(['title', 'trans', 'cut', 'element', 'motion', 'sound']);
 const draggable = (node, kind, id, name) => {
