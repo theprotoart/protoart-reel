@@ -36,7 +36,13 @@ export class Markup {
     // 🎯 punch in on an area, right under it: drag a box on the picture and it pushes in there and back out
     this.punch = el('button', { class: 'mk-toggle mk-punch', type: 'button', title: 'Punch in on an area: drag a box around what to show, and the picture pushes in on it at the playhead, holds and comes back out', onclick: () => this.app.cmd('punch-zoom') },
       el('span', { text: '🎯' }));
-    this.stage.parentElement.append(this.btn, this.punch, this.bar);
+    // the callouts used most, one click from the picture: drag out an area or a magnifier, or draw round something
+    const tool = (cls, icon, cmd, title) => el('button', { class: 'mk-toggle ' + cls, type: 'button', title, onclick: () => this.app.cmd(cmd) }, el('span', { text: icon }));
+    this.tools = [this.punch,
+      tool('mk-area', '▭', 'callout-area', 'Area callout: drag a box around what to show, and everything else dims (at the playhead, for 4 s)'),
+      tool('mk-free', '〰', 'callout-freehand', 'Freehand callout: draw round what matters, and everything else dims'),
+      tool('mk-mag', '🔍', 'callout-magnify', 'Magnify: drag a box around what to show bigger, with an outline (at the playhead, for 4 s)')];
+    this.stage.parentElement.append(this.btn, ...this.tools, this.bar);
     this.pop = null;
     this.draw();
   }

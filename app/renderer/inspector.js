@@ -933,7 +933,7 @@ function pointerFinder(app, m, effectsOn) {
 }
 
 // ---------------------------------------------------------------- callouts, ScreenFlow's way
-const CALLOUT_STARTS = [
+export const CALLOUT_STARTS = [
   ['cursor', '🖱', 'Mouse cursor', 'A spotlight that follows the pointer: everything else dims', { shape: 'ellipse', follow: true, w: 0.2, h: 0.3, dim: 0.6, feather: 0.05 }],
   ['area', '▭', 'Area', 'A box you drag and size on the picture: everything else dims', { shape: 'rect', w: 0.36, h: 0.3, dim: 0.6, radius: 0.015, feather: 0.01 }],
   ['freehand', '✎', 'Freehand', 'Draw around what matters, right on the picture', { shape: 'freehand', dim: 0.6, feather: 0.02 }],
@@ -944,21 +944,30 @@ const CALLOUT_STARTS = [
  * pointer, an area, one drawn by hand, or a magnifier), the way ScreenFlow's Callout tab does; the callouts already
  * over it are listed to pick.
  */
+/**
+ * Puts a callout (a CALLOUT_STARTS kind) at time t, 4 s long; box: { x, y, w, h } (its middle and size, fractions of
+ * the canvas) when it was dragged out on the preview. A freehand one is drawn next. Returns the new clip.
+ */
+export function addCalloutAt(app, kind, t, box = null) {
+  const [, , name, , opts] = CALLOUT_STARTS.find(s => s[0] === kind) || CALLOUT_STARTS[1];
+  const k = newCalloutClip(null, t);
+  k.duration = 4; // over whatever's below, past that clip's end too
+  k.callout = { ...k.callout, ...opts, ...(box || {}) };
+  k.name = `Callout · ${name}`;
+  app._insert(k);
+  if (kind === 'freehand') app.overlay.drawFreehand(k);
+  else {
+    app.seek(t + (k.callout.buildIn ?? 0.3) + 0.05); // past its build-in: it shows at once
+    toast(kind === 'cursor' ? 'Spotlight on the pointer. Its look is in the Callout tab; drag the clip’s ends on the timeline to set when.'
+      : box ? `${name} added for 4 s. Drag its ends on the timeline to set when; its look is in the Callout tab.` : 'Drag the box on the picture to place it, its corners to size it. Its look is in the Callout tab.', 4500);
+  }
+  return k;
+}
 function calloutStarts(app, c, m) {
   const doc = app.doc;
   const over = doc.clips.filter(x => x.type === 'callout' && x.start < c.start + c.duration && x.start + x.duration > c.start);
-  const add = ([kind, , name, , opts]) => {
-    const t = clamp(app.player.time, c.start, c.start + c.duration);
-    const k = newCalloutClip(null, t);
-    k.duration = 4; // over whatever's below, past this clip's end too
-    k.callout = { ...k.callout, ...opts };
-    k.name = `Callout · ${name}`;
-    app._insert(k);
-    if (kind === 'freehand') app.overlay.drawFreehand(k);
-    else {
-      app.seek(t + (k.callout.buildIn ?? 0.3) + 0.05); // past its build-in: it shows at once
-      toast(kind === 'cursor' ? 'Spotlight on the pointer. Its look is in the Callout tab; drag the clip’s ends on the timeline to set when.' : 'Drag the box on the picture to place it, its corners to size it. Its look is in the Callout tab.', 4500);
-    }
+  const add = ([kind]) => {
+    addCalloutAt(app, kind, clamp(app.player.time, c.start, c.start + c.duration));
     if (kind === 'cursor' && m && app.pointerBlind(m, app.player.cursors?.get?.(m.id))) toast('This recording can’t place its pointer yet: the Screen recording tab finds it in the picture.', 6000);
   };
   return section('Callout',

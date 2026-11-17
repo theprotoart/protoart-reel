@@ -19,7 +19,7 @@ import {
 } from './model.js';
 import { Player } from './player.js';
 import { Timeline } from './timeline.js';
-import { Inspector } from './inspector.js';
+import { Inspector, addCalloutAt } from './inspector.js';
 import { Library } from './library.js';
 import { Overlay } from './overlay.js';
 import { Markup } from './markup.js';
@@ -605,6 +605,23 @@ class App {
     this.dzEdit = null; this.zmEdit = null;
     this.select([c.id]);
     this.overlay.punchDraw(c);
+  }
+
+  /**
+   * A callout from the preview's own buttons: Area and Magnify are dragged out right on the picture, Freehand drawn
+   * round what matters; at the playhead, 4 s long.
+   */
+  calloutHere(kind) {
+    if (!this.doc) return;
+    this.player.pause?.();
+    this.dzEdit = null; this.zmEdit = null;
+    const t = this.player.time;
+    if (kind === 'freehand') { addCalloutAt(this, 'freehand', t); return; }
+    const name = kind === 'magnify' ? '🔍 MAGNIFY' : '▭ AREA';
+    this.overlay.pickArea({ title: name, hint: kind === 'magnify' ? 'Drag a box around what to magnify' : 'Drag a box around what to show (the rest dims)', done: r => {
+      // the box on the canvas, in the callout's terms (its middle and size, fractions of the canvas)
+      addCalloutAt(this, kind, t, { x: +r.cx.toFixed(4), y: +r.cy.toFixed(4), w: +r.w.toFixed(4), h: +r.h.toFixed(4) });
+    } });
   }
 
   dynamicZoom() {
@@ -1325,6 +1342,7 @@ class App {
       case 'pip': return this.pictureInPicture();
       case 'dynamic-zoom': return this.dynamicZoom();
       case 'punch-zoom': return this.punchZoom();
+      case 'callout-area': case 'callout-magnify': case 'callout-freehand': return this.calloutHere(name.slice(8));
       case 'dynamic-zoom-done': this.dzEdit = null; this.player.queueDraw(); this.overlay.update(); this.inspector.render(); return;
       case 'zoom-moves': return this.zoomMovesEdit();
       case 'zoom-moves-done': this.zmEdit = null; this.player.queueDraw(); this.overlay.update(); this.inspector.render(); return;

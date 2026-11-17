@@ -639,26 +639,21 @@ export class Overlay {
   }
 
   /**
-   * 🎯 Punch in on an area: drag a box around a spot on the preview; a Quick push at the playhead aims at its middle
-   * and comes in close enough to fill the screen with it, holds and comes back out (speed and hold: the last ones used).
+   * Drag a box on the preview: a bar on top says what for (title, hint, any extra controls), Esc or CANCEL stops.
+   * done({ cx, cy, w, h }) in fractions of the canvas, or nothing when cancelled or too small.
    */
-  punchDraw(c) {
-    const app = this.app, doc = this.doc, m = mediaById(doc, c.media);
-    if (!m) return;
-    const t = clamp(app.player.time - c.start, 0, c.duration);
+  pickArea({ title, hint, extra = [], done: finish }) {
     requestAnimationFrame(() => {
       this.update();
       const cr = this.canvas.getBoundingClientRect(), sr = this.root.parentElement.getBoundingClientRect();
       Object.assign(this.root.style, { left: cr.left - sr.left + 'px', top: cr.top - sr.top + 'px', width: cr.width + 'px', height: cr.height + 'px' });
       const W = cr.width, H = cr.height;
-      let stay = false;
-      const kind = el('button', { class: 'dz-mini', text: 'IN & BACK OUT', title: 'Click to switch: push in and come back out, or push in and stay', onclick: () => { stay = !stay; kind.textContent = stay ? 'IN AND STAY' : 'IN & BACK OUT'; } });
       const box = el('div', { class: 'punch-box' });
       const bar = el('div', { class: 'dz-bar punch-bar' },
-        el('b', { class: 'dz-title', text: '🎯 PUNCH IN' }),
-        el('span', { class: 'zm-count', text: 'Drag a box around what to show' }), kind,
+        el('b', { class: 'dz-title', text: title }),
+        el('span', { class: 'zm-count', text: hint }), ...extra,
         el('button', { class: 'dz-done', text: 'CANCEL', title: 'Esc', onclick: () => done(null) }));
-      const pad = el('div', { class: 'draw-pad punch-pad', title: 'Drag a box around what you want the viewer to see · Esc to cancel' }, box);
+      const pad = el('div', { class: 'draw-pad punch-pad', title: `${hint} · Esc to cancel` }, box);
       for (const ev of ['pointerdown', 'click']) bar.addEventListener(ev, e => e.stopPropagation());
       this.root.replaceChildren(pad, bar); // just the box being drawn: no handles in the way
       this.dragging = true;
@@ -666,19 +661,7 @@ export class Overlay {
         pad.remove(); bar.remove(); this.dragging = false;
         window.removeEventListener('keydown', esc, true);
         if (!r || r.w * W < 12 || r.h * H < 12) { this.update(); return; }
-        const r0 = mediaRect(doc, m, { x: 0.5, y: 0.5, scale: 1, crop: c.props?.crop || [0, 0, 0, 0] }, W, H, m.width || 1920, m.height || 1080);
-        const fw = r0.w / W, fh = r0.h / H;
-        // the box as part of the whole picture: what the screen shows now, and where in it the box is
-        const f = shotOf(propsAt({ ...c, transIn: null, transOut: null }, t), fw, fh);
-        const aim = { fx: f.fx + (r.cx - 0.5) * f.s / fw, fy: f.fy + (r.cy - 0.5) * f.s / fh };
-        const zoom = clamp(1 / (Math.max(r.w, r.h) * 1.15), 1.1, 5); // a little room around it
-        let id = null;
-        app.commit(() => { id = addPush(c, t, { ...pushPrefs(), kind: stay ? 'in' : 'inout', aim, zoom, fw, fh }); });
-        if (!id) { toast('Not enough of the clip left after the playhead for a punch in.'); this.update(); return; }
-        const first = c.actions.find(a => a.push === id && a.pushPart === 'in');
-        app.select([c.id], first.id);
-        app.seek(c.start + Math.min(c.duration - 0.01, first.t + first.dur));
-        toast('Punched in. Its speed, hold and zoom are under 🎯 Punch in & out on the right; ⌘Z undoes it.', 4500);
+        finish(r);
       };
       const esc = e => { if (e.key === 'Escape') { e.stopPropagation(); done(null); } };
       window.addEventListener('keydown', esc, true);
@@ -697,6 +680,34 @@ export class Overlay {
         pad.addEventListener('pointermove', move); pad.addEventListener('pointerup', up);
       });
     });
+  }
+
+  /**
+   * 🎯 Punch in on an area: drag a box around a spot on the preview; a Quick push at the playhead aims at its middle
+   * and comes in close enough to fill the screen with it, holds and comes back out (speed and hold: the last ones used).
+   */
+  punchDraw(c) {
+    const app = this.app, doc = this.doc, m = mediaById(doc, c.media);
+    if (!m) return;
+    const t = clamp(app.player.time - c.start, 0, c.duration);
+    let stay = false;
+    const kind = el('button', { class: 'dz-mini', text: 'IN & BACK OUT', title: 'Click to switch: push in and come back out, or push in and stay', onclick: () => { stay = !stay; kind.textContent = stay ? 'IN AND STAY' : 'IN & BACK OUT'; } });
+    this.pickArea({ title: '🎯 PUNCH IN', hint: 'Drag a box around what to show', extra: [kind], done: r => {
+      const cr = this.canvas.getBoundingClientRect(), W = cr.width, H = cr.height;
+      const r0 = mediaRect(doc, m, { x: 0.5, y: 0.5, scale: 1, crop: c.props?.crop || [0, 0, 0, 0] }, W, H, m.width || 1920, m.height || 1080);
+      const fw = r0.w / W, fh = r0.h / H;
+      // the box as part of the whole picture: what the screen shows now, and where in it the box is
+      const f = shotOf(propsAt({ ...c, transIn: null, transOut: null }, t), fw, fh);
+      const aim = { fx: f.fx + (r.cx - 0.5) * f.s / fw, fy: f.fy + (r.cy - 0.5) * f.s / fh };
+      const zoom = clamp(1 / (Math.max(r.w, r.h) * 1.15), 1.1, 5); // a little room around it
+      let id = null;
+      app.commit(() => { id = addPush(c, t, { ...pushPrefs(), kind: stay ? 'in' : 'inout', aim, zoom, fw, fh }); });
+      if (!id) { toast('Not enough of the clip left after the playhead for a punch in.'); this.update(); return; }
+      const first = c.actions.find(a => a.push === id && a.pushPart === 'in');
+      app.select([c.id], first.id);
+      app.seek(c.start + Math.min(c.duration - 0.01, first.t + first.dur));
+      toast('Punched in. Its speed, hold and zoom are under 🎯 Punch in & out on the right; ⌘Z undoes it.', 4500);
+    } });
   }
 
   /** Freehand callout: drag around the area on the preview; the outline becomes the callout's shape. */

@@ -2671,3 +2671,6 @@ html[data-theme="light"] .lib-item .lsound.on { color: #1d1a14; }
 #overlay .punch-bar { top: 10px; bottom: auto; }
 .insp-section .punch-btn { width: 100%; margin: 4px 0 8px; }
 .mk-toggle.mk-punch { top: 60px; font-size: 15px; }
+.mk-toggle.mk-area { top: 102px; font-size: 18px; }
+.mk-toggle.mk-free { top: 144px; font-size: 16px; }
+.mk-toggle.mk-mag { top: 186px; font-size: 15px; }
