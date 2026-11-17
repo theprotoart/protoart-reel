@@ -77,3 +77,15 @@ test('fillers follow the clip they were marked on: moved, trimmed, split by a cu
   removeRange(doc, 34.9, 35.5); followFillers(doc); // its sound cut out: it goes
   assert.deepEqual(doc.fillers.map(f => f.id), ['g']);
 });
+
+test('a soft um, and one left at the very start of a clip by a cut, are found too', () => {
+  const words = [W(1, 2, 'so'), W(2.6, 3.4, 'today'), W(3.5, 4, 'we')];
+  const level = t => (t >= 1 && t < 2) || (t >= 2.6 && t < 4) ? 0.6 // speech
+    : t >= 0.2 && t < 0.7 ? 0.45 // an um the cut left before the first word
+    : t >= 2.12 && t < 2.45 ? 0.25 // said softly between words
+    : 0.02;
+  const s = soundHits(words, level, { edges: [[0, 1]] });
+  assert.equal(s.length, 2, JSON.stringify(s));
+  assert.ok(s[0].t < 0.25 && s[0].end > 0.65);
+  assert.ok(s[1].t > 2 && s[1].end < 2.6);
+});

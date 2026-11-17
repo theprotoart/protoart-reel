@@ -52,7 +52,14 @@ async function listen(app, { locale, track, ranges = null, clipIds = null, stop 
     found = [...heard, ...yours.filter(y => !heard.some(h => h.t < y.end && h.end > y.t)).map(y => ({ t: y.t, end: y.end, text: y.word === 'umm' ? 'um' : y.word, kind: 'voice', cut: y.sure }))]; // every sound you taught (ums, breaths, sneezes…) is marked CUT when Reel is sure
   } else {
     const sources = await Promise.all(clips.map(async clip => ({ clip, peaks: await peaksFor(app, mediaById(app.doc, clip.media)).catch(() => null) })));
-    found = findUms(words, levelOnTimeline(sources));
+    // the start of each clip before its first word, and its end after its last: a cut often leaves an um there
+    const edges = [];
+    for (const c of clips) {
+      const inside = words.filter(w => w.t >= c.start - 0.01 && w.end <= c.start + c.duration + 0.01);
+      if (!inside.length) { edges.push([c.start, c.start + c.duration]); continue; }
+      edges.push([c.start, inside[0].t], [inside[inside.length - 1].end, c.start + c.duration]);
+    }
+    found = findUms(words, levelOnTimeline(sources), { edges });
   }
   const trackAt = t => clips.find(c => t >= c.start - 0.01 && t < c.start + c.duration)?.track;
   // just some clips (the selected ones): what's found in them replaces what was listed there, the rest stays

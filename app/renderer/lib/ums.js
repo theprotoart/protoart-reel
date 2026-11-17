@@ -41,10 +41,12 @@ export function fillerHits(words) {
 /**
  * Short sounds between words: likely "um"s the recogniser didn't write down. level(t) gives the sound's
  * level (0..1, as the waveform shows it) at timeline time t; from / to bound the search.
- * A sound counts when it is louder than a breath (half the usual level of speech), lasts 0.18–1.2 s and
- * sits in a gap between words with room either side. Each: { t, end, text, kind: 'sound', cut: false }.
+ * A sound counts when it is louder than a breath (a third or more of the usual level of speech: an um is often said
+ * softly), lasts 0.18–1.4 s and sits in a gap between words with room either side. edges: more gaps to look in
+ * ([from, to] timeline seconds): the start of a clip before its first word and its end after its last, where a cut
+ * often leaves an um. Each: { t, end, text, kind: 'sound', cut: false }.
  */
-export function soundHits(words, level, { from = 0, to = null, step = 0.01, min = 0.18, max = 1.2, maxGap = 1.6 } = {}) {
+export function soundHits(words, level, { from = 0, to = null, step = 0.01, min = 0.18, max = 1.4, maxGap = 2, edges = [] } = {}) {
   if (!words.length) return [];
   // how loud speech usually is here, and the quiet floor
   const speech = [];
@@ -56,12 +58,13 @@ export function soundHits(words, level, { from = 0, to = null, step = 0.01, min 
   // missed (or music), not a pause with an um in it, and every syllable in it would look like a "sound"
   const gaps = [];
   for (let i = 0; i + 1 < words.length; i++) if (words[i + 1].t - words[i].end <= maxGap) gaps.push([words[i].end, words[i + 1].t]);
+  for (const [a, b] of edges) if (b - a > min && b - a <= maxGap + 0.5 && !gaps.some(([p, q]) => p < b && q > a)) gaps.push([a, b]);
   void from; void to;
   const quiet = [];
   for (const [a, b] of gaps) for (let t = a; t < b; t += step) quiet.push(level(t));
   quiet.sort((p, q) => p - q);
   const floor = quiet[Math.floor(quiet.length * 0.2)] || 0;
-  const on = Math.max(loud * 0.5, floor + (loud - floor) * 0.35);
+  const on = Math.max(loud * 0.35, floor + (loud - floor) * 0.28);
   const out = [];
   for (const [a0, b0] of gaps) {
     const a = a0 + 0.06, b = b0 - 0.06; // keep clear of the words either side
@@ -77,7 +80,7 @@ export function soundHits(words, level, { from = 0, to = null, step = 0.01, min 
     }
     close(b);
   }
-  return out;
+  return out.sort((p, q) => p.t - q.t);
 }
 
 /** Fillers heard as words plus sounds between words, in time order, without overlaps (a word wins). */

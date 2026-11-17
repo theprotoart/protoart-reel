@@ -2,6 +2,8 @@
 
 ## 1.11.0 — 2026-11-16
 
+- Fillers: the ums the speech recogniser leaves out of its words are found more often: softly said ones (a third of the speech level, not half), longer ones, ones in slightly longer pauses, and the one a cut often leaves at the very start or end of a clip.
+
 - SNAP: a clip moved along the timeline snaps by its end too (a callout's end onto the end of the clip under it). It used to snap only by its start, unless the start happened to be nearer something.
 
 - REW and F.FWD go back or on 5 seconds a press (playing carries on from there) instead of jumping to the very start or end; double-click them (or Home / End) for that.
