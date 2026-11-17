@@ -7,6 +7,7 @@
 //   plan() is pure: it turns those samples into actions for a style.
 import { clamp } from './model.js';
 import { previewFile } from './proxies.js';
+import { PointerTracker } from './lib/pointerfind.js';
 
 export const STYLES = {
   follow: { label: 'Follow the action', hint: 'Screen recordings and tutorials: zooms in where things happen and back out when the action spreads.', zoom: 1.8, transition: 0.6, minHold: 1.1, maxBox: 0.5, punch: 0, drift: 0 },
@@ -52,10 +53,10 @@ export async function analyse(app, c, m, { onProgress, signal: outer, budget = I
       if (v.requestVideoFrameCallback && to - from > 3) await playThrough(v, from, to, step, grab, signal);
       else await seekThrough(v, from, to, step, grab, signal);
     } catch (e) { if (!slow) throw e; }
-    // samples are ~0.2–0.4 s apart: find each cut's exact frame by seeking between its two samples (the first 40;
+    // samples are ~0.2–0.4 s apart: find each cut's exact frame by seeking between its two samples (the first 60;
     // past its time a clip keeps the cuts as sampled)
     cuts = [];
-    for (const ct of slow ? [] : findCuts(samples).slice(0, 40)) {
+    for (const ct of slow ? [] : findCuts(samples).slice(0, 60)) {
       if (signal.aborted) { if (slow) break; throw new Error('Cancelled'); }
       const i = samples.findIndex(x => x.t === ct);
       let lo = samples[i - 1].t * speed + from, hi = ct * speed + from;
@@ -69,7 +70,52 @@ export async function analyse(app, c, m, { onProgress, signal: outer, budget = I
   return { samples, cuts: cuts || [], slow, gw: GW, gh, aspect: (m.width || 1920) / (m.height || 1080) };
 }
 
-function playThrough(v, from, to, step, grab, signal) {
+/**
+ * A video with no pointer file (an older tutorial, one recorded with another app): finds the Mac's arrow pointer in
+ * the picture, playing it through once at 8×. Gives up after a minute of video without a sign of it (a camera
+ * video). Resolves to the pointer file's contents ({ display, points }, like a Reel recording's), or null.
+ */
+export async function findPointer(app, m, { onProgress, signal: outer } = {}) {
+  if (m.kind !== 'video' || (m.rotation || 0) % 360) return null;
+  const ctl = new AbortController(), signal = ctl.signal;
+  const stop = () => ctl.abort();
+  if (outer?.aborted) return null;
+  outer?.addEventListener('abort', stop);
+  const v = document.createElement('video');
+  v.muted = true; v.playsInline = true; v.preload = 'auto';
+  Object.assign(v.style, { position: 'fixed', left: '-10px', top: '-10px', width: '4px', height: '4px', opacity: '0', pointerEvents: 'none' });
+  v.src = `app://reel/m/${app.token}/${encodeURIComponent(previewFile(m))}`;
+  document.body.append(v);
+  let tr = null, none = false;
+  try {
+    await new Promise((res, rej) => { v.onloadeddata = res; v.onerror = () => rej(new Error('This video can’t be read')); setTimeout(() => rej(new Error('The video took too long to open')), 15000); signal.addEventListener('abort', () => rej(new Error('Cancelled'))); });
+    // searched up to 1280 wide: a pointer smaller than about 12 pixels there is hard to tell from text
+    const vw = v.videoWidth || m.width || 1920, vh = v.videoHeight || m.height || 1080;
+    const PW = Math.min(vw, 1280), PH = Math.round((PW * vh) / vw);
+    const cv = document.createElement('canvas'); cv.width = PW; cv.height = PH;
+    const ctx = cv.getContext('2d', { willReadFrequently: true });
+    tr = new PointerTracker(PW, PH, m.width || vw, m.height || vh);
+    const to = v.duration || m.duration || 0;
+    const grab = mt => {
+      ctx.drawImage(v, 0, 0, PW, PH);
+      const px = ctx.getImageData(0, 0, PW, PH).data, g = new Uint8Array(PW * PH);
+      for (let i = 0; i < g.length; i++) g[i] = (px[i * 4] * 77 + px[i * 4 + 1] * 150 + px[i * 4 + 2] * 29) >> 8;
+      tr.push(mt, g);
+      onProgress?.(clamp(mt / Math.max(0.01, to), 0, 1));
+      if (mt > 60 && !tr.found.length) { none = true; ctl.abort(); }
+    };
+    try {
+      if (v.requestVideoFrameCallback && to > 3) await playThrough(v, 0, to, 0.2, grab, signal, 8);
+      else await seekThrough(v, 0, to, 0.2, grab, signal);
+    } catch (e) { if (!none) throw e; }
+  } finally { outer?.removeEventListener('abort', stop); v.pause(); v.removeAttribute('src'); v.load(); v.remove(); }
+  if (outer?.aborted) throw new Error('Cancelled');
+  // seen in at least a fifth of the video, and at least 20 times: otherwise it isn't one to follow
+  if (!tr || none || tr.found.length < 20 || tr.coverage < 0.2) return null;
+  return tr.track();
+}
+
+function playThrough(v, from, to, step, grab, signal, rate = 16) {
   return new Promise((resolve, reject) => {
     let next = from, lastFrame = performance.now(), done = false;
     const finish = err => { if (done) return; done = true; clearInterval(watch); v.pause(); err ? reject(err) : resolve(); };
@@ -91,7 +137,7 @@ function playThrough(v, from, to, step, grab, signal) {
     v.currentTime = from;
     v.onseeked = () => {
       v.onseeked = null;
-      v.playbackRate = 16;
+      v.playbackRate = rate;
       v.requestVideoFrameCallback(onFrame);
       v.play().catch(() => { done = true; clearInterval(watch); seekThrough(v, next, to, step, grab, signal).then(resolve, reject); });
     };

@@ -447,7 +447,7 @@ export class Inspector {
     const hasClicks = !!m?.cursorClicks, hasKeys = !!m?.cursorKeys;
     const sec = section('Pointer & clicks');
     if (!cur) {
-      sec.append(el('p', { class: 'note', text: 'This recording has a pointer track. Highlight it, add click effects and click sounds, or zoom in automatically where it settles.' }),
+      sec.append(el('p', { class: 'note', text: m.cursorFound === 'video' ? (m.cursorClicks ? 'Reel found the pointer in this video and kept the clicks you recorded. ' : 'Reel found the pointer in this video. ') + 'Highlight it, or zoom in automatically where it settles.' : 'This recording has a pointer track. Highlight it, add click effects and click sounds, or zoom in automatically where it settles.' }),
         el('div', { class: 'btn-row' }, el('button', { class: 'tool', text: 'Pointer effects', onclick: () => this.edit(() => { c.cursor = { show: true, highlight: true, highlightColor: '#ffd60a', highlightSize: 70, clickStyle: 'rings', smooth: 0.2 }; }) })));
     } else {
       if (m.pointerSeparate) sec.append(

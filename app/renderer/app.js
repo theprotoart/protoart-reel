@@ -31,7 +31,7 @@ import * as textops from './textops.js';
 import { openTitles } from './titles.js';
 import { autoZoom, cursorAt } from './cursor.js';
 import { FORMATS as VFORMATS, coverScale, reframeKeys } from './lib/reframe.js';
-import { STYLES as ZOOM_STYLES, analyse as zoomAnalyse, plan as zoomPlan, frameFraction } from './autozoom.js';
+import { STYLES as ZOOM_STYLES, analyse as zoomAnalyse, plan as zoomPlan, frameFraction, findPointer } from './autozoom.js';
 import { LAPSE_PRESETS, plan as lapsePlan, apply as lapseApply, activityOf } from './timelapse.js';
 import { showAbout } from './about.js';
 import { openMixer } from './mixer.js';
@@ -58,7 +58,7 @@ import { convertInEditor, conversionDialog } from './conform.js';
 import { convertScreenflow, placeScreenflow } from './screenflow-import.js';
 import { pluginEdited, shareDuplicateRenders } from './fx.js';
 import { openNewDocument, applyStarter, STARTERS, starterThumb } from './presets.js';
-import { ProxyQueue, proxyPrefs, setProxyPrefs, setProxyRam } from './proxies.js';
+import { ProxyQueue, proxyPrefs, setProxyPrefs, setProxyRam, previewFile } from './proxies.js';
 import { fitHeader } from './headerfit.js';
 import { openAutoEdit, openClipAutoEdit } from './autoedit.js';
 import { openClapFinder, clapsOnTimeline, addClapMarkers } from './clapscan.js';
@@ -1607,7 +1607,7 @@ class App {
     if (!all.length) { toast('Add a video to the timeline first, then Smart Zoom it.'); return; }
     const prefs = smartZoomPrefs();
     const hasPointer = (sel.length ? sel : all).some(c => mediaById(doc, c.media)?.cursor);
-    let style = prefs.style, strength = prefs.strength, usePointer = hasPointer;
+    let style = prefs.style, strength = prefs.strength, usePointer = prefs.usePointer !== false;
     const styleRows = el('div', { class: 'sz-styles' }, ...Object.entries(ZOOM_STYLES).map(([k, st]) => {
       const b = el('button', { class: 'starter' + (k === style ? ' lit' : ''), type: 'button' }, el('b', { text: st.label }), el('small', { text: st.hint }));
       b.addEventListener('click', () => { style = k; for (const x of styleRows.children) x.classList.toggle('lit', x === b); });
@@ -1622,7 +1622,7 @@ class App {
     lightInt();
     const scope = el('select', {}, el('option', { value: 'sel', text: `The selected clip${sel.length === 1 ? '' : 's'} (${sel.length})`, disabled: !sel.length }), el('option', { value: 'all', text: `Every video clip (${all.length})` }));
     scope.value = sel.length ? 'sel' : 'all';
-    const ptr = el('input', { type: 'checkbox', checked: hasPointer, disabled: !hasPointer });
+    const ptr = el('input', { type: 'checkbox', checked: usePointer });
     ptr.addEventListener('change', () => { usePointer = ptr.checked; });
     const onDrop = el('input', { type: 'checkbox', checked: prefs.onDrop });
     const packSel = el('select', { title: 'Transitions at every cut it finds (shot changes inside clips, and where clips meet)' }, el('option', { value: '', text: 'None' }), ...Object.entries(PACKS).map(([k, p]) => el('option', { value: k, text: `${p.name} — ${p.hint}`, selected: prefs.pack === k })));
@@ -1633,7 +1633,7 @@ class App {
       el('div', { class: 'row' }, el('label', { text: 'Intensity' }), intens),
       el('div', { class: 'row' }, el('label', { text: 'Fine tune' }), amt, amtOut),
       el('div', { class: 'row' }, el('label', { text: 'Apply to' }), scope),
-      el('label', { class: 'row' }, ptr, el('span', { text: hasPointer ? 'Follow the recorded pointer on Reel screen recordings' : 'Follow the recorded pointer (only Reel screen recordings have one)' })),
+      el('label', { class: 'row' }, ptr, el('span', { text: hasPointer ? 'Follow the pointer (recorded with Reel, or found before)' : 'Follow the pointer: Reel finds the Mac’s pointer in the picture (it plays each video through once, quickly)' })),
       el('label', { class: 'row' }, onDrop, el('span', { text: 'Do this by itself for every video I drop on the timeline' })),
       el('div', { class: 'engr', text: 'Transitions' }),
       el('div', { class: 'row' }, el('label', { text: 'At the cuts it finds' }), packSel),
@@ -1642,7 +1642,7 @@ class App {
       { label: 'Cancel', onClick: c => c() },
       { label: 'Zoom it', cls: 'hw amber', onClick: c => {
         c();
-        setSmartZoomPrefs({ style, strength, onDrop: onDrop.checked, pack: packSel.value, packSounds: sfxCb.checked });
+        setSmartZoomPrefs({ style, strength, usePointer, onDrop: onDrop.checked, pack: packSel.value, packSounds: sfxCb.checked });
         this.smartZoom((scope.value === 'sel' ? sel : all).map(x => x.id), { style, strength, usePointer, pack: packSel.value, packSounds: sfxCb.checked });
       } },
     ]);
@@ -1887,7 +1887,7 @@ class App {
 
   /** Runs Smart Zoom on clips (ids). quiet: no progress window (used for videos as they're dropped). */
   /** Returns how many zoom and pan moves it made. fallback: a clip with nothing to follow gets gentle push-ins. */
-  async smartZoom(ids, { style = 'follow', strength = 1, usePointer = true, quiet = false, pack = '', packSounds = true, packFilter = null, fallback = false, onProgress = null, onStatus = null, signal = null } = {}) {
+  async smartZoom(ids, { style = 'follow', strength = 1, usePointer = true, seekPointer = true, quiet = false, pack = '', packSounds = true, packFilter = null, fallback = false, onProgress = null, onStatus = null, signal = null } = {}) {
     if (this._zooming) { if (!quiet) toast('Smart Zoom is already working.'); return 0; }
     this._zooming = true;
     const token = this.token, ctl = new AbortController();
@@ -1895,6 +1895,15 @@ class App {
     const dlg = quiet ? null : modal('Smart Zoom', el('div', {}, what, bar), [{ label: 'Stop', onClick: c => c() }], { onClose: () => ctl.abort() });
     let made = 0, clipsDone = 0, slow = 0, unread = 0;
     const shots = {}, pointers = new Map(); // each recording's pointer file read once, not once per clip
+    const sought = new Set(); let pointerFound = 0;
+    // the part of each recording the clips use (source seconds): watched once for all of them
+    const spans = new Map(), watched = new Map();
+    for (const id of ids) {
+      const c = this.doc?.clips.find(x => x.id === id), m = c && mediaById(this.doc, c.media);
+      if (!m || m.kind !== 'video') continue;
+      const a = c.in || 0, b = a + c.duration * (c.speed || 1), sp = spans.get(m.id);
+      spans.set(m.id, sp ? [Math.min(sp[0], a), Math.max(sp[1], b)] : [a, b]);
+    }
     if (signal) { if (signal.aborted) ctl.abort(); else signal.addEventListener('abort', () => ctl.abort(), { once: true }); }
     try {
       for (const [k, id] of ids.entries()) {
@@ -1906,9 +1915,35 @@ class App {
         onStatus?.(`Adding zooms: clip ${k + 1} of ${ids.length} (${c.name || m.name})`);
         onProgress?.(k / ids.length);
         let actions = [];
-        if (usePointer && m.cursor) {
-          if (!pointers.has(m.cursor)) pointers.set(m.cursor, await api.readJson(token, m.cursor).catch(() => null));
-          actions = autoZoom(pointers.get(m.cursor), m.cursorOffset || 0, c, frameFraction(this.doc.canvas, m, c.props.crop || [0, 0, 0, 0]));
+        // no pointer file (an older video): find the pointer in the picture, once per video, and keep it with the
+        // video for next time (and for pointer effects)
+        // a pointer file that can't place the pointer on the picture (a window recorded before Reel noted where the
+        // window was) counts as none: the pointer is found in the picture, and the recorded clicks and keys kept
+        let old = null;
+        if (usePointer && m.cursor) { if (!pointers.has(m.cursor)) pointers.set(m.cursor, await api.readJson(token, m.cursor).catch(() => null)); old = pointers.get(m.cursor); }
+        const blind = !m.cursor || (old && !old.display && !old.window?.frames?.length);
+        if (usePointer && seekPointer && blind && m.kind === 'video' && !sought.has(m.id)) {
+          sought.add(m.id);
+          what.textContent = `Looking for the pointer in “${m.name}”…`;
+          onStatus?.(`Looking for the pointer in “${m.name}”`);
+          const found = await findPointer(this, m, { signal: ctl.signal, onProgress: v => { const f = (k + v) / ids.length; bar.firstChild.style.width = Math.round(f * 100) + '%'; onProgress?.(f); } }).catch(e => { if (/Cancelled/.test(e.message) || ctl.signal.aborted) throw e; return null; });
+          if (this.token !== token) return;
+          if (found && old) {
+            const off = (m.cursorOffset || 0) * 1000; // the old file's times are the recorder's: the found ones are the video's
+            found.clicks = (old.clicks || []).map(([t, ...r]) => [t - off, ...r]);
+            found.keys = (old.keys || []).map(([t, ...r]) => [t - off, ...r]);
+          }
+          const file = found ? await api.writeJson(token, `${String(m.file || m.name || 'video').replace(/\.[^.]+$/, '')}-pointer`, found).catch(() => null) : null;
+          if (file) {
+            this.commit(d => { const x = mediaById(d, m.id); if (x && x.cursor === m.cursor) Object.assign(x, { cursor: file, cursorOffset: 0, cursorFound: 'video' }); }, { quiet: true });
+            pointers.set(file, found);
+            pointerFound++;
+          }
+        }
+        const mm = mediaById(this.doc, c.media) || m;
+        if (usePointer && mm.cursor) {
+          if (!pointers.has(mm.cursor)) pointers.set(mm.cursor, await api.readJson(token, mm.cursor).catch(() => null));
+          actions = autoZoom(pointers.get(mm.cursor), mm.cursorOffset || 0, c, frameFraction(this.doc.canvas, mm, c.props.crop || [0, 0, 0, 0]));
         }
         if (!actions.length) {
           const p = { ...c.props, crop: c.props.crop || [0, 0, 0, 0] };
@@ -1916,16 +1951,31 @@ class App {
           if (m.kind === 'image') {
             actions = zoomPlan([{ t: 0, diff: 0, motion: 0, cx: 0.5, cy: 0.5, box: 1, detail: { x: 0.5, y: 0.45 } }], c.duration, { style: 'cinematic', strength, base });
           } else {
-            // a clip may take about twice what playing it at 16× takes, plus time to open it; then it's left as seen
-            const budget = 25 + ((c.duration || 1) * (c.speed || 1)) / 8;
-            let res;
-            try {
-              res = await zoomAnalyse(this, c, m, { signal: ctl.signal, budget, onProgress: v => { const f = (k + v) / ids.length; bar.firstChild.style.width = Math.round(f * 100) + '%'; onProgress?.(f); } });
-            } catch (e) {
-              if (/Cancelled/.test(e.message) || ctl.signal.aborted) throw e;
-              unread++; continue; // this one can't be read: the others still get their zooms
+            // each recording is watched once for all its clips (Auto Edit's cuts leave dozens of them), from its first
+            // used moment to its last, and remembered, so redoing the zooms doesn't watch it again
+            const [a0, b0] = spans.get(m.id) || [c.in || 0, (c.in || 0) + c.duration * (c.speed || 1)];
+            let seen = this._zoomSeen?.token === token ? this._zoomSeen.map.get(m.id) : null;
+            if (!seen || seen.file !== previewFile(m) || seen.a > a0 + 0.05 || seen.b < b0 - 0.05) {
+              // about twice what playing it at 16× takes, plus time to open it; then it's left as seen
+              const budget = 25 + (b0 - a0) / 8;
+              // the clips of this recording still to come: the bar moves across all of them while it's watched
+              const share = ids.slice(k).filter(x => this.doc.clips.find(y => y.id === x)?.media === m.id).length || 1;
+              what.textContent = `Watching “${m.name}”…`;
+              onStatus?.(`Watching “${m.name}” for zooms`);
+              try {
+                const res = await zoomAnalyse(this, { id: c.id, in: a0, duration: b0 - a0, speed: 1 }, m, { signal: ctl.signal, budget, onProgress: v => { const f = (k + v * share) / ids.length; bar.firstChild.style.width = Math.round(f * 100) + '%'; onProgress?.(f); } });
+                seen = { ...res, a: a0, b: b0, file: previewFile(m) };
+                if (res.slow) slow++;
+                else { if (this._zoomSeen?.token !== token) this._zoomSeen = { token, map: new Map() }; this._zoomSeen.map.set(m.id, seen); }
+              } catch (e) {
+                if (/Cancelled/.test(e.message) || ctl.signal.aborted) throw e;
+                seen = { failed: true, a: a0, b: b0, file: previewFile(m) };
+              }
+              watched.set(m.id, seen);
             }
-            if (res.slow) slow++;
+            seen = watched.get(m.id) || seen;
+            if (seen.failed) { unread++; continue; } // this one can't be read: the others still get their zooms
+            const res = seenFor(seen, c);
             if (this.token !== token) return;
             actions = zoomPlan(res.samples, c.duration, { style, strength, base, cuts: res.cuts });
             if (!actions.length && fallback && style !== 'cinematic') actions = zoomPlan(res.samples, c.duration, { style: 'cinematic', strength, base, cuts: res.cuts });
@@ -1946,7 +1996,7 @@ class App {
       if (pack) trans = await autoTransitions(this, pack, { sounds: packSounds, clipIds: ids, shots: packFilter ? null : shots, filter: packFilter });
       if (trans) toast(`${PACKS[pack].name} transitions on ${trans} cut${trans === 1 ? '' : 's'}${packSounds ? ', with sounds' : ''}.`, 5000);
       if (clipsDone === 1 && ids.length === 1 && !quiet) this.select([ids[0]], null);
-      if (!quiet) toast(made ? `Smart Zoom: ${made} zoom and pan move${made === 1 ? '' : 's'} on ${clipsDone} clip${clipsDone === 1 ? '' : 's'}. Each is an action you can adjust (right-click to remove).`
+      if (!quiet) toast(made ? `Smart Zoom: ${made} zoom and pan move${made === 1 ? '' : 's'} on ${clipsDone} clip${clipsDone === 1 ? '' : 's'}${pointerFound ? `, following the pointer it found in ${pointerFound === 1 ? 'the video' : pointerFound + ' videos'}` : ''}. Each is an action you can adjust (right-click to remove).`
         : 'Smart Zoom found nothing to zoom on: the picture barely moves. Try the Cinematic style.', 6000);
       return made;
     } catch (e) {
@@ -2154,10 +2204,20 @@ void ANIMATABLE;
 
 
 const SZ_KEY = 'reel.smartZoom';
+/**
+ * One clip's part of what was seen of its recording (samples and cuts in source seconds from seen.a): in the clip's
+ * own time, as analyse() gives it for a single clip.
+ */
+function seenFor(seen, c) {
+  const sp = c.speed || 1, a = c.in || 0, b = a + c.duration * sp, local = s => (s - a) / sp;
+  const samples = seen.samples.filter(x => seen.a + x.t >= a - 1e-6 && seen.a + x.t <= b + 1e-6).map(x => ({ ...x, t: local(seen.a + x.t) }));
+  const cuts = (seen.cuts || []).map(t => local(seen.a + t)).filter(t => t > 0.05 && t < c.duration - 0.05);
+  return { ...seen, samples, cuts };
+}
 function smartZoomPrefs() {
   let p = {};
   try { p = JSON.parse(localStorage.getItem(SZ_KEY) || '{}') || {}; } catch { /* defaults */ }
-  return { style: ZOOM_STYLES[p.style] ? p.style : 'follow', strength: Number.isFinite(p.strength) ? Math.min(1.6, Math.max(0.4, p.strength)) : 1, onDrop: !!p.onDrop, pack: typeof p.pack === 'string' ? p.pack : '', packSounds: p.packSounds !== false };
+  return { style: ZOOM_STYLES[p.style] ? p.style : 'follow', strength: Number.isFinite(p.strength) ? Math.min(1.6, Math.max(0.4, p.strength)) : 1, onDrop: !!p.onDrop, usePointer: p.usePointer !== false, pack: typeof p.pack === 'string' ? p.pack : '', packSounds: p.packSounds !== false };
 }
 function setSmartZoomPrefs(p) { try { localStorage.setItem(SZ_KEY, JSON.stringify(p)); } catch { /* fine */ } }
 
