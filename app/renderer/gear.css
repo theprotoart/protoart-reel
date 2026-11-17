@@ -2695,3 +2695,22 @@ input[type=search] { padding: 6px 10px; }
 /* listening: it says how to stop */
 .tool.filler-scan.listening { display: inline-flex; align-items: center; gap: 5px; box-shadow: 0 0 0 1px rgba(255, 106, 74, .55), 0 0 8px rgba(255, 106, 74, .35); }
 .tool.filler-scan.listening::after { content: '■ STOP'; font: 700 9px/1 var(--font-engrave, "Avenir Next Condensed", sans-serif); letter-spacing: .12em; color: #ff8a6a; }
+
+/* 🏷 labels along the top of the ruler */
+#tl-ruler .tl-labels { position: absolute; left: 0; top: 0; height: 0; z-index: 7; }
+#tl-ruler .tl-label { position: absolute; top: 1px; height: 15px; border-radius: 3px; box-shadow: 0 0 0 1px rgba(0,0,0,.55), inset 0 1px 0 rgba(255,255,255,.25); color: #fff; font: 600 10px/15px var(--font-ui, -apple-system, sans-serif); padding: 0 6px; overflow: hidden; white-space: nowrap; text-overflow: ellipsis; cursor: grab; box-sizing: border-box; }
+#tl-ruler .tl-label span { pointer-events: none; text-shadow: 0 1px 1px rgba(0,0,0,.5); }
+#tl-ruler .tl-label .tl-label-end { position: absolute; right: 0; top: 0; width: 6px; height: 100%; cursor: ew-resize; background: rgba(255,255,255,.18); }
+#tl-ruler .tl-label:hover { filter: brightness(1.15); }
+/* ↔ moving a section: where it is now, and where it'll go */
+.move-from { position: absolute; top: 0; background: repeating-linear-gradient(135deg, rgba(127,208,255,.16) 0 8px, rgba(127,208,255,.06) 8px 16px); border: 1px dashed #7fd0ff; pointer-events: none; z-index: 8; box-sizing: border-box; }
+.move-ghost { position: absolute; top: 0; background: rgba(255,207,58,.16); border-left: 2px solid #ffcf3a; pointer-events: none; z-index: 9; }
+.move-ghost span { position: absolute; top: 30px; left: 6px; font: 700 10px var(--font-engrave, sans-serif); letter-spacing: .12em; color: #ffcf3a; }
+#timeline.moving-section #tl-tracks, #timeline.moving-section #tl-ruler { cursor: copy; }
+
+/* what a filler scan found, on its track */
+.um-hit { position: absolute; height: 14px; border-radius: 3px; background: rgba(255,190,60,.85); box-shadow: 0 0 0 1px rgba(0,0,0,.55); z-index: 4; cursor: pointer; overflow: hidden; }
+.um-hit span { font: 700 8.5px/14px var(--font-engrave, sans-serif); letter-spacing: .06em; color: #2a1a00; padding: 0 3px; text-transform: uppercase; pointer-events: none; white-space: nowrap; }
+.um-hit.cut { background: rgba(232,72,58,.9); }
+.um-hit.cut span { color: #fff; text-decoration: line-through; }
+.um-hit:hover { filter: brightness(1.2); }

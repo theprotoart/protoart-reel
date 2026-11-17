@@ -2,6 +2,10 @@
 
 ## 1.11.0 — 2026-11-16
 
+- 🏷 Labels along the top of the timeline: double-click the ruler (or right-click › Add a label here), name it, colour it; click to go there, drag to move or lengthen.
+- ↔ Move a section: In–Out or a label's stretch of the whole edit (picture, sound, titles, with their cuts and fades) moved earlier or later; the rest closes up and makes room. Locked tracks stay put.
+- Fillers: what a scan finds shows on the timeline (a strip on its track: red when marked CUT, amber when kept; click to hear it, right-click to cut, keep or drop it). Music and sound-effects clips are no longer searched (beats were being listed as ums). ▶ in the list plays just that one.
+
 - Teaching Reel your fillers now makes it find more, not fewer:
   - What you taught is matched all along your speech, so an um or uh said straight into the next word (no pause around it) is found. Before, only sounds with a pause either side were ever compared with what you taught.
   - A filler marked on the timeline is learned from exactly what you marked (its quiet ends trimmed), not from a nearby "burst" that could take in part of the next word.

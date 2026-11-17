@@ -713,6 +713,40 @@ export function removeRange(doc, t0, t1) {
 }
 
 /**
+ * Moves the stretch a..b of the whole edit (every track's clips in it, cut where it starts and ends, with their own
+ * cuts, fades and transitions) so it starts at `to` instead, as if it were cut out and pasted back in there: what
+ * was after it closes up, what's after `to` makes room. `to` is a time on the edit as it is now, outside a..b.
+ * Locked tracks (music laid under everything, say) stay as they are. Markers, labels, captions, found fillers and
+ * parts in the stretch go with it. Returns where it now starts, or null when it can't move there.
+ */
+export function moveRange(doc, a, b, to) {
+  const L = b - a;
+  if (!(L > 0.05) || !(to >= 0) || (to > a + EPS && to < b - EPS) || Math.abs(to - a) < EPS || Math.abs(to - b) < EPS) return null;
+  const keep = c => trackLocked(doc, c.track);
+  const cut = t => { for (const c of [...doc.clips]) { if (keep(c)) continue; if (c.start < t - EPS && clipEnd(c) > t + 0.02) { const l = c.locked; c.locked = false; split(doc, t, [c.id]); c.locked = l; } } };
+  cut(a); cut(b); cut(to);
+  // where any time on the edit goes: inside the stretch to its new place, the rest closes up and makes room
+  const dest = to > b ? to - L : to; // where the stretch starts once it's moved
+  const map = t => {
+    if (t >= a - EPS && t < b - EPS) return dest + (t - a);
+    let u = t >= b - EPS ? t - L : t;
+    if (u >= dest - EPS) u += L;
+    return u;
+  };
+  for (const c of doc.clips) if (!keep(c)) c.start = map(c.start);
+  const mapSpan = (x, k0, k1) => { const s0 = x[k0], len = x[k1] - x[k0]; x[k0] = map(s0); x[k1] = x[k0] + len; };
+  for (const m of doc.markers || []) m.t = map(m.t);
+  (doc.markers || []).sort((p, q) => p.t - q.t);
+  for (const l of doc.labels || []) mapSpan(l, 't0', 't1');
+  for (const cp of doc.captions || []) mapSpan(cp, 't', 'end');
+  (doc.captions || []).sort((p, q) => p.t - q.t);
+  for (const u of doc.ums || []) mapSpan(u, 't', 'end');
+  for (const f of doc.fillers || []) mapSpan(f, 't0', 't1');
+  for (const s of doc.sections || []) mapSpan(s, 't0', 't1');
+  return dest;
+}
+
+/**
  * Empty stretches of the edit: times where nothing plays on any track (clips, their crossfade handles, captions).
  * Includes empty time before the first clip. Gaps shorter than `min` seconds are ignored. Returns [[t0, t1], …].
  */

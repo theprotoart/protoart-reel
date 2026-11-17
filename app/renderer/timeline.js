@@ -2,7 +2,7 @@
 // clips with their keyframes, automation lanes, markers and the playhead. Move, trim, snap, drop,
 // marquee-select, scrub (also while playing) and zoom from a single frame out to the whole project.
 import { el, $, popMenu, toast, ask } from './ui.js';
-import { clipEnd, isFree, addTrack, snap, trim, setSpeed, SPEED_STEPS, mediaById, duration, fmtTime, keyAt, withGroups, TRACK_LANES, gainToPos, posToGain, fmtDb, fmtPan, clamp, neighbour, roll, KEY_EASES, split, tidyCrossfades, cutsOn, crossfadeOverlaps, fadeShape, putKey, emptyTracks, OVERLAP_CUTS, applyCut, pushAlong } from './model.js';
+import { clipEnd, isFree, addTrack, snap, trim, setSpeed, SPEED_STEPS, mediaById, duration, fmtTime, keyAt, withGroups, TRACK_LANES, gainToPos, posToGain, fmtDb, fmtPan, clamp, neighbour, roll, KEY_EASES, split, tidyCrossfades, cutsOn, crossfadeOverlaps, fadeShape, putKey, emptyTracks, OVERLAP_CUTS, applyCut, pushAlong, moveRange, uid } from './model.js';
 import { peaksFor, posterFor } from './peaks.js';
 import { mapAt, addPoint, movePoint, removePoint, linearRetime } from './lib/retime.js';
 import { musicLike, fitSource, refitTo, canFit, tryAnother } from './musicfit.js';
@@ -54,6 +54,8 @@ export function nearerSnap(t, a, b) {
   if (ca && cb) return Math.abs(a - t) <= Math.abs(b - t) ? a : b;
   return ca ? a : cb ? b : t;
 }
+
+export const LABEL_COLORS = [['Purple', '#6a3fd0'], ['Blue', '#2f6fd6'], ['Teal', '#14917f'], ['Green', '#3e9a35'], ['Orange', '#d0701e'], ['Red', '#c83a3a'], ['Pink', '#c2408d']];
 
 export class Timeline {
   constructor(app) {
@@ -146,6 +148,35 @@ export class Timeline {
       hr.addEventListener('pointerdown', e => this._fillerDrag(e, f.id, 't1'));
       box.addEventListener('contextmenu', e => { e.preventDefault(); e.stopPropagation(); fillerMenu(this.app, f, e.clientX, e.clientY); });
       this.tracksEl.append(box);
+    }
+  }
+  /**
+   * What a filler scan found (the FILLERS list), on the timeline where each one is: a strip along the bottom of its
+   * track, red when it's marked CUT, amber when it's kept to check. Click to hear it; right-click to cut, keep or
+   * drop it from the list.
+   */
+  _drawUms() {
+    const rows = new Map(this.layout().map(r => [r.tr.id, r]));
+    const firstVoice = this.layout().find(r => (this.doc.clips || []).some(c => c.track === r.tr.id && c.type === 'media' && mediaById(this.doc, c.media)?.kind === 'audio'));
+    for (const u of this.doc.ums || []) {
+      if (u.kind === 'find') continue;
+      const r = rows.get(u.track) || firstVoice; if (!r) continue;
+      const strip = el('div', { class: 'um-hit' + (u.cut ? ' cut' : ''), title: `${u.text || 'um'} · ${fmtTime(u.t)} · ${u.cut ? 'marked CUT' : 'kept'} · click to hear it · right-click to cut, keep or drop it`,
+        style: { left: this.x(u.t) + 'px', top: (r.top + r.h - 16) + 'px', width: Math.max(8, this.x(u.end - u.t)) + 'px' } },
+        el('span', { text: String(u.text || 'um').slice(0, 8) }));
+      strip.addEventListener('pointerdown', e => { if (e.button !== 0) return; e.stopPropagation(); e.preventDefault(); playRange(this.app, Math.max(0, u.t - 0.4), u.end + 0.4); });
+      strip.addEventListener('contextmenu', e => {
+        e.preventDefault(); e.stopPropagation();
+        const set = f => this.app.commit(d => { const k = (d.ums || []).find(x => x.id === u.id); if (k) f(k, d); });
+        popMenu(e.clientX, e.clientY, [
+          ['▶ Hear it', () => playRange(this.app, Math.max(0, u.t - 0.4), u.end + 0.4)],
+          [u.cut ? 'Keep it (don’t cut)' : 'Mark it CUT', () => set(k => { k.cut = !k.cut; })],
+          ['Drop it from the list', () => this.app.commit(d => { d.ums = (d.ums || []).filter(x => x.id !== u.id); })],
+          null,
+          ['Open the FILLERS list', () => this.app.cmd('ums')],
+        ]);
+      });
+      this.tracksEl.append(strip);
     }
   }
   _fillerDrag(e, id, edge) {
@@ -604,6 +635,7 @@ export class Timeline {
       line.append(flag);
       this.tracksEl.append(line);
     }
+    this._drawLabels();
     // parts kept for Auto Edit: green outlines; everything else is greyed out
     const parts = (doc.sections || []).slice().sort((a, b) => a.t0 - b.t0);
     if (parts.length) {
@@ -623,6 +655,7 @@ export class Timeline {
       });
     }
     this._drawFillers();
+    this._drawUms();
     this.tracksEl.style.height = this.totalH() + 'px';
     this.drawRuler();
     this.updatePlayhead(this.app.player.time);
@@ -1683,6 +1716,127 @@ export class Timeline {
     window.addEventListener('pointermove', move); window.addEventListener('pointerup', up);
   }
 
+  // ---------------------------------------------------------------- labels on the ruler
+  /**
+   * 🏷 Labels: named, coloured stretches along the top of the ruler, for the parts you'll come back to. Click one to
+   * go there; drag it to move it, its right edge to make it longer; double-click to rename; right-click to recolour,
+   * move the whole section of the edit it covers, or delete it.
+   */
+  _drawLabels() {
+    const host = document.getElementById('tl-ruler');
+    if (!host) return;
+    host.querySelector('.tl-labels')?.remove();
+    const box = el('div', { class: 'tl-labels' });
+    for (const l of this.doc.labels || []) {
+      const w = Math.max(14, this.x(l.t1 - l.t0));
+      const tag = el('div', { class: 'tl-label', title: `${l.text} · ${fmtTime(l.t0)}–${fmtTime(l.t1)} · click to go there · drag to move · drag the end to resize · double-click to rename · right-click for more`,
+        style: { left: this.x(l.t0) + 'px', width: w + 'px', background: l.color || LABEL_COLORS[0][1] } },
+        el('span', { text: l.text }), el('i', { class: 'tl-label-end' }));
+      tag.addEventListener('pointerdown', e => this._labelDrag(e, l.id, e.target.classList.contains('tl-label-end') ? 'end' : 'move'));
+      tag.addEventListener('dblclick', e => { e.stopPropagation(); this._renameLabel(l.id); });
+      tag.addEventListener('contextmenu', e => { e.preventDefault(); e.stopPropagation(); this._labelMenu(l, e.clientX, e.clientY); });
+      box.append(tag);
+    }
+    host.append(box);
+  }
+  /** A new label at t (the In–Out range when it's set and t is in it), named straight away. */
+  async addLabel(t, span = null) {
+    const app = this.app, doc = this.doc;
+    if (!doc) return;
+    const len = Math.max(3, 90 / this.pps);
+    const [t0, t1] = span || [Math.max(0, t), Math.max(0, t) + len];
+    const { promptText } = await import('./ui.js');
+    const name = await promptText('New label', 'Name', `Section ${(doc.labels || []).length + 1}`);
+    if (name == null) return;
+    const color = LABEL_COLORS[(doc.labels || []).length % LABEL_COLORS.length][1];
+    app.commit(d => { (d.labels ||= []).push({ id: uid('lb'), t0, t1, text: String(name).slice(0, 60) || 'Label', color }); d.labels.sort((a, b) => a.t0 - b.t0); });
+  }
+  async _renameLabel(id) {
+    const l = (this.doc.labels || []).find(x => x.id === id); if (!l) return;
+    const { promptText } = await import('./ui.js');
+    const v = await promptText('Rename label', 'Name', l.text);
+    if (v != null) this.app.commit(d => { const k = d.labels.find(x => x.id === id); if (k) k.text = String(v).slice(0, 60) || k.text; });
+  }
+  _labelDrag(e, id, how) {
+    if (e.button !== 0) return;
+    e.preventDefault(); e.stopPropagation();
+    const app = this.app, l0 = (this.doc.labels || []).find(x => x.id === id); if (!l0) return;
+    const { t0, t1 } = l0, x0 = e.clientX, tag = e.currentTarget;
+    let moved = false, n0 = t0, n1 = t1;
+    const move = ev => {
+      const dt = (ev.clientX - x0) / this.pps;
+      if (!moved && Math.abs(ev.clientX - x0) < 3) return;
+      moved = true;
+      if (how === 'end') { n1 = Math.max(t0 + 0.5, this.snapOn ? this._snap(this.doc, t1 + dt, this._tol()) : t1 + dt); n0 = t0; }
+      else { n0 = Math.max(0, this.snapOn ? this._snap(this.doc, t0 + dt, this._tol()) : t0 + dt); n1 = n0 + (t1 - t0); }
+      tag.style.left = this.x(n0) + 'px'; tag.style.width = Math.max(14, this.x(n1 - n0)) + 'px';
+    };
+    const up = () => {
+      window.removeEventListener('pointermove', move); window.removeEventListener('pointerup', up);
+      if (!moved) { app.seek(t0); return; }
+      app.commit(d => { const k = d.labels.find(x => x.id === id); if (k) { k.t0 = n0; k.t1 = n1; } d.labels.sort((a, b) => a.t0 - b.t0); });
+    };
+    window.addEventListener('pointermove', move); window.addEventListener('pointerup', up);
+  }
+  _labelMenu(l, x, y) {
+    const app = this.app;
+    popMenu(x, y, [
+      [`Go to “${l.text}”`, () => app.seek(l.t0)],
+      ['Rename…', () => this._renameLabel(l.id)],
+      ...LABEL_COLORS.map(([n, c]) => [`${l.color === c ? '✓' : '\u2003'} ${n}`, () => app.commit(d => { const k = d.labels.find(q => q.id === l.id); if (k) k.color = c; })]),
+      null,
+      ['↔ Move this section of the edit…', () => this.moveSection(l.t0, l.t1)],
+      ['Set In and Out to it', () => app.commit(d => { d.range = { in: l.t0, out: l.t1 }; })],
+      null,
+      ['Delete label', () => app.commit(d => { d.labels = d.labels.filter(q => q.id !== l.id); })],
+    ]);
+  }
+
+  // ---------------------------------------------------------------- moving a section
+  /**
+   * ↔ Move a section: the stretch a..b of every track (picture, sound, titles, with their cuts and fades) follows
+   * the pointer as a band; click where it should start and it's taken out and put back in there, the rest closing up
+   * and making room (model.moveRange). Snaps to clip edges, markers and the playhead. Esc cancels.
+   */
+  moveSection(a, b) {
+    const app = this.app, doc = this.doc;
+    if (!doc || !(b - a > 0.05)) return;
+    this.moving?.();
+    const host = this.playheadEl.parentElement, H = 28 + this.totalH();
+    const from = el('div', { class: 'move-from', style: { left: this.x(a) + 'px', width: this.x(b - a) + 'px', height: H + 'px' } });
+    const ghost = el('div', { class: 'move-ghost', style: { width: this.x(b - a) + 'px', height: H + 'px', display: 'none' } }, el('span', { text: 'drop here' }));
+    host.append(from, ghost);
+    document.getElementById('timeline')?.classList.add('moving-section');
+    let to = null;
+    const over = ev => {
+      let t = Math.max(0, this._timeAt(ev.clientX));
+      if (this.snapOn) t = this._snap(doc, t, this._tol());
+      to = t > a && t < b ? null : t;
+      ghost.style.display = to == null ? 'none' : 'block';
+      if (to != null) ghost.style.left = this.x(to) + 'px';
+    };
+    const done = () => { this.scroll.removeEventListener('pointermove', over); this.scroll.removeEventListener('pointerdown', drop, true); window.removeEventListener('keydown', esc, true); from.remove(); ghost.remove(); document.getElementById('timeline')?.classList.remove('moving-section'); this.moving = null; };
+    const drop = ev => {
+      if (ev.button !== 0) return;
+      ev.preventDefault(); ev.stopPropagation();
+      over(ev);
+      if (to == null) { toast('Pick a place outside the section itself (Esc to cancel).', 2500); return; }
+      const at = to;
+      done();
+      let dest = null;
+      app.commit(d => { dest = moveRange(d, a, b, at); });
+      if (dest == null) { toast('It can’t go there.'); return; }
+      app.seek(dest);
+      toast(`Section moved to ${fmtTime(dest)}, cuts and fades and all. ⌘Z puts it back.`, 4500);
+    };
+    const esc = e => { if (e.key === 'Escape') { e.stopPropagation(); done(); toast('Move cancelled.', 1500); } };
+    this.scroll.addEventListener('pointermove', over);
+    this.scroll.addEventListener('pointerdown', drop, true);
+    window.addEventListener('keydown', esc, true);
+    this.moving = done;
+    toast(`Moving ${fmtTime(a)}–${fmtTime(b)}: click where it should start (Esc to cancel). Lock a track to keep it where it is.`, 6000);
+  }
+
   /** Right-click a marker: rename it, delete it, or delete them all. */
   _markerMenu(m, x, y) {
     const app = this.app, same = a => Math.abs(a.t - m.t) < 1e-6 && a.label === m.label;
@@ -1696,7 +1850,9 @@ export class Timeline {
     ]);
   }
   _rulerEvents() {
-    $('#tl-ruler').addEventListener('pointerdown', e => this._scrub(e));
+    $('#tl-ruler').addEventListener('pointerdown', e => { if (!e.target.closest('.tl-label')) this._scrub(e); });
+    // double-click the ruler: a label there
+    $('#tl-ruler').addEventListener('dblclick', e => { if (!e.target.closest('.tl-label')) this.addLabel(this._timeAt(e.clientX)); });
     $('#tl-ruler').addEventListener('contextmenu', e => {
       e.preventDefault();
       const t = this._timeAt(e.clientX), secs = this.doc?.sections || [], i = secs.findIndex(s => t >= s.t0 && t <= s.t1);
@@ -1704,7 +1860,12 @@ export class Timeline {
       const near = (this.doc?.markers || []).filter(m => Math.abs(this.x(m.t) - this.x(t)) < 8).sort((a, b) => Math.abs(a.t - t) - Math.abs(b.t - t))[0];
       if (near) { this._markerMenu(near, e.clientX, e.clientY); return; }
       const nm = (this.doc?.markers || []).length;
+      const rg = this.doc?.range, hasRange = rg && rg.in != null && rg.out != null && rg.out > rg.in;
       popMenu(e.clientX, e.clientY, [
+        ['🏷 Add a label here…', () => this.addLabel(t)],
+        hasRange ? ['🏷 Label In to Out…', () => this.addLabel(rg.in, [rg.in, rg.out])] : null,
+        hasRange ? ['↔ Move the In–Out section…', () => this.moveSection(rg.in, rg.out)] : ['↔ Move a section… (set In and Out first: I and O)', null],
+        null,
         nm ? [`Delete all ${nm} markers…`, () => this.app.deleteMarkers('all')] : null,
         i >= 0 ? [`Remove section ${i + 1}`, () => this.app.cmd('remove-section:' + secs[i].id)] : null,
         ['Add In–Out as a section  (X)', () => this.app.cmd('add-section')],

@@ -3,6 +3,7 @@
 // The list is kept in the project (doc.ums) and follows the edit as you cut.
 import { el, toast, dragBy } from './ui.js';
 import { removeRange, mediaById, uid } from './model.js';
+import { playRange } from './fillers.js';
 import { mergeRanges } from './lib/words.js';
 import { findUms, levelOnTimeline } from './lib/ums.js';
 import { timelineWords, speechClips, speechPrefs, saveSpeechPrefs, trackSelect, LANGS, stopListening } from './transcript.js';
@@ -42,7 +43,9 @@ async function listen(app, { locale, track, ranges = null, clipIds = null, stop 
   const words = await timelineWords(app, { locale, track, clipIds }, onStatus);
   ctxWords = words; ctxSig = layoutSig(app.doc);
   onStatus?.('Looking for ums between the words…', 1);
-  const clips = speechClips(app.doc, track).filter(c => !clipIds || clipIds.includes(c.id));
+  // only voices: music and sound effects (a beat, a song) are never searched for ums. Their beats looked like ums to
+  // the voice matching and filled the list with ones that weren't there
+  const clips = speechClips(app.doc, track).filter(c => (!clipIds || clipIds.includes(c.id)) && !notVoice(app.doc, c));
   const trained = !!umModel();
   // the sounds in the pauses between words (and at a clip's very start or end, where a cut often leaves an um),
   // from the waveform: the ums the speech recogniser didn't write down
@@ -69,7 +72,7 @@ async function listen(app, { locale, track, ranges = null, clipIds = null, stop 
   const trackAt = t => clips.find(c => t >= c.start - 0.01 && t < c.start + c.duration)?.track;
   // just some clips (the selected ones): what's found in them replaces what was listed there, the rest stays
   const within = u => !ranges || ranges.some(([a, b]) => u.t >= a - 0.01 && u.t < b);
-  found = found.filter(within).sort((a, b) => a.t - b.t).map(u => ({ id: uid('um'), t: +u.t.toFixed(3), end: +u.end.toFixed(3), text: u.text, kind: u.kind, cut: u.cut, track: trackAt(u.t) }));
+  found = found.filter(within).filter(u => trackAt(u.t)).sort((a, b) => a.t - b.t).map(u => ({ id: uid('um'), t: +u.t.toFixed(3), end: +u.end.toFixed(3), text: u.text, kind: u.kind, cut: u.cut, track: trackAt(u.t) }));
   if (stop?.()) throw new Error('Stopped.'); // stopped while it listened: the list stays as it was
   app.commit(d => { d.ums = [...found, ...(d.ums || []).filter(u => u.kind === 'find' || (ranges && !within(u)))].sort((a, b) => a.t - b.t); });
   app.deck?.tally(ranges ? (app.doc.ums || []).filter(u => u.kind !== 'find').length : found.length, 'filler words found');
@@ -132,6 +135,14 @@ export async function scanFillers(app) {
   finally { scanning = false; btn?.classList.remove('listening'); if (btn) btn.title = SCAN_TITLE; }
 }
 export const SCAN_TITLE = 'Scan for fillers (the shotgun mic): listens to the selected clips, or the whole project, for ums, uhs and other fillers, and counts them on the counter beside the time. Click again while it listens to stop. FILLERS lists them to keep or cut.';
+
+/** Music or sound effects, not a voice: by what it's set as, its track, or (not a mic recording) its name or a fit. */
+function notVoice(doc, c) {
+  const m = mediaById(doc, c.media), tr = doc.tracks.find(t => t.id === c.track);
+  if (!m || m.role === 'mic') return false;
+  if (['music', 'effects'].includes(m.soundRole) || ['music', 'effects'].includes(tr?.role) || c.musicFit || m.sfx || m.bleepTone) return true;
+  return m.kind === 'audio' && /music|song|beat|sfx|sound ?fx/i.test(`${m.name || ''} ${tr?.name || ''}`);
+}
 
 let panel = null;
 export function openUms(app) {
@@ -241,7 +252,7 @@ export function openUms(app) {
       el('div', { class: 'engr takes-rec ums-sum' }, el('span', { text: `${ums.length} shown · ${n} marked CUT` }), allBtn),
       ...ums.map(u => {
         const cat = catOf(u);
-        const play = el('button', { class: 'mini', text: '▶', title: 'Play it with a second either side', onclick: () => { app.seek(Math.max(0, u.t - 1)); if (!app.player.playing) app.player.toggle(); stopAt(u.end + 0.8); } });
+        const play = el('button', { class: 'mini', text: '▶', title: 'Play it with a second either side', onclick: () => { clearInterval(stopTimer); playRange(app, Math.max(0, u.t - 0.6), u.end + 0.6); } });
         const toggle = el('button', { class: 'take-state ' + (u.cut ? 'drop' : 'keep'), text: u.cut ? 'CUT' : 'KEEP', title: u.cut ? 'Cut when you press REMOVE. Click to keep it' : 'Kept. Click to cut it when you press REMOVE', onclick: () => {
           app.commit(d => { const k = (d.ums || []).find(x => x.id === u.id); if (k) k.cut = !k.cut; });
           refresh(true);
