@@ -2,6 +2,8 @@
 
 ## 1.11.0 — 2026-11-16
 
+- SNAP: a clip moved along the timeline snaps by its end too (a callout's end onto the end of the clip under it). It used to snap only by its start, unless the start happened to be nearer something.
+
 - REW and F.FWD go back or on 5 seconds a press (playing carries on from there) instead of jumping to the very start or end; double-click them (or Home / End) for that.
 
 - 🎙 on a selected clip listens to just that clip's few seconds of its recording, not the whole recording (much faster the first time). While it listens the button says ■ STOP: click it again to stop, and nothing changes.

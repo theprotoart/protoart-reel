@@ -47,6 +47,14 @@ const TRACK_SIZES = [30, 58, 110, 170];
 
 const rowClass = h => (h < 34 ? ' rh-compact rh-tiny' : h < 50 ? ' rh-compact' : '');
 
+/** Moving something with two edges that can snap: where its start goes for the start's snap a or the end's b (each
+ * already turned into a start), whichever edge caught something, the nearer if both did; t when neither did. */
+export function nearerSnap(t, a, b) {
+  const ca = Math.abs(a - t) > 1e-9, cb = Math.abs(b - t) > 1e-9;
+  if (ca && cb) return Math.abs(a - t) <= Math.abs(b - t) ? a : b;
+  return ca ? a : cb ? b : t;
+}
+
 export class Timeline {
   constructor(app) {
     this.app = app;
@@ -190,7 +198,7 @@ export class Timeline {
         // moving a whole part: whichever edge is nearer something to snap to, snaps
         const len = orig.t1 - orig.t0, a0 = orig.t0 + dt;
         const sa = snapT(a0), sb = snapT(a0 + len) - len;
-        const a = Math.max(lo, Math.min(hi - len, Math.abs(sa - a0) <= Math.abs(sb - a0) ? sa : sb));
+        const a = Math.max(lo, Math.min(hi - len, nearerSnap(a0, sa, sb)));
         p.t0 = a; p.t1 = a + len;
       }
       app.changed({ light: true, keepInspector: true });
@@ -1896,7 +1904,7 @@ export class Timeline {
         if (this.snapOn) {
           const s1 = this._snap(doc, ns, this._tol(), ids, [this.app.player.time]);
           const s2 = this._snap(doc, ns + lead.duration, this._tol(), ids, [this.app.player.time]) - lead.duration;
-          ns = Math.abs(s1 - ns) <= Math.abs(s2 - ns) ? s1 : s2;
+          ns = nearerSnap(ns, s1, s2); // the start or the end, whichever caught something (it used to keep the start's, caught or not)
         }
         const dt = Math.max(ns - lead.start, -Math.min(...[...orig.values()].map(o => o.start)));
         // tracks this drag made for layering come off again first (its clips go back while it works out the move)
