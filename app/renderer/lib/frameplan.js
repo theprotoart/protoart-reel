@@ -37,7 +37,7 @@ export function framePlan(doc, t, W, H, size = m => ({ w: m.width || 0, h: m.hei
   const cs = doc.captionStyle || {};
   // titles, call-outs, graphics, shapes, drawings and burned captions (1.12): the editor draws them, over everything
   // the core draws (as drawFrame puts them over the pictures), and they come to the core as pictures
-  let overlay = !!(cs.burn && (doc.captions || []).some(c => t >= c.t && t < c.end));
+  let overlay = !!(cs.burn && (doc.captions || []).some(c => t >= c.t && t < c.end)), blur = false;
   const layers = [];
   for (const k of activeClips(doc, t)) {
     if (k.type !== 'media') {
@@ -46,14 +46,15 @@ export function framePlan(doc, t, W, H, size = m => ({ w: m.width || 0, h: m.hei
       // transitions that read the picture under them, and a blurring call-out, still go the editor's way
       if (q.vertigo || q.blocks > 0.03 || q.streak || q.holes > 0.02 || q.glitch > 0.05 || q.leak > 0.01 || q.grain > 0.02 || q.flare || (q.bars || 0) > 0.001 || (q.shutter != null && q.shutter < 1))
         return { why: 'transition effects on a title or graphic' };
-      if (k.type === 'callout' && (k.callout?.blur || 0) > 0) return { why: 'a blurring call-out' };
+      // a blurring call-out (1.13): the core blurs round it (overlay.rs), where the editor's drawing says
+      if (k.type === 'callout' && (k.callout?.blur || 0) > 0) blur = true;
       if ((k.filters || []).some(f => !f.off && ['grain', 'letterbox'].includes(f.type))) return { why: 'film filters on a title or graphic' };
       if (q.opacity > 0.001 || q.dip) overlay = true;
       continue;
     }
     const local = t - k.start;
     const c = animated(k, local), p = propsAt(c, local);
-    if (p.mask || p.textMask || (p.shutter != null && p.shutter < 1) || p.vertigo || p.blocks > 0.03 || p.streak || p.holes > 0.02 || p.glitch > 0.05 || p.leak > 0.01 || p.grain > 0.02 || p.flare || (p.bars || 0) > 0.001)
+    if (p.textMask || (p.shutter != null && p.shutter < 1) || p.vertigo || p.blocks > 0.03 || p.streak || p.holes > 0.02 || p.glitch > 0.05 || p.leak > 0.01 || p.grain > 0.02 || p.flare || (p.bars || 0) > 0.001)
       return { why: 'transition effects' };
     // a dip to black or white: a colour over everything drawn so far (after this clip, as drawFrame does)
     const dip = p.dip && p.dip.amount > 0 ? { fill: hexRGB(p.dip.color) || [0, 0, 0], alpha: clamp(p.dip.amount, 0, 1) } : null;
@@ -133,14 +134,56 @@ export function framePlan(doc, t, W, H, size = m => ({ w: m.width || 0, h: m.hei
     }
     const filter = filtered ? { blur: Math.max(0, ((p.blur || 0) + fblur) * sx), bright: p.bright != null && Math.abs(p.bright - 1) > 0.005 ? +p.bright.toFixed(3) : 1, sat: p.sat != null && Math.abs(p.sat - 1) > 0.005 ? +Math.max(0, p.sat).toFixed(3) : 1 } : null;
     const st = sourceTime(c, t);
+    // a wipe, iris, clock, barn doors, blinds… (1.13): the clip seen through the transition's shape
+    const mask = p.mask && p.mask.k < 1 ? maskShapes(p.mask, W, H) : null;
+    const n0 = layers.length;
     layers.push({ media: m.id, clip: c.id, st, alpha: clamp(p.opacity, 0, 1), m: M, rect, look, filter, grade });
     if (fxOn) {
       const cur = cursor(c, st);
       if (cur) layers.push(...pointerInk(c, m, cur, { r, rot: p.rotation || 0, box, radius: look && look.radius > 0 ? look : null, crop: [p.crop[0], p.crop[1], 1 - p.crop[0] - p.crop[2], 1 - p.crop[1] - p.crop[3]], disp: [dispW, dispH], sx, alpha: clamp(p.opacity, 0, 1), st }));
     }
+    if (mask) for (let i = n0; i < layers.length; i++) layers[i].mask = mask;
     if (dip) layers.push(dip);
   }
-  return { bg, layers, overlay };
+  // needs13: drawn with what the 1.13 core added (a blurring call-out, a transition's shape)
+  return { bg, layers, overlay, ...(blur || layers.some(l => l.mask) ? { needs13: true } : {}) };
+}
+
+/**
+ * A transition's shape (compositor.js maskPath) as outlines and circles in canvas px, for the core (1.13): { poly:
+ * [[x, y]…] } or { circle: [x, y, r] }. Inside any of them, the clip shows.
+ */
+export function maskShapes(m, W, H) {
+  const k = clamp(m.k, 0, 1), e = k < 0.5 ? 2 * k * k : 1 - (-2 * k + 2) ** 2 / 2;
+  const rect = (x, y, w, h) => ({ poly: [[x, y], [x + w, y], [x + w, y + h], [x, y + h]] });
+  switch (m.type) {
+    case 'wipe-left': return [rect(W * (1 - e), 0, W * e, H)];
+    case 'wipe-right': return [rect(0, 0, W * e, H)];
+    case 'wipe-up': return [rect(0, H * (1 - e), W, H * e)];
+    case 'wipe-down': return [rect(0, 0, W, H * e)];
+    case 'iris': return [{ circle: [W / 2, H / 2, Math.hypot(W, H) / 2 * e] }];
+    case 'clock': {
+      // the centre, then round the arc (far beyond the frame) from 12 o'clock, clockwise
+      const R = Math.hypot(W, H), a0 = -Math.PI / 2, sweep = Math.PI * 2 * e, n = Math.max(2, Math.ceil(sweep / (Math.PI / 90)));
+      if (sweep <= 0) return [{ poly: [[W / 2, H / 2], [W / 2, H / 2], [W / 2, H / 2]] }];
+      const pts = [[W / 2, H / 2]];
+      for (let i = 0; i <= n; i++) { const a = a0 + (sweep * i) / n; pts.push([W / 2 + Math.cos(a) * R, H / 2 + Math.sin(a) * R]); }
+      return [{ poly: pts }];
+    }
+    case 'fast-wipe': { const sl = W * 0.08, x = (W + sl) * k; return [{ poly: [[0, 0], [x, 0], [x - sl, H], [0, H]] }]; }
+    case 'barn': return [rect(W / 2 * (1 - e), 0, W * e, H)];
+    case 'blinds': { const n = 8, h = H / n; return Array.from({ length: n }, (_, i) => rect(0, i * h, W, h * e)); }
+    case 'diagonal': {
+      const f = (x, y) => x / W + y / H - 2 * e, cs = [[0, 0], [W, 0], [W, H], [0, H]], out = [];
+      for (let i = 0; i < 4; i++) {
+        const a = cs[i], b = cs[(i + 1) % 4], fa = f(...a), fb = f(...b);
+        if (fa <= 0) out.push(a);
+        if ((fa <= 0) !== (fb <= 0)) { const u = fa / (fa - fb); out.push([a[0] + (b[0] - a[0]) * u, a[1] + (b[1] - a[1]) * u]); }
+      }
+      return [{ poly: out.length >= 3 ? out : [[0, 0], [0, 0], [0, 0]] }];
+    }
+    default: return [rect(0, 0, W, H)];
+  }
 }
 
 const rgba = (hex, a) => { const c = hexRGB(hex) || [0, 0, 0]; return [c[0], c[1], c[2], clamp(a, 0, 1)]; };
@@ -234,6 +277,14 @@ export function encodeLayers(layers, srcOf, push) {
   const rgb01 = h => { const x = hexRGB(h) || [0, 0, 0]; return x.map(v => v / 255); };
   u32(layers.length);
   for (const l of layers) {
+    // 1.13: seen through a transition's shape (main.rs read_layer, src 0xfffffffd), then the layer itself
+    if (l.mask) {
+      u32(0xfffffffd); f64(1); u32(l.mask.length);
+      for (const s of l.mask) {
+        if (s.circle) { u8(1); s.circle.forEach(f64); }
+        else { u8(0); u32(s.poly.length); for (const [x, y] of s.poly) { f64(x); f64(y); } }
+      }
+    }
     if (l.fill) { u32(0xffffffff); f64(l.alpha); push(Uint8Array.from(l.fill)); continue; }
     if (l.ink) {
       // pointer effects (main.rs read_ink)

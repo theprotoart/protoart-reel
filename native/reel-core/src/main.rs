@@ -254,9 +254,34 @@ fn read_layer(inp: &mut Input, npics: usize) -> Result<frame::Layer, String> {
     // each a kind u8 and its numbers: 0 gradient x, y, r0, r1, c0, c1 · 1 disc x, y, r, c · 2 ring x, y, r, w, c ·
     // 3 outline: how many points u32, the points, fill, u8 1 + outline width, colour or 0, u8 1 + shadow blur, dy,
     // colour or 0), a colour being r, g, b (0..255) and a (0..1) f64
+    // 1.13: a transition's shape (compositor.js maskPath) the next layer is seen through: how many shapes u32, each
+    // a kind u8 (0 outline: how many points u32, then x, y f64 each · 1 circle: x, y, r f64), canvas px; then that layer
+    if src == u32::MAX as usize - 2 {
+        let n = inp.u32()?;
+        if !(1..=64).contains(&n) { return Err("bad mask".into()); }
+        const BIG: f64 = 1e6;
+        let mut shapes = Vec::with_capacity(n);
+        for _ in 0..n {
+            shapes.push(match inp.u8()? {
+                0 => {
+                    let np = inp.u32()?;
+                    if !(3..=512).contains(&np) { return Err("bad mask".into()); }
+                    let mut pts = Vec::with_capacity(np);
+                    for _ in 0..np { let (x, y) = (inp.f64()?, inp.f64()?); if !(x.is_finite() && y.is_finite() && x.abs() <= BIG && y.abs() <= BIG) { return Err("bad mask".into()); } pts.push((x, y)); }
+                    frame::MaskShape::Poly(pts)
+                }
+                1 => { let (x, y, r) = (inp.f64()?, inp.f64()?, inp.f64()?); if ![x, y, r].iter().all(|v| v.is_finite() && v.abs() <= BIG) || r < 0.0 { return Err("bad mask".into()); } frame::MaskShape::Circle { x, y, r } }
+                _ => return Err("bad mask".into()),
+            });
+        }
+        let mut l = read_layer(inp, npics)?;
+        if l.mask.is_some() { return Err("bad mask".into()); }
+        l.mask = Some(shapes);
+        return Ok(l);
+    }
     if src == u32::MAX as usize - 1 {
         if !(0.0..=1.0).contains(&alpha) { return Err("bad layer".into()); }
-        return Ok(frame::Layer { src, alpha, m: [1.0, 0.0, 0.0, 1.0, 0.0, 0.0], rect: [0.0, 0.0, 1.0, 1.0], look: None, fill: None, filter: None, grade: None, ink: Some(Box::new(read_ink(inp)?)) });
+        return Ok(frame::Layer { src, alpha, m: [1.0, 0.0, 0.0, 1.0, 0.0, 0.0], rect: [0.0, 0.0, 1.0, 1.0], look: None, fill: None, filter: None, grade: None, ink: Some(Box::new(read_ink(inp)?)), mask: None });
     }
     let mut m = [0.0; 6]; for v in m.iter_mut() { *v = inp.f64()?; }
     let mut rect = [0.0; 4]; for v in rect.iter_mut() { *v = inp.f64()?; }
@@ -294,7 +319,7 @@ fn read_layer(inp: &mut Input, npics: usize) -> Result<frame::Layer, String> {
             in_black: v[8], in_white: v[9], gamma_v: v[10], out_black: v[11], out_white: v[12], brightness: v[13], sharpen: v[14], vignette: v[15], bw: v[16], aberr: v[17],
             key, m_mul: three(0), m_add: three(3), lift: three(6), gam: three(9), gain: three(12) })
     } else { None };
-    Ok(frame::Layer { src, alpha, m, rect, look, fill: None, filter, grade, ink: None })
+    Ok(frame::Layer { src, alpha, m, rect, look, fill: None, filter, grade, ink: None, mask: None })
 }
 
 fn frame_job(inp: &mut Input) -> Result<String, String> {

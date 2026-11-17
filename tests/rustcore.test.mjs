@@ -774,6 +774,18 @@ test('reel-core draws blur, exposure and colour moves as the canvas filter does'
   assert.match(r.why, /rounded/, 'a filter on a rounded picture is left to the JavaScript');
 });
 
+test('a transition through a shape (barn doors, iris…) is drawn by the core (1.13)', async () => {
+  const { maskShapes } = await import('../app/renderer/lib/frameplan.js');
+  const media = [{ id: 'scr', kind: 'video', width: 128, height: 72 }];
+  const d = frameDoc([{ media: 'scr' }], media); d.clips[0].start = 0.8; d.clips[0].transIn = { type: 'barn', dur: 0.5 };
+  const p = framePlan(d, 1, 64, 36);
+  assert.ok(!p.why && p.needs13 && p.layers[0].mask, 'seen through the doors');
+  const [door] = p.layers[0].mask, xs = door.poly.map(q => q[0]);
+  assert.ok(Math.min(...xs) > 0 && Math.max(...xs) < 64, 'the doors part from the middle');
+  assert.ok(maskShapes({ type: 'iris', k: 0.5 }, 64, 36)[0].circle, 'the iris is a circle');
+  assert.equal(maskShapes({ type: 'blinds', k: 0.5 }, 64, 36).length, 8);
+});
+
 test('a frame that needs more than pictures says why, for the JavaScript to draw', () => {
   const media = [{ id: 'scr', kind: 'video', width: 128, height: 72 }];
   const fr = frameDoc([{ media: 'scr' }], media); fr.clips[0].frame = { type: 'phone' };
@@ -784,7 +796,8 @@ test('a frame that needs more than pictures says why, for the JavaScript to draw
   const p = framePlan(d, 1, 64, 36);
   assert.ok(!p.why && p.overlay, 'a title: the editor draws it over the frame (1.12)');
   d.clips.push({ id: 'k', type: 'callout', track: 't0', start: 0, duration: 5, props: {}, callout: { blur: 8 } });
-  assert.match(framePlan(d, 1, 64, 36).why, /blurring call-out/);
+  const b = framePlan(d, 1, 64, 36);
+  assert.ok(!b.why && b.overlay && b.needs13, 'a blurring call-out: the core blurs round it (1.13)');
 });
 
 test('reel-core watches a video (motion, cuts and the pointer) the same as the JavaScript, frame for frame', { skip }, async () => {

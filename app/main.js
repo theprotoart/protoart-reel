@@ -1595,7 +1595,9 @@ handle('core:videoExport', async (id, token, job) => {
   for (const b of [FRAMES_BIN, ENCODE_BIN]) { try { await fs.promises.access(b, fs.constants.X_OK); } catch { return null; } }
   coreVersion ??= core.version();
   const v = String((await coreVersion) || '0').split('.').map(Number);
-  if ((v[0] || 0) < 1 || ((v[0] || 0) === 1 && (v[1] || 0) < 12)) return null; // the job as 1.12 reads it (titles over the frames)
+  // the job as 1.12 reads it (titles over the frames); a blurring call-out needs 1.13 (job.core: the minor version it needs)
+  const need = Number.isInteger(job?.core) && job.core >= 12 && job.core < 100 ? job.core : 12;
+  if ((v[0] || 0) < 1 || ((v[0] || 0) === 1 && (v[1] || 0) < need)) return null;
   const h = handleOf(id, 'export');
   const p = projectOf(token);
   if (!/\.mp4$/i.test(h.dst)) throw new Error('Bad export');

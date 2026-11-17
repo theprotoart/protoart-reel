@@ -2,6 +2,8 @@
 
 ## 1.11.0 — 2026-11-16
 
+- Rust core 1.13: blurring call-outs (Blur outside) and the shaped transitions (wipes, iris, clock, barn doors, blinds, diagonal, fast wipe) are drawn by the core, so an export with them no longer falls back to the slower drawing. Matches the preview to within a level or two (checked frame against frame). Your Video 3 project now exports entirely through the core. Needs Build ProtoArt Reel.
+
 - Callout inspector: Magnify, Dim outside and Blur outside now sit at the top, right under Shape.
 
 - Arrows and lines bend: a green handle in the middle (like Preview's); drag it to curve the arrow, double-click it to make it straight again. The head follows the curve, in the preview and the export.

@@ -1129,13 +1129,16 @@ function drawCallout(ctx, c, p, W, H, local = 0) {
   const outlineA = kk;
   const zoom = co.zoom || 1;
   let copy = null;
-  if ((zoom > 1.001 && !lensHook) || co.blur > 0) {
+  if ((zoom > 1.001 || co.blur > 0) && !lensHook) {
     // snapshot of everything drawn so far
     copy = typeof OffscreenCanvas !== 'undefined' ? new OffscreenCanvas(W, H) : Object.assign(document.createElement('canvas'), { width: W, height: H });
     copy.getContext('2d').drawImage(ctx.canvas, 0, 0);
   }
   ctx.save();
-  if (co.blur > 0 && copy) {
+  if (co.blur > 0 && lensHook) {
+    // drawn by the core (1.13): everything so far blurred round the focus area, under what comes next
+    lensHook({ blurOut: true, sigma: co.blur * W / 1920, alpha: a, pts: calloutPoly(co, W, H) });
+  } else if (co.blur > 0 && copy) {
     ctx.save();
     ctx.globalAlpha = a;
     ctx.filter = `blur(${co.blur * W / 1920}px)`;

@@ -48,13 +48,14 @@ export function videoJob(doc, from, to, W, H, fps, { maxSources = 48, cursor = n
   const push = b => { chunks.push(b); total += b.length; };
   const u32 = v => { const b = new Uint8Array(4); new DataView(b.buffer).setUint32(0, v >>> 0, true); push(b); };
   const f64 = v => { const b = new Uint8Array(8); new DataView(b.buffer).setFloat64(0, +v, true); push(b); };
-  let bg = null, ink = false;
+  let bg = null, ink = false, blur = false;
   const overlays = [];
   for (const [fi, t] of plans.entries()) {
     const p = framePlan(doc, t, W, H, size, cursor);
     if (p.why) return { why: p.why, at: t };
     bg ||= p.bg;
     ink ||= p.layers.some(l => l.ink);
+    blur ||= !!p.needs13;
     const uses = new Map();
     for (const l of p.layers) {
       if (l.fill || l.ink) continue;
@@ -93,5 +94,6 @@ export function videoJob(doc, from, to, W, H, fps, { maxSources = 48, cursor = n
   let o = 0;
   for (const c of head) { out.set(c, o); o += c.length; }
   for (const c of chunks) { out.set(c, o); o += c.length; }
-  return { frames, sources, body: out, ink, overlays, from: start, fps };
+  // core: the oldest core that can draw it (a blurring call-out or a transition's shape: 1.13)
+  return { frames, sources, body: out, ink, overlays, from: start, fps, core: blur ? 13 : 12 };
 }

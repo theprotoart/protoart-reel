@@ -174,7 +174,7 @@ mod tests {
     fn draws_and_writes_bgra() {
         let data = stream(&[(0.0, [0, 0, 255, 255])], 4, 4); // red
         let mut srcs = vec![Source::new(std::io::Cursor::new(data), 4, 4)];
-        let layer = frame::Layer { src: 0, alpha: 1.0, m: [1.0, 0.0, 0.0, 1.0, 0.0, 0.0], rect: [0.0, 0.0, 4.0, 4.0], look: None, fill: None, filter: None, grade: None, ink: None };
+        let layer = frame::Layer { src: 0, alpha: 1.0, m: [1.0, 0.0, 0.0, 1.0, 0.0, 0.0], rect: [0.0, 0.0, 4.0, 4.0], look: None, fill: None, filter: None, grade: None, ink: None, mask: None };
         let plans = vec![Ok(FramePlan { uses: vec![(0, 0.0)], layers: vec![layer], overlay: false })];
         let mut out = vec![];
         let n = run(4, 4, [0, 0, 0], &mut srcs, plans.into_iter(), 1, &mut out, None, |_, _| {}).unwrap();
