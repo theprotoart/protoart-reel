@@ -1,6 +1,7 @@
 // Inspector: properties of the selected clip (or the project when nothing is selected).
 // When a zoom & pan action is selected, position/scale/crop edits change that action's target.
 import { el, section, slider, selectRow, colorRow, checkRow, toast, promptText } from './ui.js';
+import { newCalloutClip } from './model.js';
 import { retimeSection } from './retimeui.js';
 import { applyCut, OVERLAP_CUTS, clipEnd, mediaById, fmtTime, ANIMATABLE, propsAt, paramAt, setParam, putKey, removeKey, keysOf, hasKeys, anyKeys, clamp, KEY_EASES, LABELS, setSpeed, SPEED_MIN, SPEED_MAX } from './model.js';
 import { effectsSection, addPluginToClip } from './fx.js';
@@ -350,6 +351,7 @@ export class Inspector {
 
     if (visual) {
       if (c.type === 'media') this.root.append(pushSection(app, this, c, m));
+      if (c.type === 'media' && !act) this.root.append(calloutStarts(app, c, m));
       if (!act) this.root.append(dynZoomSection(app, this, c));
       this.root.append(motionSection(this, c));
       const pos = section(act ? 'Position (action target)' : 'Position & size');
@@ -636,6 +638,7 @@ export class Inspector {
       this.ksl(c, 'callout.w', 'Width', { min: 0.02, max: 1, step: 0.001, fmt: v => (v * 100).toFixed(0) + '%' }),
       this.ksl(c, 'callout.h', 'Height', { min: 0.02, max: 1, step: 0.001, fmt: v => (v * 100).toFixed(0) + '%' }),
       this.ksl(c, 'callout.radius', 'Corners', { min: 0, max: 0.2, step: 0.001, fmt: v => (v * 100).toFixed(1) }),
+      this.ksl(c, 'callout.feather', 'Feather', { min: 0, max: 0.2, step: 0.001, fmt: v => (v * 100).toFixed(1) }),
       this.ksl(c, 'callout.dim', 'Dim outside', { min: 0, max: 0.95, step: 0.01, fmt: v => (v * 100).toFixed(0) + '%' }),
       this.ksl(c, 'callout.blur', 'Blur outside', { min: 0, max: 40, step: 0.5, fmt: v => v.toFixed(1) }),
       this.ksl(c, 'callout.zoom', 'Magnify', { min: 1, max: 10, step: 0.05, fmt: v => v.toFixed(2) + '×' }),
@@ -907,4 +910,37 @@ function pointerFinder(app, m, effectsOn) {
     else if (effectsOn && !j?.done) run(); // effects are on: find it now, they're waiting for it
   })();
   return box;
+}
+
+// ---------------------------------------------------------------- callouts, ScreenFlow's way
+const CALLOUT_STARTS = [
+  ['cursor', '🖱', 'Mouse cursor', 'A spotlight that follows the pointer: everything else dims', { shape: 'ellipse', follow: true, w: 0.2, h: 0.3, dim: 0.6, feather: 0.05 }],
+  ['area', '▭', 'Area', 'A box you drag and size on the picture: everything else dims', { shape: 'rect', w: 0.36, h: 0.3, dim: 0.6, radius: 0.015, feather: 0.01 }],
+  ['freehand', '✎', 'Freehand', 'Draw around what matters, right on the picture', { shape: 'freehand', dim: 0.6, feather: 0.02 }],
+  ['magnify', '🔍', 'Magnify', 'A box that magnifies what’s under it, with an outline: drag it where it’s needed', { shape: 'rect', w: 0.28, h: 0.24, dim: 0.35, zoom: 1.8, outline: 3, radius: 0.02 }],
+];
+/**
+ * The Callout tab of a video or picture: one click puts a callout over it at the playhead (a spotlight on the
+ * pointer, an area, one drawn by hand, or a magnifier), the way ScreenFlow's Callout tab does; the callouts already
+ * over it are listed to pick.
+ */
+function calloutStarts(app, c, m) {
+  const doc = app.doc;
+  const over = doc.clips.filter(x => x.type === 'callout' && x.start < c.start + c.duration && x.start + x.duration > c.start);
+  const add = ([kind, , name, , opts]) => {
+    const t = clamp(app.player.time, c.start, Math.max(c.start, c.start + c.duration - 0.5));
+    const k = newCalloutClip(null, t);
+    k.duration = Math.min(4, Math.max(0.5, c.start + c.duration - t));
+    k.callout = { ...k.callout, ...opts };
+    k.name = `Callout · ${name}`;
+    app._insert(k);
+    if (kind === 'freehand') app.overlay.drawFreehand(k);
+    else toast(kind === 'cursor' ? 'Spotlight on the pointer. Its look is in the Callout tab; drag the clip’s ends on the timeline to set when.' : 'Drag the box on the picture to place it, its corners to size it. Its look is in the Callout tab.', 4500);
+    if (kind === 'cursor' && m && app.pointerBlind(m, app.player.cursors?.get?.(m.id))) toast('This recording can’t place its pointer yet: the Screen recording tab finds it in the picture.', 6000);
+  };
+  return section('Callout',
+    el('p', { class: 'note', text: 'Draw attention to part of the picture: everything else dims (or blurs), and what you pick can be magnified. One click adds it at the playhead, over this clip.' }),
+    el('div', { class: 'co-starts' }, ...CALLOUT_STARTS.map(st => el('button', { class: 'co-start', type: 'button', title: st[3], onclick: () => add(st) }, el('b', { text: st[1] }), el('span', { text: st[2] })))),
+    over.length ? el('div', { class: 'action-list' }, ...over.map(x => el('div', { class: 'act-item', title: 'Select it', onclick: () => { app.select([x.id], null); app.seek(Math.max(x.start, Math.min(app.player.time, x.start + x.duration - 0.01))); } },
+      el('span', { text: `${fmtTime(x.start).replace(/(\.\d)\d*$/, '$1')}  ${x.name || 'Callout'} · ${x.duration.toFixed(1)} s` })))) : null);
 }
