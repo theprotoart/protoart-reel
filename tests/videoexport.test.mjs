@@ -56,6 +56,25 @@ test('a video export plan: each clip read once at the size it needs, or why not'
   assert.ok(back.why == null || /backwards/.test(back.why));
 });
 
+test('pointer effects go to the core as ink layers (and a magnifier picture), given the recorded pointer', () => {
+  const fx = { cursor: { spotlight: true, highlight: true, magnify: true, clickStyle: 'ripple' } };
+  const doc = docOf([clip('c1', 'a', 't1', 0, 2, { scale: 0.8 }, fx)]);
+  doc.media[0].cursor = 'a.json';
+  assert.match(framePlan(doc, 1, 320, 180).why, /pointer/, 'without the recorded pointer: the editor draws it');
+  const cur = { x: 0.5, y: 0.5, pt: 1440, click: 0.2, button: 0 };
+  const p = framePlan(doc, 1, 320, 180, undefined, () => cur);
+  assert.ok(!p.why, p.why);
+  assert.deepEqual(p.layers.map(l => l.ink ? 'ink' : l.look ? 'lens' : 'picture'), ['picture', 'ink', 'lens', 'ink']);
+  assert.deepEqual(p.layers[3].ink.shapes.map(s => s.kind), ['grad', 'ring', 'ring']);
+  const j = videoJob(doc, 0, 2, 320, 180, 10, { cursor: () => cur });
+  assert.ok(!j.why, j.why);
+  assert.equal(j.sources.length, 1, 'the magnifier reads the same video');
+  const none = framePlan(doc, 1, 320, 180, undefined, () => null);
+  assert.equal(none.layers.length, 1, 'no pointer then: no effects, as the editor');
+  doc.clips[0].props.border = 4;
+  assert.match(framePlan(doc, 1, 320, 180, undefined, () => cur).why, /pointer/);
+});
+
 test('the Rust core draws a whole export, frame for frame as its frame job does', { skip }, async () => {
   const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'vexp-'));
   try {
@@ -95,11 +114,15 @@ f.on('close', c => process.exit(c));
 
     const W = 320, H = 180, fps = 10;
     const doc = docOf([
-      clip('c1', 'a', 't1', 0, 2, { scale: 1.3, x: 0.45 }),
+      clip('c1', 'a', 't1', 0, 2, { scale: 1.3, x: 0.45 }, { cursor: { spotlight: true, spotSize: 60, highlight: true, magnify: true, lensSize: 30, clickStyle: 'ripple' } }),
       clip('c2', 'b', 't2', 0.5, 1.2, { scale: 0.4, x: 0.75, y: 0.7, radius: 12, border: 3, shadow: 10, opacity: 0.9 }, { in: 0.7 }),
     ]);
-    const job = videoJob(doc, 0, 2, W, H, fps);
+    doc.media[0].cursor = 'a.json';
+    // the pointer drifting right, a click at 1 s (pointer effects, 1.11)
+    const cursor = (c, st) => c.id === 'c1' ? { x: 0.3 + st * 0.15, y: 0.45, pt: 1440, click: st >= 1 && st < 1.6 ? st - 1 : null, button: 0 } : null;
+    const job = videoJob(doc, 0, 2, W, H, fps, { cursor });
     assert.ok(!job.why, job.why);
+    assert.ok(job.ink);
     const out = path.join(dir, 'out.mp4');
     let last = 0;
     const r = await videoExport({ coreBin: bin, framesBin: fakeFrames, encodeBin: fakeEncode, sources: job.sources.map(s => ({ ...s, path: path.join(dir, s.file) })), body: job.body,
@@ -126,10 +149,10 @@ f.on('close', c => process.exit(c));
     const at = (list, st) => { let k = 0; while (k + 1 < list.length && list[k + 1].t <= st + 0.5 / 120) k++; return list[k].px; };
     const size = m => { const s = job.sources.find(x => x.file === m.file); return s ? { w: s.w, h: s.h } : { w: m.width, h: m.height }; };
     for (const i of [0, 7, 12, 19]) {
-      const t = i / fps, plan = framePlan(doc, t, W, H, size);
-      const ids = plan.layers.filter(l => !l.fill).map(l => l.clip);
+      const t = i / fps, plan = framePlan(doc, t, W, H, size, cursor);
+      const ids = [...new Set(plan.layers.filter(l => !l.fill && !l.ink).map(l => l.clip))];
       const pics = ids.map(cid => { const s = job.sources.find(x => x.clip === cid); const l = plan.layers.find(x => x.clip === cid); return { w: s.w, h: s.h, rgba: at(framesOf(s), l.st) }; });
-      const plan2 = { ...plan, layers: plan.layers.map(l => (l.fill ? l : { ...l, media: l.clip })) };
+      const plan2 = { ...plan, layers: plan.layers.map(l => (l.fill || l.ink ? l : { ...l, media: l.clip })) };
       const f = path.join(dir, `f${i}.rgba`);
       await core.run(Buffer.concat([Buffer.from('RCORE1\nframe\n'), Buffer.from(encodeFrame(plan2, W, H, ids, pics, f))]));
       const want = fs.readFileSync(f), got = raw.subarray(i * W * H * 4, (i + 1) * W * H * 4);

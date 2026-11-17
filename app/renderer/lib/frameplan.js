@@ -30,7 +30,7 @@ export function hexRGB(s) {
  * y1] }] } (bottom first), or { why } when it needs more than pictures. size(m) gives a media's picture size as
  * decoded ({ w, h }; its rotation is the media's own), st is the moment of the source shown.
  */
-export function framePlan(doc, t, W, H, size = m => ({ w: m.width || 0, h: m.height || 0 })) {
+export function framePlan(doc, t, W, H, size = m => ({ w: m.width || 0, h: m.height || 0 }), cursor = null) {
   const bg = hexRGB(doc.canvas.background || '#000');
   if (!bg) return { why: 'a background colour that isn’t a plain colour' };
   const cs = doc.captionStyle || {};
@@ -65,7 +65,15 @@ export function framePlan(doc, t, W, H, size = m => ({ w: m.width || 0, h: m.hei
     const filtered = !!(p.blur || fblur) || (p.bright != null && Math.abs(p.bright - 1) > 0.005) || (p.sat != null && Math.abs(p.sat - 1) > 0.005);
     if (filtered && (p.radius || p.shadow > 0 || p.border > 0 || (c.stab && m.kind === 'video'))) return { why: 'blur and exposure moves on a rounded, bordered or stabilized picture' };
     if (c.frame && c.frame.type && c.frame.type !== 'none') return { why: 'device frames' };
-    if ((c.cursor && c.cursor.show !== false) || m.pointerSeparate || (c.keystrokes && c.keystrokes.show)) return { why: 'pointer and keystroke effects' };
+    if (c.keystrokes && c.keystrokes.show) return { why: 'keystroke display' };
+    // pointer effects (1.11): drawn by the core as ink layers, from the recorded pointer (cursor(c, st), as the
+    // editor's sources.cursor); not yet on a turned, stabilized, bordered or blurred picture
+    const fxOn = !!((c.cursor && c.cursor.show !== false) || m.pointerSeparate);
+    if (fxOn) {
+      if (!cursor) return { why: 'pointer effects' };
+      if ((((m.rotation || 0) % 360) + 360) % 360 || (c.stab && m.kind === 'video') || p.border > 0 || filtered) return { why: 'pointer effects on a turned, stabilized, bordered or blurred picture' };
+      if (c.cursor?.magnify && (p.radius > 0 || u)) return { why: 'the pointer magnifier on a rounded or filtered picture' };
+    }
     const { w: srcW0, h: srcH0 } = size(m);
     if (!(srcW0 > 0 && srcH0 > 0)) return { why: 'a picture whose size isn’t known' };
     // filtered: graded at the size it's shown (as the editor), and laid out from that picture's size
@@ -110,10 +118,73 @@ export function framePlan(doc, t, W, H, size = m => ({ w: m.width || 0, h: m.hei
       look = { b: box, w: r.w, h: r.h, radius: Math.max(0, (p.radius || 0) * sx), border: Math.max(0, (p.border || 0) * sx), borderColor: hexRGB(p.borderColor || '#fff') || [255, 255, 255], shadow: Math.max(0, (p.shadow || 0) * sx), dy: Math.max(0, (p.shadow || 0) * sx * 0.25), cut: !!stab };
     }
     const filter = filtered ? { blur: Math.max(0, ((p.blur || 0) + fblur) * sx), bright: p.bright != null && Math.abs(p.bright - 1) > 0.005 ? +p.bright.toFixed(3) : 1, sat: p.sat != null && Math.abs(p.sat - 1) > 0.005 ? +Math.max(0, p.sat).toFixed(3) : 1 } : null;
-    layers.push({ media: m.id, clip: c.id, st: sourceTime(c, t), alpha: clamp(p.opacity, 0, 1), m: M, rect, look, filter, grade });
+    const st = sourceTime(c, t);
+    layers.push({ media: m.id, clip: c.id, st, alpha: clamp(p.opacity, 0, 1), m: M, rect, look, filter, grade });
+    if (fxOn) {
+      const cur = cursor(c, st);
+      if (cur) layers.push(...pointerInk(c, m, cur, { r, rot: p.rotation || 0, box, radius: look && look.radius > 0 ? look : null, crop: [p.crop[0], p.crop[1], 1 - p.crop[0] - p.crop[2], 1 - p.crop[1] - p.crop[3]], disp: [dispW, dispH], sx, alpha: clamp(p.opacity, 0, 1), st }));
+    }
     if (dip) layers.push(dip);
   }
   return { bg, layers };
+}
+
+const rgba = (hex, a) => { const c = hexRGB(hex) || [0, 0, 0]; return [c[0], c[1], c[2], clamp(a, 0, 1)]; };
+// the macOS-style arrow (compositor.js drawPointer), in pointer points: its white body, and the black inside
+const ARROW = [[0, 0], [0, 17], [4.2, 13], [7.2, 19.6], [9.8, 18.4], [6.9, 12], [12.3, 12]];
+const ARROW_IN = [[1.4, 3.2], [1.4, 13.8], [4.6, 10.8], [7.7, 17.6], [8.6, 17.2], [5.6, 10.6], [9.6, 10.6]];
+/**
+ * The pointer effects over a clip's picture (compositor.js drawCursorFx), as layers: an ink layer for the spotlight,
+ * the magnifier (a round box of the same video, larger), then an ink layer for the highlight, the click and the
+ * pointer itself. Their shapes are in the clip's own space (px from the middle of its box, before it's turned).
+ */
+export function pointerInk(c, m, cur, { r, rot, box, radius, crop, disp, sx, alpha, st }) {
+  const fx = c.cursor || {};
+  const [cl, ct, cw, ch] = crop;
+  const x = -r.w / 2 + ((cur.x - cl) / cw) * r.w, y = -r.h / 2 + ((cur.y - ct) / ch) * r.h;
+  let M = translate(r.cx, r.cy);
+  if (rot) M = mul(M, rotate(rot));
+  const cut = radius ? { b: box, w: r.w, h: r.h, radius: radius.radius } : null;
+  const out = [];
+  if (fx.spotlight) {
+    const rad = (fx.spotSize || 220) * sx;
+    out.push({ ink: { m: M, clip: [-r.w / 2, -r.h / 2, r.w / 2, r.h / 2], cut, shapes: [{ kind: 'grad', x, y, r0: rad * 0.75, r1: rad * 1.15, c0: [0, 0, 0, 0], c1: [0, 0, 0, clamp(fx.spotDim ?? 0.6, 0, 1)] }] }, alpha });
+  }
+  if (fx.magnify) {
+    const rad = (fx.lensSize || 130) * sx, z = fx.lensZoom || 2;
+    const [dw, dh] = disp, ux = cur.x * dw, uy = cur.y * dh, half = (rad / r.w) * cw * dw / z;
+    if (half > 0 && rad > 0) {
+      const lm = mul(mul(mul(M, translate(x - rad, y - rad)), scale(rad / half, rad / half)), translate(-(ux - half), -(uy - half)));
+      out.push({ media: m.id, clip: c.id, st, alpha, m: lm, rect: [ux - half, uy - half, ux + half, uy + half],
+        look: { b: mul(mul(M, translate(x, y)), scale(rad * 2, rad * 2)), w: rad * 2, h: rad * 2, radius: rad, border: 3 * sx, borderColor: [255, 255, 255], shadow: 18 * sx, dy: 0, cut: false }, filter: null, grade: null });
+    }
+  }
+  const shapes = [];
+  if (fx.highlight) {
+    const rad = (fx.highlightSize || 60) * sx * 0.5;
+    shapes.push({ kind: 'grad', x, y, r0: 0, r1: rad, c0: rgba(fx.highlightColor || '#ffd60a', 0.45), c1: rgba(fx.highlightColor || '#ffd60a', 0) });
+  }
+  const style = fx.clickStyle || (fx.clickRings === false ? 'none' : 'rings');
+  if (cur.click != null && c.cursor && style !== 'none') {
+    const k = clamp(cur.click / 0.45, 0, 1), col = cur.button === 1 ? (fx.rightClickColor || '#4aa8ff') : (fx.clickColor || fx.highlightColor || '#ffd60a');
+    if (style === 'ripple') {
+      for (const d of [0, 0.18]) { if (cur.click < d) continue; const kk = clamp((cur.click - d) / 0.45, 0, 1); shapes.push({ kind: 'ring', x, y, r: (8 + 44 * kk) * sx, w: 3 * sx, c: rgba(col, (1 - kk) * 0.9) }); }
+    } else if (style === 'dot') shapes.push({ kind: 'disc', x, y, r: (16 + 6 * k) * sx, c: rgba(col, 0.55 * (1 - k)) });
+    else shapes.push({ kind: 'ring', x, y, r: (12 + 36 * k) * sx, w: 4 * sx, c: rgba(col, 1 - k) });
+  }
+  // the pointer itself, for a recording made with it kept separate: ~20 units tall = one macOS pointer in points
+  if (m.pointerSeparate && (fx.pointer || 'arrow') !== 'hidden') {
+    const s = (fx.scale || 1) * (r.w / (cw * (cur.pt || 1440))) * (cur.click != null && cur.click < 0.15 ? 0.9 : 1);
+    if ((fx.pointer || 'arrow') === 'dot') {
+      shapes.push({ kind: 'disc', x, y, r: 9 * s, c: [255, 255, 255, 0.95] }, { kind: 'ring', x, y, r: 9 * s, w: 2 * s, c: [0, 0, 0, 0.8] });
+    } else {
+      const at = list => list.map(([u, v]) => [x + u * s, y + v * s]);
+      shapes.push({ kind: 'poly', pts: at(ARROW), fill: [255, 255, 255, 1], stroke: [1.4 * s, [255, 255, 255, 1]], shadow: [4, 1.5, [0, 0, 0, 0.35]] },
+        { kind: 'poly', pts: at(ARROW_IN), fill: [0, 0, 0, 1] });
+    }
+  }
+  if (shapes.length) out.push({ ink: { m: M, clip: null, cut, shapes }, alpha });
+  return out;
 }
 
 /**
@@ -149,6 +220,25 @@ export function encodeLayers(layers, srcOf, push) {
   u32(layers.length);
   for (const l of layers) {
     if (l.fill) { u32(0xffffffff); f64(l.alpha); push(Uint8Array.from(l.fill)); continue; }
+    if (l.ink) {
+      // pointer effects (main.rs read_ink)
+      const k = l.ink, col = c => c.forEach(f64);
+      u32(0xfffffffe); f64(l.alpha); k.m.forEach(f64);
+      if (k.clip) { u8(1); k.clip.forEach(f64); } else u8(0);
+      if (k.cut) { u8(1); k.cut.b.forEach(f64); [k.cut.w, k.cut.h, k.cut.radius].forEach(f64); } else u8(0);
+      u32(k.shapes.length);
+      for (const s of k.shapes) {
+        if (s.kind === 'grad') { u8(0); [s.x, s.y, s.r0, s.r1].forEach(f64); col(s.c0); col(s.c1); }
+        else if (s.kind === 'disc') { u8(1); [s.x, s.y, s.r].forEach(f64); col(s.c); }
+        else if (s.kind === 'ring') { u8(2); [s.x, s.y, s.r, s.w].forEach(f64); col(s.c); }
+        else {
+          u8(3); u32(s.pts.length); for (const [px, py] of s.pts) { f64(px); f64(py); } col(s.fill);
+          if (s.stroke) { u8(1); f64(s.stroke[0]); col(s.stroke[1]); } else u8(0);
+          if (s.shadow) { u8(1); f64(s.shadow[0]); f64(s.shadow[1]); col(s.shadow[2]); } else u8(0);
+        }
+      }
+      continue;
+    }
     u32(srcOf(l)); f64(l.alpha); l.m.forEach(f64); l.rect.forEach(f64);
     const k = l.look;
     if (!k) u8(0); else { u8(1); k.b.forEach(f64); [k.w, k.h, k.radius, k.border].forEach(f64); push(Uint8Array.from(k.borderColor)); [k.shadow, k.dy].forEach(f64); u8(k.cut ? 1 : 0); }

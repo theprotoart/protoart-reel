@@ -11,6 +11,7 @@ import { LOUDNESS_TARGETS } from './lib/master.js';
 import { builtInPresets, GROUPS, QUALITY, SIZE_LIMITS, presetFps, videoBitrate, fromHandBrake } from './lib/exportpresets.js';
 import { exportMixJob } from './lib/mixplan.js';
 import { videoJob } from './lib/videoplan.js';
+import { cursorAt } from './cursor.js';
 
 const SOUND = new Set(['aac', 'wav']); // sound-only formats
 const FORMATS = [['avc', 'MP4 · H.264 (plays everywhere)'], ['hevc', 'MP4 · HEVC (smaller, newer devices)'], ['aac', 'Sound only · AAC (.m4a)'], ['wav', 'Sound only · WAV (uncompressed, 24-bit)'], ['gif', 'Animated GIF'], ['apng', 'Animated PNG']];
@@ -271,7 +272,15 @@ export function openExport(app) {
     // Mac's encoder make it, with the sound mixed here first; anything it can't do exports the usual way below
     const fps0 = s.fps || 30;
     if (!SOUND.has(s.codec) && !anim && pref('rustVideo') && app.api.coreVideoExport && !st.motionBlur && loud == null) {
-      const job = videoJob(doc, from, to, w, hh, fps0);
+      // the recorded pointer of clips with pointer effects (the core draws those too), read as the editor's export does
+      const tracks = new Map();
+      for (const c of doc.clips.filter(x => x.type === 'media' && x.start < to && x.start + x.duration > from && (x.cursor ? x.cursor.show !== false : mediaById(doc, x.media)?.pointerSeparate))) {
+        const cm = mediaById(doc, c.media);
+        if (!cm?.cursor || tracks.has(cm.id)) continue;
+        try { tracks.set(cm.id, await (await fetch(`app://reel/m/${app.token}/${encodeURIComponent(cm.cursor)}`)).json()); } catch { /* none: no effects drawn, as the editor */ }
+      }
+      const cursor = (c, st) => { const cm = mediaById(doc, c.media), data = cm && tracks.get(cm.id); return data ? cursorAt(data, cm.cursorOffset || 0, st, c.cursor?.smooth || 0) : null; };
+      const job = videoJob(doc, from, to, w, hh, fps0, { cursor });
       if (job.why) usual = `drawn the usual way: ${job.why}`;
       else {
         let sound = masterFile;
@@ -292,7 +301,7 @@ export function openExport(app) {
           let r = null;
           try {
             r = await app.api.coreVideoExport(h.id, app.token, { w, h: hh, fps: fps0, codec: s.codec === 'hevc' ? 'hevc' : 'h264', vbr: Math.round(videoBitrate(s, w, hh, fps0, to - from)),
-              abr: s.abr ? s.abr * 1000 : Number(pref('audioBitrate')) || 192000, sound, sources: job.sources.map(x => ({ file: x.file, from: x.from, to: x.to, w: x.w, h: x.h })), body: job.body });
+              abr: s.abr ? s.abr * 1000 : Number(pref('audioBitrate')) || 192000, sound, sources: job.sources.map(x => ({ file: x.file, from: x.from, to: x.to, w: x.w, h: x.h })), body: job.body, ink: job.ink });
           } finally { off?.(); }
           if (r) {
             progress.firstChild.style.width = '100%'; cleanup();

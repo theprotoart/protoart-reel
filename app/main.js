@@ -1568,7 +1568,7 @@ handle('core:videoExport', async (id, token, job) => {
   for (const b of [FRAMES_BIN, ENCODE_BIN]) { try { await fs.promises.access(b, fs.constants.X_OK); } catch { return null; } }
   coreVersion ??= core.version();
   const v = String((await coreVersion) || '0').split('.').map(Number);
-  if ((v[0] || 0) < 1 || ((v[0] || 0) === 1 && (v[1] || 0) < 10)) return null;
+  if ((v[0] || 0) < 1 || ((v[0] || 0) === 1 && (v[1] || 0) < (job?.ink ? 11 : 10))) return null; // pointer effects: 1.11
   const h = handleOf(id, 'export');
   const p = projectOf(token);
   if (!/\.mp4$/i.test(h.dst)) throw new Error('Bad export');

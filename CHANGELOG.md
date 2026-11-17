@@ -2,6 +2,8 @@
 
 ## 1.11.0 — 2026-11-16
 
+- Rust core 1.11: MP4 exports drawn by the Rust core (Settings › Processing) now include pointer effects: the spotlight, highlight, click rings, ripples and dots, the magnifier, and the pointer drawn from a recording that kept it separate. They match the editor's own drawing (checked side by side in Chrome). Keystrokes, titles and transitions still export the usual way.
+
 - The deck's buttons (REW, FRAME, PLAY…) no longer stay lit after a click, and Space always plays / stops instead of pressing the last button again.
 
 - 🎯 Punch in on an area: click 🎯 on the preview (under ✎), the new button at the top of Video motion, EFFECTS ▾ or the clip's right-click menu, and drag a box around what to show. The picture pushes in until the box fills the screen, holds and comes back out (or stays in). Quick push is now called 🎯 Punch in & out, and its zoom goes up to 500%.

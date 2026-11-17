@@ -8,11 +8,11 @@ import { mediaById, duration as docDuration } from '../model.js';
 const even = v => Math.max(2, Math.round(v / 2) * 2);
 
 /**
- * The job for frames from..to at fps on a W × H canvas: { frames, sources: [{ clip, file, from, to, w, h }], body }
+ * The job for frames from..to at fps on a W × H canvas: { frames, sources: [{ clip, file, from, to, w, h }], body, ink }
  * (body: the vexport job after its first line, for reel-core, with each source's descriptor numbered 3, 4…), or
  * { why, at } (the first frame it can't do and why).
  */
-export function videoJob(doc, from, to, W, H, fps, { maxSources = 48 } = {}) {
+export function videoJob(doc, from, to, W, H, fps, { maxSources = 48, cursor = null } = {}) {
   const start = Math.max(0, from || 0), end = Math.min(docDuration(doc), to ?? Infinity);
   const frames = Math.max(1, Math.round((end - start) * fps));
   if (W % 2 || H % 2) return { why: 'an odd frame size', at: start };
@@ -20,10 +20,10 @@ export function videoJob(doc, from, to, W, H, fps, { maxSources = 48 } = {}) {
   const plans = [], big = new Map();
   for (let i = 0; i < frames; i++) {
     const t = start + i / fps;
-    const p = framePlan(doc, t, W, H);
+    const p = framePlan(doc, t, W, H, undefined, cursor);
     if (p.why) return { why: p.why, at: t };
     for (const l of p.layers) {
-      if (l.fill) continue;
+      if (l.fill || l.ink) continue;
       const m = mediaById(doc, l.media);
       if (!m || (m.kind !== 'video' && m.kind !== 'image')) return { why: 'a clip that’s neither a video nor a picture', at: t };
       if (m.kind === 'image' && /\.(svg|gif)$/i.test(m.file || '')) return { why: 'an SVG or GIF picture', at: t };
@@ -47,14 +47,15 @@ export function videoJob(doc, from, to, W, H, fps, { maxSources = 48 } = {}) {
   const push = b => { chunks.push(b); total += b.length; };
   const u32 = v => { const b = new Uint8Array(4); new DataView(b.buffer).setUint32(0, v >>> 0, true); push(b); };
   const f64 = v => { const b = new Uint8Array(8); new DataView(b.buffer).setFloat64(0, +v, true); push(b); };
-  let bg = null;
+  let bg = null, ink = false;
   for (const t of plans) {
-    const p = framePlan(doc, t, W, H, size);
+    const p = framePlan(doc, t, W, H, size, cursor);
     if (p.why) return { why: p.why, at: t };
     bg ||= p.bg;
+    ink ||= p.layers.some(l => l.ink);
     const uses = new Map();
     for (const l of p.layers) {
-      if (l.fill) continue;
+      if (l.fill || l.ink) continue;
       let s = srcOf.get(l.clip);
       if (s == null) {
         const m = mediaById(doc, l.media), z = size(m);
@@ -86,5 +87,5 @@ export function videoJob(doc, from, to, W, H, fps, { maxSources = 48 } = {}) {
   let o = 0;
   for (const c of head) { out.set(c, o); o += c.length; }
   for (const c of chunks) { out.set(c, o); o += c.length; }
-  return { frames, sources, body: out };
+  return { frames, sources, body: out, ink };
 }

@@ -29,6 +29,7 @@
 mod analyze;
 mod mp4;
 mod frame;
+mod ink;
 mod grade;
 mod media;
 mod mix;
@@ -198,6 +199,46 @@ fn mp4head_job(inp: &mut Input) -> Result<String, String> {
 /// saturation f64 (0: none). Then the output path.
 /// One layer of a frame (the frame job's format, which vexport's frames share): a picture's place and look, or a
 /// colour over everything. npics: how many pictures `src` can name.
+fn read_ink(inp: &mut Input) -> Result<ink::Ink, String> {
+    let bad = || "bad pointer effects".to_string();
+    let num = |inp: &mut Input, lim: f64| -> Result<f64, String> { let v = inp.f64()?; if v.is_finite() && v.abs() <= lim { Ok(v) } else { Err("bad pointer effects".into()) } };
+    let colour = |inp: &mut Input| -> Result<[f64; 4], String> {
+        let c = [inp.f64()?, inp.f64()?, inp.f64()?, inp.f64()?];
+        if c[..3].iter().all(|v| (0.0..=255.0).contains(v)) && (0.0..=1.0).contains(&c[3]) { Ok(c) } else { Err("bad pointer effects colour".into()) }
+    };
+    const BIG: f64 = 1e6;
+    let mut m = [0.0; 6]; for v in m.iter_mut() { *v = num(inp, BIG)?; }
+    let clip = if inp.u8()? == 1 { let mut r = [0.0; 4]; for v in r.iter_mut() { *v = num(inp, BIG)?; } Some(r) } else { None };
+    let cut = if inp.u8()? == 1 {
+        let mut b = [0.0; 6]; for v in b.iter_mut() { *v = num(inp, BIG)?; }
+        let (w, h, radius) = (num(inp, BIG)?, num(inp, BIG)?, num(inp, 4096.0)?);
+        if w <= 0.0 || h <= 0.0 || radius < 0.0 { return Err(bad()); }
+        Some(frame::Look { b, w, h, radius, border: 0.0, border_rgb: [0, 0, 0], shadow: 0.0, dy: 0.0, cut: true })
+    } else { None };
+    let n = inp.u32()?;
+    if n > 64 { return Err(bad()); }
+    let mut shapes = Vec::with_capacity(n);
+    for _ in 0..n {
+        shapes.push(match inp.u8()? {
+            0 => { let (x, y, r0, r1) = (num(inp, BIG)?, num(inp, BIG)?, num(inp, BIG)?, num(inp, BIG)?); if r0 < 0.0 || r1 < 0.0 { return Err(bad()); } ink::Shape::Grad { x, y, r0, r1, c0: colour(inp)?, c1: colour(inp)? } }
+            1 => { let (x, y, r) = (num(inp, BIG)?, num(inp, BIG)?, num(inp, 1e5)?); if r < 0.0 { return Err(bad()); } ink::Shape::Disc { x, y, r, c: colour(inp)? } }
+            2 => { let (x, y, r, w) = (num(inp, BIG)?, num(inp, BIG)?, num(inp, 1e5)?, num(inp, 1e4)?); if r < 0.0 || w < 0.0 { return Err(bad()); } ink::Shape::Ring { x, y, r, w, c: colour(inp)? } }
+            3 => {
+                let np = inp.u32()?;
+                if !(3..=256).contains(&np) { return Err(bad()); }
+                let mut pts = Vec::with_capacity(np);
+                for _ in 0..np { pts.push((num(inp, BIG)?, num(inp, BIG)?)); }
+                let fill = colour(inp)?;
+                let stroke = if inp.u8()? == 1 { let w = num(inp, 1e4)?; if w < 0.0 { return Err(bad()); } Some((w, colour(inp)?)) } else { None };
+                let shadow = if inp.u8()? == 1 { let (b, dy) = (num(inp, 1024.0)?, num(inp, 1024.0)?); if b < 0.0 { return Err(bad()); } Some((b, dy, colour(inp)?)) } else { None };
+                ink::Shape::Poly { pts, fill, stroke, shadow }
+            }
+            _ => return Err(bad()),
+        });
+    }
+    Ok(ink::Ink { m, clip, cut, shapes })
+}
+
 fn read_layer(inp: &mut Input, npics: usize) -> Result<frame::Layer, String> {
     let src = inp.u32()?;
     let alpha = inp.f64()?;
@@ -206,6 +247,15 @@ fn read_layer(inp: &mut Input, npics: usize) -> Result<frame::Layer, String> {
         let rgb = [inp.u8()?, inp.u8()?, inp.u8()?];
         if !(0.0..=1.0).contains(&alpha) { return Err("bad layer".into()); }
         return Ok(frame::fill_layer(rgb, alpha));
+    }
+    // 1.11: pointer effects (ink.rs): the clip space's matrix (6 f64), a rectangle to keep them in (u8 1 + 4 f64, or
+    // 0), the rounded box to keep them in (u8 1 + b 6 f64 · w, h, radius f64, or 0), then the shapes (how many u32;
+    // each a kind u8 and its numbers: 0 gradient x, y, r0, r1, c0, c1 · 1 disc x, y, r, c · 2 ring x, y, r, w, c ·
+    // 3 outline: how many points u32, the points, fill, u8 1 + outline width, colour or 0, u8 1 + shadow blur, dy,
+    // colour or 0), a colour being r, g, b (0..255) and a (0..1) f64
+    if src == u32::MAX as usize - 1 {
+        if !(0.0..=1.0).contains(&alpha) { return Err("bad layer".into()); }
+        return Ok(frame::Layer { src, alpha, m: [1.0, 0.0, 0.0, 1.0, 0.0, 0.0], rect: [0.0, 0.0, 1.0, 1.0], look: None, fill: None, filter: None, grade: None, ink: Some(Box::new(read_ink(inp)?)) });
     }
     let mut m = [0.0; 6]; for v in m.iter_mut() { *v = inp.f64()?; }
     let mut rect = [0.0; 4]; for v in rect.iter_mut() { *v = inp.f64()?; }
@@ -243,7 +293,7 @@ fn read_layer(inp: &mut Input, npics: usize) -> Result<frame::Layer, String> {
             in_black: v[8], in_white: v[9], gamma_v: v[10], out_black: v[11], out_white: v[12], brightness: v[13], sharpen: v[14], vignette: v[15], bw: v[16], aberr: v[17],
             key, m_mul: three(0), m_add: three(3), lift: three(6), gam: three(9), gain: three(12) })
     } else { None };
-    Ok(frame::Layer { src, alpha, m, rect, look, fill: None, filter, grade })
+    Ok(frame::Layer { src, alpha, m, rect, look, fill: None, filter, grade, ink: None })
 }
 
 fn frame_job(inp: &mut Input) -> Result<String, String> {
