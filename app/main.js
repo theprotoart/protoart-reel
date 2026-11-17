@@ -1421,8 +1421,12 @@ handle('core:mixExport', async (id, token, job) => {
   if (!Array.isArray(job.limiters) || job.limiters.length > 16 || job.limiters.some(l => !(l && l.ceil > 0 && l.ceil <= 4 && l.rel >= 0 && l.rel < 1))) throw new Error('Bad limiter');
   for (const pl of job.plans) if (!(pl && Number.isInteger(pl.src) && pl.src >= 0 && pl.src < sources.length && pl.env instanceof Float32Array)) throw new Error('Bad clip plan');
   // what each newer part of the core needs: a loudness target 0.6, click sounds 0.7, keep-pitch 0.8, effects 0.9,
-  // the built-in master 1.0; an older core isn't asked
-  const needs = job.loud != null && (job.loud.master != null || job.loud.target == null) ? 10 : job.fx != null ? 9 : job.stretch != null ? 8 : job.clicks != null ? 7 : job.loud != null ? 6 : 0;
+  // the built-in master 1.0, time maps 1.1; an older core isn't asked
+  const needs = job.maps != null ? 11 : job.loud != null && (job.loud.master != null || job.loud.target == null) ? 10 : job.fx != null ? 9 : job.stretch != null ? 8 : job.clicks != null ? 7 : job.loud != null ? 6 : 0;
+  if (job.maps != null) {
+    const okMap = m => m == null || (m && typeof m.tape === 'boolean' && m.dur > 0 && m.dur < 3 * 3600 && Array.isArray(m.pts) && m.pts.length >= 2 && m.pts.length <= 10000 && m.pts.every(p => Array.isArray(p) && p.length === 2 && p.every(Number.isFinite)));
+    if (!(Array.isArray(job.maps) && job.stretch && job.fx && job.maps.length === job.stretch.clips.length && job.maps.every(okMap))) throw new Error('Bad time maps');
+  }
   if (job.fx != null) {
     const okChain = list => Array.isArray(list) && list.length <= 64 && list.every(u => Array.isArray(u) && Number.isInteger(u[0]) && u[0] >= 0 && u[0] <= 9 && Array.isArray(u[1]) && u[1].length <= 64 && u[1].every(Number.isFinite));
     const F = job.fx;
@@ -1442,7 +1446,7 @@ handle('core:mixExport', async (id, token, job) => {
   if (needs) {
     coreVersion ??= core.version();
     const v = String((await coreVersion) || '0').split('.').map(Number);
-    // needs 6–9: reel-core 0.6–0.9; 10: 1.0 (the built-in master)
+    // needs 6–9: reel-core 0.6–0.9; 10: 1.0 (the built-in master); 11: 1.1 (time maps)
     const has = (v[0] || 0) >= 1 ? 10 + (v[1] || 0) : (v[1] || 0);
     if (has < needs) return null;
   }

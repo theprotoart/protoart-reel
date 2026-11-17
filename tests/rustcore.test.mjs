@@ -321,6 +321,84 @@ test('reel-core plays sped-up clips that keep their pitch the same as the JavaSc
   } finally { fs.rmSync(dir, { recursive: true, force: true }); }
 });
 
+test('reel-core plays clips with a time map (pitch kept, and like tape) the same as the JavaScript export, to the 24-bit sample', { skip }, async t => {
+  const { warp } = await import('../app/renderer/lib/stretch.js');
+  const { mapAt } = await import('../app/renderer/lib/retime.js');
+  const { gainAt, panAt, panGains, spanStart, spanEnd } = await import('../app/renderer/model.js');
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'reel-retime-'));
+  try {
+    let s2 = 5; const r = () => ((s2 = (s2 * 16807) % 2147483647) / 2147483647);
+    writeWav(path.join(dir, 'voice.wav'), { rate: 48000, channels: 2, bits: 16, frames: 48000 * 9, sample: (i, c) => 0.35 * Math.sin(i * (c ? 0.031 : 0.027)) * (0.6 + 0.4 * Math.sin(i * 0.0003)) + 0.1 * (r() - 0.5) });
+    writeWav(path.join(dir, 'music.wav'), { rate: 44100, channels: 1, bits: 24, frames: 44100 * 10, sample: i => 0.4 * Math.sin(i * 0.011) * Math.sin(i * 0.0002) });
+    const doc = mixDoc();
+    // b: Elastic Wave-style map, slow then fast then normal, its pitch kept
+    doc.clips[1].audio.keepPitch = true; doc.clips[1].retime = [{ t: 0, s: 0 }, { t: 0.9, s: 0.6 }, { t: 1.7, s: 2.2 }, { t: 2.5, s: 3.0 }];
+    // e: a retime curve on a mono 44.1 kHz source, played like tape (faster parts higher)
+    doc.clips.push({ id: 'e', type: 'media', media: 'm2', track: 't3', start: 1.5, in: 2, duration: 3, speed: 1, retime: [{ t: 0, s: 0 }, { t: 1.2, s: 2.1 }, { t: 3, s: 3.3 }], audio: { volume: 0.7, pan: -0.3, fadeIn: 0.2, keepPitch: false } });
+    const from = 0.3, to = 6.9;
+    const { job, why } = exportMixJob(doc, from, to, { codec: 'wav', bitrate: 192000 });
+    assert.ok(job && job.maps && job.maps.filter(Boolean).length === 2, why);
+    const RATE = 48000, BLOCK = 1024, chain = new FxChain(RATE).setup(doc.mixFx);
+    const srcs = await Promise.all(job.sources.map(f => jsAudio(path.join(dir, f))));
+    // export-worker.js stretchedOf, the time-map way
+    const st = new Map();
+    for (const c of doc.clips.filter(c => c.retime)) {
+      const src = srcs[job.sources.indexOf(doc.media.find(m => m.id === c.media).file)], srcLen = c.retime[c.retime.length - 1].s;
+      const a0 = Math.floor((c.in || 0) * src.rate), n = Math.ceil(srcLen * src.rate) + 4, pcm = await src.read(a0, n), outN = Math.ceil(srcLen * RATE), ratio = src.rate / RATE;
+      const res = pcm.slice(0, 2).map(ch => { const o = new Float32Array(outN); for (let i = 0; i < outN; i++) { const p = i * ratio, k = Math.floor(p), f = p - k; o[i] = (ch[k] ?? 0) * (1 - f) + (ch[k + 1] ?? ch[k] ?? 0) * f; } return o; });
+      const outLen = Math.ceil(c.duration * RATE), map = o => mapAt(c.retime, o / RATE) * RATE;
+      const out = c.audio?.keepPitch === false
+        ? res.map(ch => { const o = new Float32Array(outLen); for (let i = 0; i < outLen; i++) { const p = map(i), k = Math.floor(p), f = p - k; o[i] = (ch[k] ?? 0) * (1 - f) + (ch[k + 1] ?? ch[k] ?? 0) * f; } return o; })
+        : warp(res, map, outLen, RATE);
+      st.set(c.id, { L: out[0], R: out[1] || out[0] });
+    }
+    const want = Buffer.alloc(job.total * 6);
+    const heardIds = ['a', 'b', 'c', 'e'], stretchedIds = ['b', 'e'], plainIds = ['a', 'c'];
+    assert.deepEqual(job.stretch.order, heardIds.map(id => (stretchedIds.includes(id) ? job.plans.length + stretchedIds.indexOf(id) : plainIds.indexOf(id))));
+    const order = heardIds.map(id => doc.clips.find(c => c.id === id));
+    for (let pos = 0, o = 0; pos < job.total; pos += BLOCK) {
+      const n = BLOCK, L = new Float32Array(n), R = new Float32Array(n), t0 = from + pos / RATE, t1 = t0 + n / RATE;
+      for (const c of order) {
+        if (spanEnd(c) <= t0 || spanStart(c) >= t1) continue;
+        if (st.has(c.id)) {
+          const v = st.get(c.id), cs = spanStart(c), ce = spanEnd(c);
+          const firstOut = Math.max(0, Math.ceil((cs - t0) * RATE)), lastOut = Math.min(n, Math.floor((ce - t0) * RATE));
+          let g = 0, pg = [1, 1];
+          for (let i = firstOut; i < lastOut; i++) {
+            const lt = t0 + i / RATE - c.start, idx = Math.round(lt * RATE);
+            if ((i - firstOut) % 256 === 0) { g = gainAt(doc, c, lt); pg = panGains(panAt(doc, c, lt)); }
+            L[i] += (v.L[idx] ?? 0) * g * pg[0]; R[i] += (v.R[idx] ?? 0) * g * pg[1];
+          }
+          continue;
+        }
+        const p = job.plans[plainIds.indexOf(c.id)];
+        const src = srcs[p.src], range = sourceRange(p, pos, n, RATE, src.rate);
+        if (range) mixClip(L, R, pos, n, p, await src.read(range[0], range[1] - range[0]), range[0], RATE, src.rate);
+      }
+      for (let i = 0; i < n; i++) { L[i] *= job.mixGain; R[i] *= job.mixGain; }
+      for (let q = 0; q < n; q += 512) chain.process(L.subarray(q, Math.min(n, q + 512)), R.subarray(q, Math.min(n, q + 512)));
+      softClip(L, R);
+      const k = Math.min(n, job.total - pos);
+      for (let i = 0; i < k; i++) for (const v of [L[i], R[i]]) want.writeIntLE(pcm24(v), (o++) * 3, 3);
+    }
+    srcs.forEach(a => a.close());
+    const out = path.join(dir, 'out.wav');
+    await core.mix({ ...job, sources: job.sources.map(f => path.join(dir, f)) }, out, () => {});
+    const got = fs.readFileSync(out);
+    assert.equal(got.length, 44 + want.length);
+    let diff = 0, worst = 0, loud = 0;
+    for (let i = 0; i < job.total * 2; i++) { const a = got.readIntLE(44 + i * 3, 3), b = want.readIntLE(i * 3, 3); if (Math.abs(b) > 1000) loud++; if (a !== b) { diff++; worst = Math.max(worst, Math.abs(a - b)); } }
+    assert.ok(loud > job.total / 2, 'the mix has sound in it');
+    assert.ok(worst <= 1 && diff < job.total * 2 * 1e-4, `${diff} samples differ, by up to ${worst}`);
+    t.diagnostic(`2 time-mapped clips (pitch kept, and tape); ${diff} of ${job.total * 2} samples differ (by up to ${worst})`);
+    // a damaged map is refused, not followed: going backwards, not from (0, 0), or not ending where the clip's sound does
+    const bad = m => core.mix({ ...job, sources: job.sources.map(f => path.join(dir, f)), maps: job.maps.map((x, i) => (i === 0 ? { ...x, pts: m } : x)) }, path.join(dir, 'bad.wav'), () => {});
+    await assert.rejects(bad([[0, 0], [1, 2], [0.5, 2.5], [2.5, 3]]), /bad time map/);
+    await assert.rejects(bad([[0.2, 0], [2.5, 3]]), /bad time map/);
+    await assert.rejects(bad([[0, 0], [2.5, 2]]), /bad time map/);
+  } finally { fs.rmSync(dir, { recursive: true, force: true }); }
+});
+
 test('reel-core runs track and mix-bus effects the same as the JavaScript export, to the 24-bit sample', { skip }, async t => {
   const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'reel-fx-'));
   try {
@@ -493,7 +571,10 @@ test('what the core can\'t mix yet goes to the JavaScript export, with the reaso
   assert.ok(exportMixJob({ ...doc, mixFx: [...doc.mixFx, { type: 'reverb' }] }, 0, 5, { codec: 'wav' }).job.fx.bus, 'mix bus effects go to the core now');
   assert.equal(exportMixJob({ ...doc, tracks: [{ ...doc.tracks[0], fx: [{ type: 'eq' }] }, doc.tracks[1]] }, 0, 5, { codec: 'wav' }).job.fx.chains.length, 1, 'track effects go to the core now');
   const pitched = mixDoc(); pitched.clips[1].retime = [{ t: 0, s: 0 }, { t: 2.5, s: 3 }];
-  assert.equal(exportMixJob(pitched, 0, 7, { codec: 'wav' }).why, 'time maps');
+  const mj = exportMixJob(pitched, 0, 7, { codec: 'wav' }).job;
+  assert.ok(mj.maps && mj.maps[0].pts.length === 2 && mj.maps[0].tape === true && mj.fx, 'time maps go to the core now (1.1), with an empty effects section before them');
+  const mapClick = mixDoc(); mapClick.clips[1].retime = [{ t: 0, s: 0 }, { t: 2.5, s: 3 }]; mapClick.clips[1].cursor = { clickSound: 0.5 };
+  assert.equal(exportMixJob(mapClick, 0, 7, { codec: 'wav', cursors: new Map([['m1', { clicks: [[100, 'd']] }]]) }).why, 'click sounds on a clip with a time map');
   const clicks = mixDoc(); clicks.clips[0].cursor = { clickSound: 0.5 };
   assert.equal(exportMixJob(clicks, 0, 5, { codec: 'wav' }).why, 'click sounds');
   // a bypassed limiter is simply not there

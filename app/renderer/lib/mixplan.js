@@ -100,6 +100,9 @@ export function stretchPlan(doc, c, start, total, rate, block) {
     }
   }
   if (!gains.length) return null;
+  // a time map (Elastic Wave, a retime curve): the source is read along it, pitch kept or like tape (export-worker.js)
+  if (c.retime) return { in: c.in || 0, srcLen: c.retime[c.retime.length - 1].s, speed: c.speed || 1, cs, ce, start: c.start, gains,
+    map: { tape: c.audio?.keepPitch === false, dur: c.duration, pts: c.retime.map(p => [p.t, p.s]) } };
   return { in: c.in || 0, srcLen: c.duration * (c.speed || 1), speed: c.speed || 1, cs, ce, start: c.start, gains };
 }
 
@@ -149,8 +152,8 @@ export const pcm24 = v => Math.max(-8388608, Math.min(8388607, Math.round(Math.m
 
 /**
  * A sound-only export for the Rust core: { job } with { rate, total, mixGain, soft, codec, bitrate, sources (media
- * file names), plans }, or { why } when the project uses something only the JavaScript export does so far (track
- * or mix-bus effects other than the limiter, sped-up clips that keep their pitch, time maps, click sounds).
+ * file names), plans }, or { why } when the project uses something only the JavaScript export does so far (click
+ * sounds not yet loaded, or click sounds on a clip with a time map).
  */
 export function exportMixJob(doc, from, to, { codec, bitrate, rate = 48000, loudness = null, ceiling = -1, cursors = null, stretchMax = 600, master = null }) {
   const start = Math.max(0, from || 0), end = Math.min(docDuration(doc), to || Infinity);
@@ -165,10 +168,9 @@ export function exportMixJob(doc, from, to, { codec, bitrate, rate = 48000, loud
   const busChain = bus.some(f => f.type !== 'limiter') ? chainNumbers(doc.mixFx || []) : null;
   // the limiter's numbers worked out here exactly as trackfx.js does, so both sides use the very same values
   const limiters = busChain ? [] : bus.map(f => { const p = { ...FX_TYPES.limiter.defaults, ...(f.params || {}) }; return { ceil: 10 ** (p.ceiling / 20), rel: Math.exp(-1 / Math.max(1, (p.release / 1000) * rate)) }; });
-  if (heard.some(c => c.retime)) return { why: 'time maps' };
-  // sped-up or slowed clips that keep their pitch (as export-worker.js: only up to stretchMax seconds long; longer
-  // ones play like tape there, so here too)
-  const keepsPitch = c => (c.speed || 1) !== 1 && c.audio?.keepPitch !== false && c.duration <= stretchMax;
+  // sped-up or slowed clips that keep their pitch, and clips with a time map (as export-worker.js: only up to
+  // stretchMax seconds long; longer ones play like tape at their plain speed there, so here too)
+  const keepsPitch = c => ((c.speed || 1) !== 1 && c.audio?.keepPitch !== false || !!c.retime) && c.duration <= stretchMax;
   // click sounds: the presses recorded with the screen (cursors: media id → its cursor file, loaded by the caller)
   const clickers = used.filter(c => c.cursor?.clickSound > 0 && !c.audio?.mute);
   if (clickers.some(c => c.retime)) return { why: 'click sounds on a clip with a time map' };
@@ -200,9 +202,12 @@ export function exportMixJob(doc, from, to, { codec, bitrate, rate = 48000, loud
     return { start: c.start, in: c.in || 0, speed: c.speed || 1, end: c.start + c.duration, offset: m?.cursorOffset || 0, gain: c.cursor.clickSound,
       ms: Float64Array.from(data.clicks.filter(k => k[1] !== 'u').map(k => k[0])) };
   }) } : null;
-  const fx = fxTracks.length || busChain ? { chains: fxTracks.map(id => chainNumbers(doc.tracks.find(t => t.id === id).fx)), bus: busChain,
+  // time maps (reel-core 1.1) come after the effects section: a job with maps but no effects gets an empty one
+  const mapped = stretched.some(x => x.map);
+  const fx = fxTracks.length || busChain || mapped ? { chains: fxTracks.map(id => chainNumbers(doc.tracks.find(t => t.id === id).fx)), bus: busChain,
     chainOf: order.map(([k, i]) => fxTracks.indexOf((k === 'p' ? plannedClips : stretchedClips)[i].track)) } : null;
   const stretch = stretched.length || fx ? { win: stretchWindow(rate), tol: Math.round(0.008 * rate), clips: stretched, order: order.map(([k, i]) => (k === 'p' ? i : plans.length + i)) } : null;
   return { job: { rate, total, mixGain: doc.mixGain ? 10 ** (doc.mixGain / 20) : 1, limiters, soft: !loud, codec, bitrate, sources, plans, ...(loud ? { loud } : {}),
-    ...(clicks || stretch ? { clicks: clicks || { start, block, wave: new Float32Array(0), clips: [] } } : {}), ...(stretch ? { stretch } : {}), ...(fx ? { fx } : {}) } };
+    ...(clicks || stretch ? { clicks: clicks || { start, block, wave: new Float32Array(0), clips: [] } } : {}), ...(stretch ? { stretch } : {}), ...(fx ? { fx } : {}),
+    ...(mapped ? { maps: stretched.map(x => x.map || null) } : {}) } };
 }

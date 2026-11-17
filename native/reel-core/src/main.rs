@@ -212,7 +212,7 @@ fn mix_job(inp: &mut Input, loudness: bool, mastered: bool) -> Result<String, St
             for _ in 0..ng { gains.push((inp.u64()?, inp.f64()?, inp.f64()?, inp.f64()?)); }
             if src >= sources.len() || !(inn >= 0.0 && inn.is_finite()) || !(src_len > 0.0 && src_len < 3.0 * 3600.0) || !(speed > 0.0 && speed < 100.0)
                 || ![cs, ce, start].iter().all(|v| v.is_finite()) || gains.iter().any(|g| !(g.1.is_finite() && g.2.is_finite() && g.3.is_finite())) || gains.windows(2).any(|w| w[1].0 < w[0].0) { return Err("bad stretched clip".into()); }
-            stretched.push(stretch::Stretched { src, inn, src_len, speed, cs, ce, start, gains, l: vec![], r: vec![], ready: false });
+            stretched.push(stretch::Stretched { src, inn, src_len, speed, cs, ce, start, gains, l: vec![], r: vec![], ready: false, map: vec![], dur: 0.0, tape: false });
         }
         let no = inp.count(4)?;
         for _ in 0..no { let k = inp.u32()?; if k >= plans.len() + stretched.len() { return Err("bad clip order".into()); } order.push(k); }
@@ -236,6 +236,22 @@ fn mix_job(inp: &mut Input, loudness: bool, mastered: bool) -> Result<String, St
         let no = inp.count(4)?;
         if no != n_order { return Err("bad effect routing".into()); }
         for _ in 0..no { let t = inp.u32()?; chain_of.push(if t == u32::MAX as usize { None } else if (t as usize) < chains.len() { Some(t as usize) } else { return Err("bad effect routing".into()) }); }
+    }
+    // time maps (1.1, after the effects section): for each stretched clip, points u32 (0: none) · then, with points,
+    //   tape u8 · the clip's length f64 · points × (t f64, s f64): rising, from (0, 0), as lib/retime.js validRetime
+    if inp.at < inp.b.len() {
+        for s in stretched.iter_mut() {
+            let np = inp.count(16)?;
+            if np == 0 { continue; }
+            let tape = inp.u8()? != 0;
+            let dur = inp.f64()?;
+            let pts = (0..np).map(|_| Ok((inp.f64()?, inp.f64()?))).collect::<Result<Vec<_>, String>>()?;
+            let ok = np >= 2 && np <= 10000 && dur > 0.0 && dur < 3.0 * 3600.0 && pts.iter().all(|p| p.0.is_finite() && p.1.is_finite())
+                && pts[0].0.abs() <= 1e-6 && pts[0].1.abs() <= 1e-6 && pts.windows(2).all(|w| w[1].0 - w[0].0 >= 0.01 && w[1].1 - w[0].1 > 1e-6)
+                && (pts[np - 1].1 - s.src_len).abs() < 1e-6;
+            if !ok { return Err("bad time map".into()); }
+            s.map = pts; s.dur = dur; s.tape = tape;
+        }
     }
     let mut job = mix::Job { rate, total, mix_gain, limiters, soft, sources, plans, clicks, stretched, order, win, tol, chain_of, chains, bus };
     job.prepare()?;

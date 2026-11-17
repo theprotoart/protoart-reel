@@ -1,6 +1,7 @@
 # Changelog
 
 ## 1.11.0 — 2026-11-16
+- Rust core 1.1: clips with a time map (Elastic Wave, retime curves) are mixed by the core in sound-only exports too, with their pitch kept or played like tape: the same file as the JavaScript export, to the 24-bit sample. Sound-only export now goes through Rust for everything except master plug-ins (Audio Units) and click sounds on a time-mapped clip.
 - ▶ Listen before you place: every sound (and video with sound) in the media panel has a ▶ on its picture. It plays right there, with a bar under the name to jump around in it (click or drag) and the time; click again to pause. Starting another one, playing the timeline or leaving the MEDIA page stops it. Nothing goes on the timeline until you drag it there.
 - ↕ TRACKS, the timeline's vertical zoom (beside ZOOM): − / slider / + make every track shorter or taller (22 to 160 px); FIT puts every track in view at once, and a second click goes back. Also ⌘-scroll (or pinch) over the track names, and ⌥⌘− / ⌥⌘= / ⌥⌘0 (View menu). Short tracks fold their headers down to the name and keys, and their clips to just the name. Remembered for next time; Settings › Track height still sets it.
 - Auto Edit no longer seems to freeze on “Adding zooms”: it says which clip it's on (“clip 49 of 140”), STOP stops it straight away, a clip that won't play smoothly gets a time limit (its zooms come from what was seen in time) and one that can't be read is skipped instead of stopping the rest. Each recording's pointer file is read once instead of once per clip.

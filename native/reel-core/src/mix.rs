@@ -55,14 +55,16 @@ impl Job {
             let a0 = (s.inn * sr).floor() as i64;
             let n = (s.src_len * sr).ceil() as i64 + 4;
             let out_n = (s.src_len * self.rate).ceil() as usize;
-            if n > (sr as i64) * 60 * 60 * 3 || out_n > (self.rate as usize) * 60 * 60 * 3 { return Err("a stretched clip is too long".into()); }
+            let map_n = if s.map.is_empty() { 0 } else { (s.dur * self.rate).ceil() as usize }; // a time map: ceil(clip length × rate)
+            if n > (sr as i64) * 60 * 60 * 3 || out_n > (self.rate as usize) * 60 * 60 * 3 || map_n > (self.rate as usize) * 60 * 60 * 3 { return Err("a stretched clip is too long".into()); }
             lv.start(a0)?;
             lv.cover(a0, a0 + n)?;
             let read = |x: &[f32]| -> Vec<f32> { (0..n).map(|k| Live::at(x, lv.from, a0 + k) as f32).collect() };
             let mut chans = vec![read(&lv.a)];
             if lv.stereo { chans.push(read(&lv.b)); }
             let res: Vec<Vec<f32>> = chans.iter().map(|c| crate::stretch::resample(c, sr / self.rate, out_n)).collect();
-            let out = crate::stretch::stretch(&res, s.speed, &self.win, self.tol);
+            let out = if s.map.is_empty() { crate::stretch::stretch(&res, s.speed, &self.win, self.tol) }
+                else { crate::stretch::follow_map(&res, &s.map, self.rate, map_n, s.tape, &self.win, self.tol) };
             s.l = out[0].clone();
             s.r = if out.len() > 1 { out[1].clone() } else { out[0].clone() };
             s.ready = true;

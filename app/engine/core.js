@@ -157,6 +157,14 @@ async function mix(job, out, onProgress) {
     if (job.fx.bus) { u8(1); chain(job.fx.bus); } else u8(0);
     u32(job.fx.chainOf.length); for (const t of job.fx.chainOf) u32(t < 0 ? 0xffffffff : t);
   }
+  if (job.maps) { // time maps (reel-core 1.1; needs the effects section first): one entry per stretched clip
+    if (!job.fx || job.maps.length !== job.stretch.clips.length) throw new Error('Bad time maps');
+    for (const m of job.maps) {
+      if (!m) { u32(0); continue; }
+      u32(m.pts.length); u8(m.tape ? 1 : 0); f64(+m.dur);
+      for (const [t, s] of m.pts) { f64(+t); f64(+s); }
+    }
+  }
   return run(Buffer.concat(parts), { timeout: 4 * 3600000, onProgress });
 }
 
