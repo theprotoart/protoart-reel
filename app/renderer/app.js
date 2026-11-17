@@ -5,6 +5,8 @@ import { openRepair } from './repair.js';
 import { openSpelling } from './spelling.js';
 import { openTalkingText } from './talktext.js';
 import { openBleep } from './bleep.js';
+import { soundRoleOf, trackForRole } from './lib/soundrole.js';
+import { ROLES as SOUND_ROLES } from './lib/automix.js';
 import { Explain } from './explain.js';
 import { Deck, makeReel } from './deck.js';
 import { el, $, toast, modal, ask, promptText, popMenu, hint } from './ui.js';
@@ -861,14 +863,19 @@ class App {
   addMediaClip(mediaId, trackId, at) {
     const m = mediaById(this.doc, mediaId);
     if (!m) return;
+    // a sound marked dialogue, music or sound effects goes on a track of its kind (never one marked for another)
+    const role = soundRoleOf(m);
+    let moved = null;
     this.commit(doc => {
       const c = newMediaClip(doc, m, null, at);
-      c.track = trackId && isFree(doc, trackId, c.start, c.duration) ? trackId
+      if (role) { const r = trackForRole(doc, role, c.start, c.duration, trackId); c.track = r.track; if (r.moved) moved = doc.tracks.find(t => t.id === r.track)?.name; }
+      else c.track = trackId && isFree(doc, trackId, c.start, c.duration) ? trackId
         : m.kind === 'audio' ? freeTrack(doc, c.start, c.duration, trackId) : layerTrack(doc, c.start, c.duration, trackId); // a picture dropped on one goes on top of it
       doc.clips.push(c);
       this.selection = { clips: [c.id], action: null };
       if (m.kind === 'video') this._autoZoomDropped([c.id]);
     });
+    if (moved) toast(`“${m.name}” is ${SOUND_ROLES[role].label.toLowerCase()}, so it went on the “${moved}” track.`, 4000);
   }
   /**
    * Every file of one recording (screen, camera, mic, computer sound) laid down at `at`, lined up exactly as they were

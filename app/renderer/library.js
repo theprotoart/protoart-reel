@@ -1,6 +1,8 @@
 // Media library: everything recorded or added to the project; drag onto the timeline. Search and a
 // kind filter on top; right-click (or the ⋯ on an item) for rename, replace file, show in Finder,
 // select the clips that use it, add to the Global Library, and remove.
+import { soundRoleOf } from './lib/soundrole.js';
+import { ROLES as SOUND_ROLES, ROLE_ORDER, nextRole } from './lib/automix.js';
 import { el, $, toast, popMenu, promptText } from './ui.js';
 import { fmtTime } from './model.js';
 import { posterFor } from './peaks.js';
@@ -183,7 +185,7 @@ export class Library {
     }, thumb,
     el('div', { class: 'lmeta' },
       el('div', { class: 'lname', text: m.name }),
-      el('div', { class: 'linfo' }, ROLE[m.role] ? el('span', { class: 'lrole', text: ROLE[m.role], 'data-role': m.role }) : null, status, el('span', { class: 'ldur', text: info })), scrub),
+      el('div', { class: 'linfo' }, ROLE[m.role] ? el('span', { class: 'lrole', text: ROLE[m.role], 'data-role': m.role }) : null, this.soundTag(m), status, el('span', { class: 'ldur', text: info })), scrub),
     more,
     isNew ? el('span', { class: 'lnew', text: 'NEW', title: 'Just added' }) : null);
     item.addEventListener('dragstart', e => { e.dataTransfer.setData('application/x-reel-media', m.id); e.dataTransfer.effectAllowed = 'copy'; this._dragging = true; });
@@ -245,9 +247,32 @@ export class Library {
     }).catch(() => {});
   }
 
+  /**
+   * A sound's kind (dialogue, music, sound effects), set here before it's used: a click goes round them, so dragged
+   * onto the timeline it lands on a track of that kind. Shown for sounds only; Reel's own guess is shown dimmer.
+   */
+  soundTag(m) {
+    if (m.kind !== 'audio') return null;
+    const role = soundRoleOf(m), own = !!m.soundRole, R = role ? SOUND_ROLES[role] : null;
+    const ICON = { dialogue: '🎙', music: '🎵', effects: '💥' };
+    const b = el('button', { class: 'lsound' + (role ? ' on' : '') + (own ? '' : ' guess'), type: 'button', 'data-role': role || '',
+      text: role ? `${ICON[role]} ${R.short}` : '＋ KIND',
+      title: role ? `${R.label}${own ? '' : ' (Reel’s guess)'}: dragged onto the timeline it goes on a ${R.label.toLowerCase()} track. Click: dialogue → music → sound FX → none` : 'What is it? Click: dialogue, music or sound effects. Then it goes on the right kind of track when you drag it in.' });
+    if (R) b.style.setProperty('--role', R.color);
+    b.addEventListener('click', e => { e.stopPropagation(); this.setSoundRole(m, nextRole(role)); });
+    b.addEventListener('dblclick', e => e.stopPropagation());
+    b.draggable = false; b.addEventListener('dragstart', e => { e.preventDefault(); e.stopPropagation(); });
+    return b;
+  }
+  setSoundRole(m, role) {
+    this.app.commit(d => { const x = d.media.find(y => y.id === m.id); if (!x) return; if (role) x.soundRole = role; else { x.soundRole = ''; } }, { keepInspector: true });
+    this.render();
+  }
+
   menu(m, used, x, y) {
     const app = this.app;
     popMenu(x, y, [
+      ...(m.kind === 'audio' ? [...ROLE_ORDER.map(r => [`${soundRoleOf(m) === r ? '✓ ' : ''}It’s ${SOUND_ROLES[r].label.toLowerCase()}`, () => this.setSoundRole(m, r)]), ['It’s none of these', () => this.setSoundRole(m, null)], null] : []),
       ['Add at playhead', () => app.addMediaClip(m.id, null, app.player.time)],
       ['Rename…', () => this.rename(m)],
       ['Replace file…', () => this.replace(m)],

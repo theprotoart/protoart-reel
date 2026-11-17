@@ -2562,3 +2562,10 @@ html[data-theme="light"] #inspector .co-start { background: linear-gradient(#fff
 #tl-corner button.on { color: #2a1404; background: linear-gradient(#ffd77a, #e9a02c); }
 html[data-theme="light"] #tl-corner { background: linear-gradient(#ecebe7, #dcdbd6); }
 html[data-theme="light"] #tl-corner button { background: linear-gradient(#fff, #e6e3dc); color: #3a352c; border-color: #b9b2a3; }
+/* a sound's kind in the media bin: dialogue, music or sound effects */
+.lib-item .lsound { margin-right: 4px; padding: 2px 6px; border-radius: 4px; border: 1px dashed rgba(255,255,255,.28); background: none; color: #a8a090; font: 700 9.5px/1.2 var(--font-engrave, system-ui); letter-spacing: .08em; cursor: pointer; white-space: nowrap; }
+.lib-item .lsound:hover { color: #fff; border-color: rgba(255,255,255,.55); }
+.lib-item .lsound.on { border-style: solid; border-color: var(--role); color: #fff; background: color-mix(in srgb, var(--role) 32%, transparent); }
+.lib-item .lsound.on.guess { opacity: .8; border-style: dashed; }
+html[data-theme="light"] .lib-item .lsound { color: #5a5446; border-color: rgba(0,0,0,.3); }
+html[data-theme="light"] .lib-item .lsound.on { color: #1d1a14; }
