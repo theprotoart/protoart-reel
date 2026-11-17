@@ -2,6 +2,8 @@
 
 ## 1.11.0 — 2026-11-16
 
+- A rectangle or ellipse callout (Area, Magnify) now has only sizing handles: drag any corner or side to size it (the opposite side stays put, ⇧ sizes from the centre). Moving single points is just for Freehand shapes.
+
 - Make Vertical and Auto Edit no longer stall on a recording the Mac's decoder gets stuck on: after 15 s with no frames it's stopped and that clip is watched by playing, and Make Vertical gives each clip a time limit, framing it from what was seen.
 - ★ Recommended export presets at the top of the list: **YouTube 1080p** (up to 60 fps), **YouTube 4K** (HEVC), **TikTok · Reels · Shorts** (vertical 1080p, 30 fps) and **Instagram feed** (1080p, 30 fps). Each uses Apple's hardware encoder (the fastest) at a high bitrate (the sites re-encode, so starting sharp matters) with high-bitrate sound, and says so under the menu. Choosing the vertical one on a wide project offers Make Vertical first.
 - Exports drawn by the Rust core now include still pictures (photos, logos, screenshots: read the right way up by the Mac's image reader); SVG and GIF pictures still export the usual way.

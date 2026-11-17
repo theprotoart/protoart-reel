@@ -79,8 +79,10 @@ export class Overlay {
     } else if (c.type === 'callout') {
       const co = ca.callout;
       const x = (co.x + p.x - 0.5) * W, y = (co.y + p.y - 0.5) * H, w = co.w * p.scale * W, h = co.h * p.scale * H;
-      this.box(c, { x: x - w / 2, y: y - h / 2, w, h }, W, H, 'callout');
-      this.calloutPoints(c, co, p, W, H);
+      // a rectangle or ellipse: just its box, a handle on every corner and side to size it. Only a freehand shape
+      // shows its points to move one by one
+      this.box(c, { x: x - w / 2, y: y - h / 2, w, h }, W, H, co.shape === 'freehand' ? 'callout-free' : 'callout');
+      if (co.shape === 'freehand') this.calloutPoints(c, co, p, W, H);
     } else if (c.type === 'element') {
       const b = elementBox(ca.element, p, W, H);
       this.box(c, { x: p.x * W - b.w / 2, y: p.y * H - b.h / 2, w: b.w, h: b.h }, W, H, 'text');
@@ -323,10 +325,12 @@ export class Overlay {
   }
 
   box(c, r, W, H, kind) {
+    const free = kind === 'callout-free';
+    if (free) kind = 'callout';
     const tgt = this.target(c);
     const media = kind === 'media' ? mediaById(this.doc, c.media) : null;
     const canCrop = !!media;
-    const HANDLES = kind === 'callout' ? ['br'] : ['tl', 't', 'tr', 'r', 'br', 'b', 'bl', 'l'];
+    const HANDLES = free ? ['br'] : ['tl', 't', 'tr', 'r', 'br', 'b', 'bl', 'l'];
     const b = el('div', {
       class: 'sel-box' + (tgt.action ? ' action' : '') + (canCrop ? ' croppable' : ''),
       style: { left: r.x + 'px', top: r.y + 'px', width: r.w + 'px', height: r.h + 'px' },
@@ -420,10 +424,20 @@ export class Overlay {
           b.dataset.deg = `${Math.round(deg)}°`;
         } else if (kind === 'callout') {
           const dx = dxp / W, dy = dyp / H;
-          if (handle) { setC('w', Math.max(0.02, start.w + dx * 2)); setC('h', Math.max(0.02, start.h + dy * 2)); }
-          else { setC('x', start.x + dx); setC('y', start.y + dy); }
-          b.style.left = r.x + (handle ? 0 : dxp) + 'px'; b.style.top = r.y + (handle ? 0 : dyp) + 'px';
-          if (handle) { b.style.width = Math.max(8, r.w + dxp) + 'px'; b.style.height = Math.max(8, r.h + dyp) + 'px'; }
+          if (handle) {
+            // the dragged corner or side follows the pointer; the opposite one stays put (⇧: sized about the centre)
+            const sgnX = handle.includes('l') ? -1 : handle.includes('r') ? 1 : 0, sgnY = handle.includes('t') ? -1 : handle.includes('b') ? 1 : 0;
+            const k = r.w / Math.max(1e-6, start.w * W) || 1; // the clip's own scale: box pixels per callout unit
+            const both = ev.shiftKey ? 2 : 1;
+            const nw = Math.max(8, r.w + sgnX * dxp * both), nh = Math.max(8, r.h + sgnY * dyp * both);
+            const ox = ev.shiftKey ? 0 : sgnX * (nw - r.w) / 2, oy = ev.shiftKey ? 0 : sgnY * (nh - r.h) / 2;
+            if (sgnX) { setC('w', Math.max(0.02, nw / (k * W))); setC('x', start.x + ox / W); }
+            if (sgnY) { setC('h', Math.max(0.02, nh / (k * H))); setC('y', start.y + oy / H); }
+            Object.assign(b.style, { left: r.x + r.w / 2 + ox - nw / 2 + 'px', top: r.y + r.h / 2 + oy - nh / 2 + 'px', width: nw + 'px', height: nh + 'px' });
+          } else {
+            setC('x', start.x + dx); setC('y', start.y + dy);
+            b.style.left = r.x + dxp + 'px'; b.style.top = r.y + dyp + 'px';
+          }
         } else if (cropping) {
           // crop from the dragged side; what's left of the picture stays exactly where it was
           const sw = media.width || 1920, sh = media.height || 1080;

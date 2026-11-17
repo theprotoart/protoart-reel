@@ -645,7 +645,7 @@ export class Inspector {
       selectRow('Shape', co.shape, [['rect', 'Rectangle'], ['ellipse', 'Ellipse'], ['freehand', 'Freehand']], v => { this.edit(() => { co.shape = v; }); if (v === 'freehand' && !(co.path && co.path.length > 2)) this.app.overlay.drawFreehand(c); }),
       co.shape === 'freehand' ? el('div', { class: 'btn-row' }, el('button', { class: 'tool', text: co.path?.length > 2 ? 'Redraw shape' : 'Draw shape', title: 'Draw around what matters, right on the preview', onclick: () => this.app.overlay.drawFreehand(c) })) : null,
       co.shape === 'freehand' ? checkRow('Sharp corners', !!co.sharp, v => this.edit(() => { co.sharp = v; })) : null,
-      el('p', { class: 'note', text: 'Drag any point of the shape on the picture. Double-click a point to take it out, the outline to add one. A rectangle or ellipse becomes points to move as soon as you drag one.' }),
+      el('p', { class: 'note', text: co.shape === 'freehand' ? 'Drag any point of the shape on the picture. Double-click a point to take it out, the outline to add one.' : 'Drag a corner or side on the picture to size it (⇧ from the centre), or inside it to move it. For a shape of your own, choose Freehand.' }),
       checkRow('Follow pointer', co.follow, v => this.edit(() => { co.follow = v; })),
       this.sl('Build in', () => co.buildIn ?? 0.3, v => { co.buildIn = v; }, { min: 0, max: 3, step: 0.05, fmt: v => v.toFixed(2) + 's' }),
       this.sl('Build out', () => co.buildOut ?? 0.3, v => { co.buildOut = v; }, { min: 0, max: 3, step: 0.05, fmt: v => v.toFixed(2) + 's' }),
