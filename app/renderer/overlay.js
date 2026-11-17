@@ -78,6 +78,7 @@ export class Overlay {
       const co = ca.callout;
       const x = (co.x + p.x - 0.5) * W, y = (co.y + p.y - 0.5) * H, w = co.w * p.scale * W, h = co.h * p.scale * H;
       this.box(c, { x: x - w / 2, y: y - h / 2, w, h }, W, H, 'callout');
+      this.calloutPoints(c, co, p, W, H);
     } else if (c.type === 'element') {
       const b = elementBox(ca.element, p, W, H);
       this.box(c, { x: p.x * W - b.w / 2, y: p.y * H - b.h / 2, w: b.w, h: b.h }, W, H, 'text');
@@ -542,10 +543,90 @@ export class Overlay {
     });
   }
 
+  /**
+   * A callout's real shape on the picture (not just its box), with a handle on every point to drag it anywhere.
+   * Double-click a handle to take that point out, double-click the outline to put one in. A rectangle or ellipse shows
+   * its points too (8 and 12): dragging one turns it into a shape of points (a rectangle keeps sharp corners).
+   */
+  calloutPoints(c, co, p, W, H) {
+    const app = this.app;
+    co = { x: co.x, y: co.y, w: co.w, h: co.h, shape: co.shape, path: co.path, sharp: co.sharp }; // as it is now: every change is measured from this
+    const cx = (co.x + p.x - 0.5) * W, cy = (co.y + p.y - 0.5) * H, bw = co.w * p.scale * W, bh = co.h * p.scale * H;
+    // the points (fractions of the box, -0.5..0.5): the shape's own, or the rectangle's or ellipse's
+    const own = co.shape === 'freehand' && co.path?.length > 2;
+    const pts = own ? co.path.map(q => [...q])
+      : co.shape === 'ellipse' ? Array.from({ length: 12 }, (_, i) => { const a = (i / 12) * Math.PI * 2; return [+(Math.cos(a) * 0.5).toFixed(4), +(Math.sin(a) * 0.5).toFixed(4)]; })
+      : [[-0.5, -0.5], [0, -0.5], [0.5, -0.5], [0.5, 0], [0.5, 0.5], [0, 0.5], [-0.5, 0.5], [-0.5, 0]];
+    const sharp = own ? !!co.sharp : co.shape !== 'ellipse';
+    const toScr = q => [cx + q[0] * bw, cy + q[1] * bh];
+    const NS = 'http://www.w3.org/2000/svg';
+    const svg = document.createElementNS(NS, 'svg');
+    svg.setAttribute('class', 'co-shape'); svg.setAttribute('width', W); svg.setAttribute('height', H);
+    const path = document.createElementNS(NS, 'path');
+    const d = list => {
+      const P = list.map(toScr);
+      if (sharp || list.length < 3) return 'M' + P.map(q => q.join(',')).join(' L') + ' Z';
+      // the same smoothing the picture uses (quadratic through the middles)
+      const mid = (a, b) => [(a[0] + b[0]) / 2, (a[1] + b[1]) / 2], n = P.length;
+      let s = `M${mid(P[0], P[1]).join(',')}`;
+      for (let i = 1; i <= n; i++) { const a = P[i % n], b = P[(i + 1) % n]; s += ` Q${a.join(',')} ${mid(a, b).join(',')}`; }
+      return s + ' Z';
+    };
+    path.setAttribute('d', d(pts));
+    svg.append(path);
+    this.root.append(svg);
+    // writes the points back: the box fits them again, the points stay where they are on the picture
+    const save = (list, extra = {}) => {
+      const abs = list.map(q => [co.x + q[0] * co.w, co.y + q[1] * co.h]);
+      const xs = abs.map(q => q[0]), ys = abs.map(q => q[1]);
+      const x0 = Math.min(...xs), x1 = Math.max(...xs), y0 = Math.min(...ys), y1 = Math.max(...ys);
+      const w = Math.max(0.005, x1 - x0), h = Math.max(0.005, y1 - y0);
+      const live = c.callout;
+      Object.assign(live, { shape: 'freehand', sharp, ...extra, x: x0 + w / 2, y: y0 + h / 2, w, h, path: abs.map(([x, y]) => [+((x - x0) / w - 0.5).toFixed(4), +((y - y0) / h - 0.5).toFixed(4)]) });
+      if (c.keys) for (const k of ['x', 'y', 'w', 'h']) delete c.keys['callout.' + k]; // the shape is set by its points now
+    };
+    path.addEventListener('dblclick', e => {
+      // a new point on the outline, between the two nearest
+      e.preventDefault(); e.stopPropagation();
+      const r = this.root.getBoundingClientRect(), q = [(e.clientX - r.left - cx) / bw, (e.clientY - r.top - cy) / bh];
+      let best = 0, bd = Infinity;
+      for (let i = 0; i < pts.length; i++) { const a = pts[i], b = pts[(i + 1) % pts.length], m = [(a[0] + b[0]) / 2, (a[1] + b[1]) / 2], dd = Math.hypot(m[0] - q[0], m[1] - q[1]); if (dd < bd) { bd = dd; best = i; } }
+      const list = [...pts]; list.splice(best + 1, 0, q);
+      app.commit(() => save(list));
+    });
+    pts.forEach((q, i) => {
+      const [hx, hy] = toScr(q);
+      const hd = el('div', { class: 'co-pt', style: { left: hx + 'px', top: hy + 'px' }, title: 'Drag this point · double-click to take it out · double-click the outline to add one' });
+      hd.addEventListener('dblclick', e => { e.preventDefault(); e.stopPropagation(); if (pts.length <= 3) return; const list = pts.filter((_, j) => j !== i); app.commit(() => save(list)); });
+      hd.addEventListener('pointerdown', e => {
+        if (e.button !== 0) return;
+        e.preventDefault(); e.stopPropagation();
+        const x0 = e.clientX, y0 = e.clientY;
+        let moved = false;
+        hd.setPointerCapture(e.pointerId);
+        const move = ev => {
+          if (!moved && Math.abs(ev.clientX - x0) + Math.abs(ev.clientY - y0) < 2) return;
+          if (!moved) { moved = true; this.dragging = true; app.beginChange(); }
+          const list = pts.map(v => [...v]);
+          list[i] = [q[0] + (ev.clientX - x0) / bw, q[1] + (ev.clientY - y0) / bh];
+          hd.style.left = hx + ev.clientX - x0 + 'px'; hd.style.top = hy + ev.clientY - y0 + 'px';
+          path.setAttribute('d', d(list));
+          save(list);
+          app.changed({ light: true, keepInspector: true });
+        };
+        const up = () => { hd.removeEventListener('pointermove', move); hd.removeEventListener('pointerup', up); this.dragging = false; if (moved) app.endChange({ keepInspector: true }); this.update(); };
+        hd.addEventListener('pointermove', move); hd.addEventListener('pointerup', up);
+      });
+      this.root.append(hd);
+    });
+  }
+
   /** Freehand callout: drag around the area on the preview; the outline becomes the callout's shape. */
   drawFreehand(c) {
     const app = this.app;
-    if (app.player.time < c.start || app.player.time >= c.start + c.duration) app.seek(c.start + 0.01);
+    // past its build-in, so what's drawn shows at once
+    const settled = c.start + Math.min((c.callout?.buildIn ?? 0.3) + 0.05, c.duration / 2);
+    if (app.player.time < settled || app.player.time >= c.start + c.duration) app.seek(settled);
     requestAnimationFrame(() => {
       this.update();
       const cr = this.canvas.getBoundingClientRect(), sr = this.root.parentElement.getBoundingClientRect();
@@ -564,10 +645,10 @@ export class Overlay {
           const xs = pts.map(q => q[0]), ys = pts.map(q => q[1]);
           const x0 = Math.min(...xs), x1 = Math.max(...xs), y0 = Math.min(...ys), y1 = Math.max(...ys);
           const w = Math.max(0.01, x1 - x0), h = Math.max(0.01, y1 - y0);
-          // thin the outline to at most ~80 points
-          const step = Math.max(1, Math.floor(pts.length / 80));
-          const path = pts.filter((_, i) => i % step === 0).map(([x, y]) => [+((x - x0) / w - 0.5).toFixed(4), +((y - y0) / h - 0.5).toFixed(4)]);
-          app.commit(() => { Object.assign(c.callout, { shape: 'freehand', path, x: x0 + w / 2, y: y0 + h / 2, w, h }); });
+          // the outline kept to the points that shape it (its corners and bends), a few dozen at most, so each can be
+          // dragged
+          const path = simplify(pts, Math.max(w, h) * 0.012).slice(0, 48).map(([x, y]) => [+((x - x0) / w - 0.5).toFixed(4), +((y - y0) / h - 0.5).toFixed(4)]);
+          app.commit(() => { Object.assign(c.callout, { shape: 'freehand', sharp: true, path, x: x0 + w / 2, y: y0 + h / 2, w, h }); if (c.keys) for (const k of ['x', 'y', 'w', 'h']) delete c.keys['callout.' + k]; });
         } else this.update();
       };
       const esc = e => { if (e.key === 'Escape') { e.stopPropagation(); done(false); } };
@@ -604,4 +685,23 @@ export class Overlay {
       });
     }
   }
+}
+
+/** A drawn outline's points cut down to the ones that shape it (Ramer–Douglas–Peucker, within tol), as a loop. */
+export function simplify(pts, tol) {
+  if (pts.length < 4) return pts;
+  const dist = (p, a, b) => { const dx = b[0] - a[0], dy = b[1] - a[1], l = dx * dx + dy * dy; if (!l) return Math.hypot(p[0] - a[0], p[1] - a[1]); const t = Math.max(0, Math.min(1, ((p[0] - a[0]) * dx + (p[1] - a[1]) * dy) / l)); return Math.hypot(p[0] - a[0] - t * dx, p[1] - a[1] - t * dy); };
+  const rdp = (list) => {
+    if (list.length < 3) return list;
+    let k = 0, d = 0;
+    for (let i = 1; i < list.length - 1; i++) { const e = dist(list[i], list[0], list[list.length - 1]); if (e > d) { d = e; k = i; } }
+    if (d <= tol) return [list[0], list[list.length - 1]];
+    return [...rdp(list.slice(0, k + 1)).slice(0, -1), ...rdp(list.slice(k))];
+  };
+  // a loop: split at the point furthest from the start, so both halves have real ends
+  let far = 0, fd = 0;
+  for (let i = 1; i < pts.length; i++) { const e = Math.hypot(pts[i][0] - pts[0][0], pts[i][1] - pts[0][1]); if (e > fd) { fd = e; far = i; } }
+  const a = rdp(pts.slice(0, far + 1)), b = rdp([...pts.slice(far), pts[0]]);
+  const out = [...a.slice(0, -1), ...b.slice(0, -1)];
+  return out.length >= 3 ? out : pts;
 }

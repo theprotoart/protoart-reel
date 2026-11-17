@@ -1,7 +1,7 @@
 // Inspector: properties of the selected clip (or the project when nothing is selected).
 // When a zoom & pan action is selected, position/scale/crop edits change that action's target.
 import { el, section, slider, selectRow, colorRow, checkRow, toast, promptText } from './ui.js';
-import { newCalloutClip } from './model.js';
+import { newCalloutClip, DEFAULT_PROPS, CALLOUT_DEFAULTS, TEXT_DEFAULTS, CURSOR_DEFAULTS } from './model.js';
 import { retimeSection } from './retimeui.js';
 import { applyCut, OVERLAP_CUTS, clipEnd, mediaById, fmtTime, ANIMATABLE, propsAt, paramAt, setParam, putKey, removeKey, keysOf, hasKeys, anyKeys, clamp, KEY_EASES, LABELS, setSpeed, SPEED_MIN, SPEED_MAX } from './model.js';
 import { effectsSection, addPluginToClip } from './fx.js';
@@ -71,6 +71,18 @@ const FOLD_KEY = 'reel.inspFold';
 const foldedSet = () => { try { return new Set(JSON.parse(localStorage.getItem(FOLD_KEY) || '[]')); } catch { return new Set(); } };
 const setFolded = (key, on) => { const s = foldedSet(); if (on) s.add(key); else s.delete(key); try { localStorage.setItem(FOLD_KEY, JSON.stringify([...s].slice(-200))); } catch { /* not remembered */ } };
 
+// what a double-click on a slider goes back to: a setting's default (by its path, or its name for plain sliders)
+const pathDefault = path => {
+  const [g, k] = path.split('.');
+  const v = g === 'props' ? DEFAULT_PROPS[k] : g === 'callout' ? { buildIn: 0.3, buildOut: 0.3, ...CALLOUT_DEFAULTS }[k] : g === 'audio' ? { volume: 1, pan: 0 }[k] : g === 'text' ? TEXT_DEFAULTS[k] : g === 'cursor' ? CURSOR_DEFAULTS[k] : undefined;
+  return typeof v === 'number' ? v : undefined;
+};
+const LABEL_DEFAULTS = {
+  X: 0.5, Y: 0.5, Scale: 1, Rotation: 0, Opacity: 1, Left: 0, Top: 0, Right: 0, Bottom: 0,
+  Corners: 0, Shadow: 0, Border: 0, 'Fade in': 0, 'Fade out': 0, 'Fade in curve': 0, 'Fade out curve': 0, 'Duck under voice': 0,
+  'Build in': 0.3, 'Build out': 0.3, 'In length': 0.5, 'Out length': 0.5,
+  Zoom: 1.5, 'In speed': 0.3, Hold: 2, 'Out speed': 0.3, 'Pointer size': 1,
+};
 export class Inspector {
   constructor(app) { this.app = app; this.root = document.getElementById('inspector'); }
   get doc() { return this.app.doc; }
@@ -222,6 +234,7 @@ export class Inspector {
   sl(label, get, set, opts) {
     const app = this.app;
     return slider(label, get(), {
+      def: LABEL_DEFAULTS[label],
       ...opts,
       onStart: () => app.beginChange(),
       onInput: v => { set(v); app.changed({ light: true, keepInspector: true }); },
@@ -242,6 +255,7 @@ export class Inspector {
     const fps = this.doc.canvas.fps || 30, tol = 0.5 / fps;
     const local = () => clamp(app.player.time - c.start, 0, c.duration);
     const row = slider(label, paramAt(c, path, local()), {
+      def: pathDefault(path),
       ...opts,
       onStart: () => app.beginChange(),
       onInput: v => { setParam(c, path, local(), v, tol); app.changed({ light: true, keepInspector: true }); refresh(); },
@@ -630,6 +644,8 @@ export class Inspector {
       el('p', { class: 'note', text: 'Darkens, blurs or magnifies everything on the tracks below except the focus area. Drag the box in the preview. ◆ sets a keyframe at the playhead: add two at different times and the callout moves between them.' }),
       selectRow('Shape', co.shape, [['rect', 'Rectangle'], ['ellipse', 'Ellipse'], ['freehand', 'Freehand']], v => { this.edit(() => { co.shape = v; }); if (v === 'freehand' && !(co.path && co.path.length > 2)) this.app.overlay.drawFreehand(c); }),
       co.shape === 'freehand' ? el('div', { class: 'btn-row' }, el('button', { class: 'tool', text: co.path?.length > 2 ? 'Redraw shape' : 'Draw shape', title: 'Draw around what matters, right on the preview', onclick: () => this.app.overlay.drawFreehand(c) })) : null,
+      co.shape === 'freehand' ? checkRow('Sharp corners', !!co.sharp, v => this.edit(() => { co.sharp = v; })) : null,
+      el('p', { class: 'note', text: 'Drag any point of the shape on the picture. Double-click a point to take it out, the outline to add one. A rectangle or ellipse becomes points to move as soon as you drag one.' }),
       checkRow('Follow pointer', co.follow, v => this.edit(() => { co.follow = v; })),
       this.sl('Build in', () => co.buildIn ?? 0.3, v => { co.buildIn = v; }, { min: 0, max: 3, step: 0.05, fmt: v => v.toFixed(2) + 's' }),
       this.sl('Build out', () => co.buildOut ?? 0.3, v => { co.buildOut = v; }, { min: 0, max: 3, step: 0.05, fmt: v => v.toFixed(2) + 's' }),
@@ -928,14 +944,17 @@ function calloutStarts(app, c, m) {
   const doc = app.doc;
   const over = doc.clips.filter(x => x.type === 'callout' && x.start < c.start + c.duration && x.start + x.duration > c.start);
   const add = ([kind, , name, , opts]) => {
-    const t = clamp(app.player.time, c.start, Math.max(c.start, c.start + c.duration - 0.5));
+    const t = clamp(app.player.time, c.start, c.start + c.duration);
     const k = newCalloutClip(null, t);
-    k.duration = Math.min(4, Math.max(0.5, c.start + c.duration - t));
+    k.duration = 4; // over whatever's below, past this clip's end too
     k.callout = { ...k.callout, ...opts };
     k.name = `Callout · ${name}`;
     app._insert(k);
     if (kind === 'freehand') app.overlay.drawFreehand(k);
-    else toast(kind === 'cursor' ? 'Spotlight on the pointer. Its look is in the Callout tab; drag the clip’s ends on the timeline to set when.' : 'Drag the box on the picture to place it, its corners to size it. Its look is in the Callout tab.', 4500);
+    else {
+      app.seek(t + (k.callout.buildIn ?? 0.3) + 0.05); // past its build-in: it shows at once
+      toast(kind === 'cursor' ? 'Spotlight on the pointer. Its look is in the Callout tab; drag the clip’s ends on the timeline to set when.' : 'Drag the box on the picture to place it, its corners to size it. Its look is in the Callout tab.', 4500);
+    }
     if (kind === 'cursor' && m && app.pointerBlind(m, app.player.cursors?.get?.(m.id))) toast('This recording can’t place its pointer yet: the Screen recording tab finds it in the picture.', 6000);
   };
   return section('Callout',

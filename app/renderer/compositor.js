@@ -1038,6 +1038,8 @@ function freehandPath(ctx, co, W, H) {
   const pts = co.path || [];
   if (pts.length < 3) { ctx.rect((co.x - co.w / 2) * W, (co.y - co.h / 2) * H, co.w * W, co.h * H); return; }
   const P = i => { const q = pts[(i + pts.length) % pts.length]; return [(co.x + q[0] * co.w) * W, (co.y + q[1] * co.h) * H]; };
+  // a shape of points with corners (a rectangle's, moved): straight lines
+  if (co.sharp) { ctx.moveTo(...P(0)); for (let i = 1; i < pts.length; i++) ctx.lineTo(...P(i)); ctx.closePath(); return; }
   const m0 = P(0), m1 = P(1);
   ctx.moveTo((m0[0] + m1[0]) / 2, (m0[1] + m1[1]) / 2);
   for (let i = 1; i <= pts.length; i++) { const a = P(i), b = P(i + 1); ctx.quadraticCurveTo(a[0], a[1], (a[0] + b[0]) / 2, (a[1] + b[1]) / 2); }

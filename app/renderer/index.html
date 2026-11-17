@@ -182,15 +182,15 @@
     <button class="tool" data-cmd="zoom-in" title="Zoom in around the playhead (⌘=)">+</button>
     <button class="tool" data-cmd="zoom-fit" title="Zoom all the way out: the whole project (⌘0)">FIT ALL</button>
     </div>
-    <div class="zoom-group vzoom-group" title="Track height: make every track shorter to see more of them, or taller to see more in each (⌘-scroll over the track names, ⌥⌘− / ⌥⌘=)">
-    <span class="engr small">↕ TRACKS</span>
-    <button class="tool" data-cmd="tracks-shorter" title="Shorter tracks: see more of them (⌥⌘−)">−</button>
-    <input type="range" id="tl-vzoom" min="22" max="160" step="1" value="58">
-    <button class="tool" data-cmd="tracks-taller" title="Taller tracks: bigger clips and waveforms (⌥⌘=)">+</button>
-    <button class="tool" data-cmd="tracks-fit" title="Every track in view at once (⌥⌘0). Click again to go back">FIT</button>
-    </div>
   </div>
   <div id="timeline">
+    <div id="tl-corner" title="Every track's height at once: small, medium or large (⌘-scroll over the track names for any size in between; ⌃ ⌄ on a track for that one alone)">
+      <span class="tc-label">TRACKS</span>
+      <button type="button" class="tc-size" data-size="S" title="Every track small: see the most of them">S</button>
+      <button type="button" class="tc-size" data-size="M" title="Every track medium">M</button>
+      <button type="button" class="tc-size" data-size="L" title="Every track large: big clips and waveforms">L</button>
+      <button type="button" class="tc-fit" data-cmd="tracks-fit" title="Every track in view at once (⌥⌘0). Click again to go back">FIT</button>
+    </div>
     <div id="tl-heads"></div>
     <div id="tl-scroll">
       <div id="tl-ruler"><canvas id="ruler"></canvas></div>

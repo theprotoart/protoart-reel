@@ -137,13 +137,14 @@ export function ask(title, text, okLabel = 'OK') {
 }
 
 /** A labelled slider row. onInput(value) while dragging; onCommit(value) on release. */
-export function slider(label, value, { min = 0, max = 1, step = 0.01, fmt = v => v.toFixed(2), onInput, onCommit, onStart } = {}) {
+export function slider(label, value, opts = {}) {
+  const { min = 0, max = 1, step = 0.01, fmt = v => v.toFixed(2), onInput, onCommit, onStart } = opts;
   const val = el('span', { class: 'val', text: fmt(value) });
   const input = el('input', { type: 'range', min, max, step, value });
   let started = false;
   input.addEventListener('input', () => { if (!started) { started = true; onStart && onStart(); } const v = Number(input.value); val.textContent = fmt(v); onInput && onInput(v); });
   input.addEventListener('change', () => { started = false; onCommit && onCommit(Number(input.value)); });
-  input.addEventListener('dblclick', () => { /* handled by caller via reset */ });
+  if (opts?.def != null && Number.isFinite(+opts.def)) input.dataset.def = String(opts.def); // double-click: back to it
   return el('div', { class: 'row' }, el('label', { text: label }), input, val);
 }
 
@@ -249,4 +250,22 @@ function watchProgress() {
 }
 if (typeof document !== 'undefined' && typeof MutationObserver !== 'undefined') {
   if (document.readyState === 'loading') document.addEventListener('DOMContentLoaded', watchProgress); else watchProgress();
+}
+
+// ------------------------------------------------------------------ double-click resets a slider (everywhere)
+// Its default when it has one (data-def), else where it was before you first touched it. The change goes through the
+// slider's own input and change events, so it lands like a drag: shown at once, one ⌘Z.
+if (typeof document !== 'undefined') {
+  const isRange = t => t instanceof HTMLInputElement && t.type === 'range' && !t.disabled;
+  document.addEventListener('pointerdown', e => { const t = e.target; if (isRange(t) && !('v0' in t.dataset)) t.dataset.v0 = t.value; }, true);
+  document.addEventListener('dblclick', e => {
+    const t = e.target;
+    if (!isRange(t)) return;
+    const v = t.dataset.def ?? t.dataset.v0;
+    if (v == null || v === '') return;
+    e.preventDefault();
+    t.value = v;
+    t.dispatchEvent(new Event('input', { bubbles: true }));
+    t.dispatchEvent(new Event('change', { bubbles: true }));
+  }, true);
 }

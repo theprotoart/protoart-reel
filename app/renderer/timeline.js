@@ -42,6 +42,9 @@ function actLabel(a) {
 }
 
 /** A short track's own classes: its knobs fold away (compact), then all but its name (tiny). */
+/** The sizes a track steps through (px): small, medium, large, extra large. */
+const TRACK_SIZES = [30, 58, 110, 170];
+
 const rowClass = h => (h < 34 ? ' rh-compact rh-tiny' : h < 50 ? ' rh-compact' : '');
 
 export class Timeline {
@@ -63,6 +66,9 @@ export class Timeline {
     }, { passive: false });
     this.vzoomInput = $('#tl-vzoom');
     this.vzoomInput?.addEventListener('input', () => this.setTrackHeight(+this.vzoomInput.value));
+    // the corner over the track names: every track small, medium or large (each track's own size is let go)
+    for (const b of document.querySelectorAll('#tl-corner .tc-size')) b.addEventListener('click', () => this.allTracks(b.dataset.size));
+    document.querySelector('#tl-corner .tc-fit')?.addEventListener('click', () => this.fitTracks());
     // zoom like a DAW: trackpad pinch, ⌘-scroll, or rolling a mouse wheel zooms around the pointer; a trackpad's
     // two-finger scroll still scrolls (⇧-wheel scrolls sideways, ⌥-wheel up and down)
     this.scroll.addEventListener('wheel', e => {
@@ -481,6 +487,7 @@ export class Timeline {
     tl?.classList.toggle('th-compact', h < 50); // the track's knobs fold away: name and keys only
     tl?.classList.toggle('th-tiny', h < 34);    // just the name
     if (this.vzoomInput) this.vzoomInput.value = h;
+    for (const b of document.querySelectorAll('#tl-corner .tc-size')) b.classList.toggle('on', TRACK_SIZES[{ S: 0, M: 1, L: 2 }[b.dataset.size]] === h);
     if (remember) { try { localStorage.setItem('reel.trackPx', JSON.stringify(h)); } catch { /* fine */ } }
     if (this.doc) { const mid = this.scroll.scrollTop; this.render(); this.scroll.scrollTop = mid; }
   }
@@ -500,6 +507,18 @@ export class Timeline {
   trackH() { return parseFloat(getComputedStyle(document.documentElement).getPropertyValue('--track-h')) || 58; }
   /** One track's own height: the tracks' height times its own factor (⌃ ⌄ on its header, or drag its lower edge). */
   rowH(tr) { return Math.round(Math.min(320, Math.max(22, this.trackH() * (tr.hk > 0 ? tr.hk : 1)))); }
+  /** Every track small, medium or large (S, M, L): each track's own size goes back to the others'. */
+  allTracks(size) {
+    const px = TRACK_SIZES[{ S: 0, M: 1, L: 2 }[size] ?? 1];
+    if (this.doc?.tracks.some(t => t.hk)) this.app.commit(() => { for (const t of this.doc.tracks) delete t.hk; });
+    this.setTrackHeight(px);
+  }
+  /** One track a size up or down (small, medium, large, extra large), as ScreenFlow's ⌃ ⌄ do. */
+  stepRow(tr, dir) {
+    const now = this.rowH(tr), sizes = TRACK_SIZES;
+    const next = dir > 0 ? sizes.find(v => v > now + 2) ?? sizes[sizes.length - 1] : [...sizes].reverse().find(v => v < now - 2) ?? sizes[0];
+    this.setRowH(tr, next / this.trackH());
+  }
   /** Makes one track taller or shorter (factor on the tracks' height), as one ⌘Z. */
   setRowH(tr, hk) {
     const k = Math.round(Math.min(6, Math.max(0.25, hk)) * 100) / 100;
@@ -738,8 +757,8 @@ export class Timeline {
     const rh = this.rowH(tr);
     // ScreenFlow's ⌃ ⌄: this track taller or shorter on its own (⌥-click: back to the others' height); or drag its lower edge
     const sizeKeys = el('span', { class: 'th-size' },
-      el('button', { type: 'button', text: '⌃', title: 'Make this track taller (⌥-click: the same height as the others)', onclick: e => { e.stopPropagation(); this.setRowH(tr, e.altKey ? 1 : (tr.hk || 1) * 1.3); } }),
-      el('button', { type: 'button', text: '⌄', title: 'Make this track shorter (⌥-click: the same height as the others)', onclick: e => { e.stopPropagation(); this.setRowH(tr, e.altKey ? 1 : (tr.hk || 1) / 1.3); } }));
+      el('button', { type: 'button', text: '⌃', title: 'This track a size bigger: small → medium → large (⌥-click: the same as the others)', onclick: e => { e.stopPropagation(); if (e.altKey) this.setRowH(tr, 1); else this.stepRow(tr, 1); } }),
+      el('button', { type: 'button', text: '⌄', title: 'This track a size smaller: large → medium → small (⌥-click: the same as the others)', onclick: e => { e.stopPropagation(); if (e.altKey) this.setRowH(tr, 1); else this.stepRow(tr, -1); } }));
     const edge = el('div', { class: 'th-resize', title: 'Drag to make this track taller or shorter · double-click: the same height as the others', ondblclick: () => this.setRowH(tr, 1) });
     edge.addEventListener('pointerdown', e => {
       if (e.button !== 0) return;

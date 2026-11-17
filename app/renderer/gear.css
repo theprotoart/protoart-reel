@@ -2547,3 +2547,18 @@ html[data-theme="light"] #inspector .ptr-blind .pb-text { color: #5a2d10; }
 #inspector .co-start b { font-size: 19px; line-height: 1; font-weight: 400; }
 #inspector .co-start span { font: 600 11px/1.1 var(--font-ui, system-ui); text-align: center; }
 html[data-theme="light"] #inspector .co-start { background: linear-gradient(#fff, #ebe8e1); color: #26221b; border-color: #bdb6a8; }
+/* a callout's real shape and its points */
+#overlay .co-shape { position: absolute; left: 0; top: 0; pointer-events: none; overflow: visible; }
+#overlay .co-shape path { fill: rgba(255,194,74,.06); stroke: #ffc24a; stroke-width: 1.5; stroke-dasharray: 5 4; pointer-events: stroke; cursor: copy; }
+#overlay .co-pt { position: absolute; width: 11px; height: 11px; margin: -6px 0 0 -6px; border-radius: 50%; background: #fff; border: 2px solid #ffc24a; box-shadow: 0 1px 3px rgba(0,0,0,.6); cursor: move; z-index: 40; pointer-events: auto; }
+#overlay .co-pt:hover { background: #ffc24a; transform: scale(1.25); }
+
+/* the corner over the track names: every track small, medium or large, or all in view */
+#tl-corner { position: absolute; left: 0; top: 0; width: var(--tl-head); height: 28px; z-index: 8; display: flex; align-items: center; gap: 3px; padding: 0 8px 0 10px; box-sizing: border-box;
+  background: linear-gradient(#141212, #0b0a0a); border-bottom: 1px solid #000; box-shadow: inset -2px 0 0 rgba(0,0,0,0.7); }
+#tl-corner .tc-label { font: 700 9px/1 var(--font-engrave, system-ui); letter-spacing: .16em; color: #8e8676; margin-right: auto; }
+#tl-corner button { height: 19px; min-width: 21px; padding: 0 5px; border-radius: 4px; border: 1px solid rgba(0,0,0,.8); background: linear-gradient(#3a3733, #282624); color: #d9d2c3; font: 700 10px/1 var(--font-engrave, system-ui); letter-spacing: .06em; cursor: pointer; }
+#tl-corner button:hover { color: #fff; }
+#tl-corner button.on { color: #2a1404; background: linear-gradient(#ffd77a, #e9a02c); }
+html[data-theme="light"] #tl-corner { background: linear-gradient(#ecebe7, #dcdbd6); }
+html[data-theme="light"] #tl-corner button { background: linear-gradient(#fff, #e6e3dc); color: #3a352c; border-color: #b9b2a3; }
