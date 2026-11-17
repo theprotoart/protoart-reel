@@ -23,16 +23,19 @@ fn apply_filter(buf: &mut [[f64; 4]], bw: usize, bh: usize, f: &Filter) {
         let k: Vec<f64> = (-r..=r).map(|i| (-(i * i) as f64 / (2.0 * sigma * sigma)).exp()).collect();
         let ks: f64 = k.iter().sum();
         let mut t = vec![[0f64; 4]; bw * bh];
-        for y in 0..bh { for x in 0..bw {
+        // along the rows, then down the columns: each pass's rows shared out over the cores
+        let src: &[[f64; 4]] = buf;
+        par_rows(&mut t, bw, |y, row| { for x in 0..bw {
             let mut acc = [0.0; 4];
-            for (j, kv) in k.iter().enumerate() { let xx = x as i64 + j as i64 - r; if xx >= 0 && (xx as usize) < bw { let q = buf[y * bw + xx as usize]; for c in 0..4 { acc[c] += q[c] * kv; } } }
-            for c in 0..4 { t[y * bw + x][c] = acc[c] / ks; }
-        } }
-        for y in 0..bh { for x in 0..bw {
+            for (j, kv) in k.iter().enumerate() { let xx = x as i64 + j as i64 - r; if xx >= 0 && (xx as usize) < bw { let q = src[y * bw + xx as usize]; for c in 0..4 { acc[c] += q[c] * kv; } } }
+            for c in 0..4 { row[x][c] = acc[c] / ks; }
+        } });
+        let t = &t;
+        par_rows(buf, bw, |y, row| { for x in 0..bw {
             let mut acc = [0.0; 4];
             for (j, kv) in k.iter().enumerate() { let yy = y as i64 + j as i64 - r; if yy >= 0 && (yy as usize) < bh { let q = t[yy as usize * bw + x]; for c in 0..4 { acc[c] += q[c] * kv; } } }
-            for c in 0..4 { buf[y * bw + x][c] = acc[c] / ks; }
-        } }
+            for c in 0..4 { row[x][c] = acc[c] / ks; }
+        } });
     }
     let (b, s) = (f.bright, f.sat);
     if (b - 1.0).abs() < 1e-9 && (s - 1.0).abs() < 1e-9 { return; }
@@ -127,6 +130,26 @@ fn shadow(acc: &mut [[f64; 3]], w: usize, h: usize, lk: &Look, alpha: f64) {
 }
 
 
+/// Runs f(row index, row) over the rows of `data` (rows of `width`), shared out over the cores. Each row is only
+/// ever touched by one thread, so the result is the same as going row by row.
+pub fn par_rows<T: Send>(data: &mut [T], width: usize, f: impl Fn(usize, &mut [T]) + Sync) {
+    if width == 0 || data.is_empty() { return; }
+    let rows = data.len() / width;
+    let n = std::thread::available_parallelism().map(|n| n.get()).unwrap_or(1).min(16).min(rows).max(1);
+    // small jobs aren't worth the threads
+    if n == 1 || data.len() < 32_768 {
+        for (y, row) in data.chunks_mut(width).enumerate() { f(y, row); }
+        return;
+    }
+    let per = rows.div_ceil(n);
+    std::thread::scope(|sc| {
+        for (i, chunk) in data.chunks_mut(per * width).enumerate() {
+            let f = &f;
+            sc.spawn(move || { for (j, row) in chunk.chunks_mut(width).enumerate() { f(i * per + j, row); } });
+        }
+    });
+}
+
 /// Bilinear sample of premultiplied colour at (u, v) (pixel centres at .5), kept inside the shown part `r`.
 fn sample(p: &Picture, r: &[f64; 4], u: f64, v: f64) -> [f64; 4] {
     let u = u.clamp(r[0] + 0.5, (r[2] - 0.5).max(r[0] + 0.5)) - 0.5;
@@ -205,9 +228,50 @@ pub fn draw(w: usize, h: usize, bg: [u8; 3], pictures: &[Picture], layers: &[Lay
         let (bx0, bx1, by0, by1) = (px0.saturating_sub(pad), (px1 + pad).min(w), py0.saturating_sub(pad), (py1 + pad).min(h));
         let bw = bx1.saturating_sub(bx0);
         let mut buf: Vec<[f64; 4]> = if filt.is_some() { vec![[0.0; 4]; bw * by1.saturating_sub(by0)] } else { Vec::new() };
-        for y in py0..py1 {
-            for x in px0..px1 {
+        // one pixel of the picture: its colour (premultiplied) and how much of the canvas pixel it covers. Every pixel
+        // is worked out on its own, so the rows are shared out over the cores (1.9) and the answer is the same
+        // a picture that's only moved and scaled (the usual case): where each column and each row samples the source
+        // is the same all the way down and across, so it's worked out once per column and per row, not per pixel. The
+        // same sums in the same order as sample(), so the same answer, several times faster (1.9)
+        let sep = b == 0.0 && c == 0.0;
+        let taps = |q: f64, n: usize, span: f64, lo: f64, hi: f64, size: usize| -> Vec<(usize, usize, f64)> {
+            (0..n).map(|i| {
+                let q = if n == 1 { q } else { q + at(i, n, span) };
+                let qq = q.clamp(lo + 0.5, (hi - 0.5).max(lo + 0.5)) - 0.5;
+                let q0 = qq.floor();
+                let (i0, i1) = ((q0 as i64).clamp(0, size as i64 - 1) as usize, (q0 as i64 + 1).clamp(0, size as i64 - 1) as usize);
+                (i0, i1, qq - q0)
+            }).collect()
+        };
+        let (mut ucol, mut vrow, mut tu, mut tv) = (Vec::new(), Vec::new(), Vec::new(), Vec::new());
+        if sep {
+            for x in px0..px1 { let u = ia * (x as f64 + 0.5) + ic * 0.5 + ie; ucol.push(u); tu.extend(taps(u, nu, wu, r[0], r[2], p.w)); }
+            for y in py0..py1 { let v = ib * 0.5 + id * (y as f64 + 0.5) + if_; vrow.push(v); tv.extend(taps(v, nv, wv, r[1], r[3], p.h)); }
+        }
+        let fetch = |x: usize, y: usize| -> [f64; 4] {
+            let o = (y * p.w + x) * 4;
+            let a = p.rgba[o + 3] as f64 / 255.0;
+            [p.rgba[o] as f64 * a, p.rgba[o + 1] as f64 * a, p.rgba[o + 2] as f64 * a, a]
+        };
+        let pixel = |x: usize, y: usize| -> Option<([f64; 4], f64)> {
                 let (cx, cy) = (x as f64 + 0.5, y as f64 + 0.5);
+                if sep {
+                    let (u, v) = (ucol[x - px0], vrow[y - py0]);
+                    if !(u >= r[0] && u < r[2] && v >= r[1] && v < r[3]) { return None; }
+                    let cov = match &clip { Some((lk, ib)) => { let (bx, by) = box_at(lk, ib, cx, cy); (0.5 - rr_dist(bx, by, lk.w, lk.h, lk.radius)).clamp(0.0, 1.0) } None => 1.0 };
+                    if cov <= 0.0 { return None; }
+                    let mut s = [0.0; 4];
+                    for j in 0..nv {
+                        let (y0, y1, fy) = tv[(y - py0) * nv + j];
+                        for i in 0..nu {
+                            let (x0, x1, fx) = tu[(x - px0) * nu + i];
+                            let (a, b, c, d) = (fetch(x0, y0), fetch(x1, y0), fetch(x0, y1), fetch(x1, y1));
+                            for k in 0..4 { s[k] += (a[k] * (1.0 - fx) + b[k] * fx) * (1.0 - fy) + (c[k] * (1.0 - fx) + d[k] * fx) * fy; }
+                        }
+                    }
+                    if nu * nv > 1 { let n = (nu * nv) as f64; for k in 0..4 { s[k] /= n; } }
+                    return Some((s, cov));
+                }
                 let (u, v) = (ia * cx + ic * cy + ie, ib * cx + id * cy + if_);
                 // how much of this canvas pixel the picture covers. Straight (not turned, or turned a quarter): a pixel is
                 // in when its centre is, hard edges, as the browser's canvas draws it; turned: each edge smooth.
@@ -219,7 +283,7 @@ pub fn draw(w: usize, h: usize, bg: [u8; 3], pictures: &[Picture], layers: &[Lay
                 };
                 // rounded corners (or a border): the picture is cut to the box with smooth edges
                 let cov = match &clip { Some((lk, ib)) => { let (bx, by) = box_at(lk, ib, cx, cy); cov * (0.5 - rr_dist(bx, by, lk.w, lk.h, lk.radius)).clamp(0.0, 1.0) } None => cov };
-                if cov <= 0.0 { continue; }
+                if cov <= 0.0 { return None; }
                 let mut s = [0.0; 4];
                 if nu == 1 && nv == 1 { s = sample(p, &r, u, v); } else {
                     for j in 0..nv {
@@ -231,11 +295,27 @@ pub fn draw(w: usize, h: usize, bg: [u8; 3], pictures: &[Picture], layers: &[Lay
                     let n = (nu * nv) as f64;
                     for k in 0..4 { s[k] /= n; }
                 }
-                if filt.is_some() { buf[(y - by0) * bw + x - bx0] = [s[0] * cov, s[1] * cov, s[2] * cov, s[3] * cov]; continue; }
-                let k = cov * l.alpha;
-                let o = &mut acc[y * w + x];
-                for ch in 0..3 { o[ch] = s[ch] * k + o[ch] * (1.0 - s[3] * k); }
+                Some((s, cov))
+        };
+        if filt.is_some() {
+            if py1 > py0 && bw > 0 {
+                let (r0, r1) = ((py0 - by0) * bw, (py1 - by0) * bw);
+                par_rows(&mut buf[r0..r1], bw, |j, row| {
+                    let y = py0 + j;
+                    for x in px0..px1 { if let Some((s, cov)) = pixel(x, y) { row[x - bx0] = [s[0] * cov, s[1] * cov, s[2] * cov, s[3] * cov]; } }
+                });
             }
+        } else if py1 > py0 {
+            let alpha = l.alpha;
+            par_rows(&mut acc[py0 * w..py1 * w], w, |j, row| {
+                let y = py0 + j;
+                for x in px0..px1 {
+                    let Some((s, cov)) = pixel(x, y) else { continue };
+                    let k = cov * alpha;
+                    let o = &mut row[x];
+                    for ch in 0..3 { o[ch] = s[ch] * k + o[ch] * (1.0 - s[3] * k); }
+                }
+            });
         }
         // the filter, then the layer laid down at its opacity
         if let Some(fl) = filt {
@@ -366,5 +446,22 @@ mod tests {
         for y in 0..64 { for x in 0..64 { if (x + y) % 2 == 0 { let o = (y * 64 + x) * 4; pic.rgba[o..o + 3].copy_from_slice(&[255, 255, 255]); } } }
         let out = draw(16, 16, [0, 0, 0], &[pic], &[Layer { src: 0, alpha: 1.0, m: [0.25, 0.0, 0.0, 0.25, 0.0, 0.0], rect: [0.0, 0.0, 64.0, 64.0], look: None, fill: None, filter: None, grade: None }]);
         for px in out.chunks(4) { assert!((px[0] as i32 - 128).abs() <= 8, "{}", px[0]); }
+    }
+}
+
+#[cfg(test)]
+mod bench {
+    use super::*;
+    /// cargo test --release bench_draw -- --ignored --nocapture
+    #[test]
+    #[ignore]
+    fn bench_draw() {
+        let (sw, sh) = (2880usize, 1800usize);
+        let pic = Picture { w: sw, h: sh, rgba: (0..sw * sh).flat_map(|i| [(i * 7) as u8, (i >> 9) as u8, 128, 255]).collect() };
+        let k = 1080.0 / sh as f64 * 1.4;
+        let l = Layer { src: 0, alpha: 1.0, m: [k, 0.0, 0.0, k, 960.0 - sw as f64 * k / 2.0, 540.0 - sh as f64 * k / 2.0], rect: [0.0, 0.0, sw as f64, sh as f64], look: None, fill: None, filter: None, grade: None };
+        let t = std::time::Instant::now();
+        for _ in 0..5 { let _ = draw(1920, 1080, [0, 0, 0], std::slice::from_ref(&pic), std::slice::from_ref(&l)); }
+        eprintln!("draw 1080p from 2880×1800 at 1.4×: {:.1} ms", t.elapsed().as_secs_f64() * 1000.0 / 5.0);
     }
 }

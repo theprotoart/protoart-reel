@@ -46,7 +46,11 @@ pub fn grade(p: &Picture, g: &Grade) -> Picture {
     let (tx, ty) = (1.0 / w as f64, 1.0 / h as f64);
     let mut out = vec![0u8; w * h * 4];
     let lum = |c: [f64; 3]| c[0] * 0.2126 + c[1] * 0.7152 + c[2] * 0.0722;
-    for y in 0..h {
+    // worked out once, not per pixel (the same numbers: x^1 is x, and 2^exposure doesn't change)
+    let (expo, inv_g) = (g.exposure.exp2(), 1.0 / g.gamma_v.max(0.05));
+    let inv_gam = [1.0 / g.gam[0].max(0.05), 1.0 / g.gam[1].max(0.05), 1.0 / g.gam[2].max(0.05)];
+    // each pixel on its own, as the GPU does it: the rows shared out over the cores (1.9)
+    crate::frame::par_rows(&mut out, w * 4, |y, row| {
         for x in 0..w {
             let (u, v) = ((x as f64 + 0.5) / w as f64, (y as f64 + 0.5) / h as f64);
             let src = tex(p, u, v);
@@ -72,9 +76,9 @@ pub fn grade(p: &Picture, g: &Grade) -> Picture {
             for i in 0..3 {
                 c[i] = c[i] * g.m_mul[i] + g.m_add[i];
                 c[i] = ((c[i] - g.in_black) / (g.in_white - g.in_black).max(0.01)).clamp(0.0, 1.0);
-                c[i] = c[i].powf(1.0 / g.gamma_v.max(0.05));
+                if inv_g != 1.0 { c[i] = c[i].powf(inv_g); }
                 c[i] = g.out_black + c[i] * (g.out_white - g.out_black) + g.brightness;
-                c[i] *= g.exposure.exp2();
+                c[i] *= expo;
             }
             let l = lum(c);
             let (sh, hi) = (g.shadows * 0.5 * (1.0 - smoothstep(0.0, 0.5, l)) * (1.0 - l), g.highlights * 0.5 * smoothstep(0.5, 1.0, l) * l);
@@ -84,7 +88,7 @@ pub fn grade(p: &Picture, g: &Grade) -> Picture {
             c[2] += -g.temperature * 0.12 + g.tint * 0.06;
             for i in 0..3 {
                 c[i] = g.gain[i] * (c[i] + g.lift[i] * (1.0 - c[i]));
-                c[i] = c[i].max(0.0).powf(1.0 / g.gam[i].max(0.05));
+                c[i] = if inv_gam[i] != 1.0 { c[i].max(0.0).powf(inv_gam[i]) } else { c[i].max(0.0) };
             }
             let gr = lum(c);
             let sat = c[0].max(c[1]).max(c[2]) - c[0].min(c[1]).min(c[2]);
@@ -96,11 +100,11 @@ pub fn grade(p: &Picture, g: &Grade) -> Picture {
                 let f = 1.0 - g.vignette * smoothstep(0.25, 0.85, d);
                 for i in 0..3 { c[i] *= f; }
             }
-            let o = (y * w + x) * 4;
-            for i in 0..3 { out[o + i] = (c[i].clamp(0.0, 1.0) * 255.0).round() as u8; }
-            out[o + 3] = (a.clamp(0.0, 1.0) * 255.0).round() as u8;
+            let o = x * 4;
+            for i in 0..3 { row[o + i] = (c[i].clamp(0.0, 1.0) * 255.0).round() as u8; }
+            row[o + 3] = (a.clamp(0.0, 1.0) * 255.0).round() as u8;
         }
-    }
+    });
     Picture { w, h, rgba: out }
 }
 
