@@ -138,7 +138,7 @@ export async function textEditor(app) {
     textBox,
     el('div', { class: 'row tx-row' },
       btn('CUT SELECTED', 'Cut the words you selected (or press Delete)', () => cut(selectedRanges(), 'selected words')),
-      btn('REMOVE FILLERS', 'Cut um, uh, you know, standalone like…', () => cut(fillerRanges(words), 'filler words')),
+      btn('REMOVE FILLERS', 'Cut um, uh, you know, standalone like…', () => { const r = fillerRanges(words); app.deck?.tally(r.length, 'filler words cut'); cut(r, 'filler words'); }),
       btn('TIGHTEN PAUSES', 'Shorten every pause over 0.8 s to 0.3 s', () => cut(pauseRanges(words, { longer: 0.8, keep: 0.3 }), 'long pauses'))),
     status,
     el('p', { class: 'note', text: 'Click a word to jump there; drag or ⇧-click to select several, then Delete cuts them from every track (ripple). Captions and markers move with the edit.' }));

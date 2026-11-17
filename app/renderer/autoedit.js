@@ -492,14 +492,17 @@ export async function runAutoEdit(app, recipeId, o) {
     // 3 · ums and dead air
     if (o.clean !== 'off' && words.length) {
       step('Cutting ums and dead air');
-      let ranges = [...fillerRanges(words), ...pauseRanges(words, o.clean === 'tight' ? { longer: 0.45, keep: 0.2 } : { longer: 0.9, keep: 0.35 })];
+      const fillers = fillerRanges(words);
+      app.deck?.tally(fillers.length, 'filler words found by Auto Edit', { done: !umModel() });
+      let ranges = [...fillers, ...pauseRanges(words, o.clean === 'tight' ? { longer: 0.45, keep: 0.2 } : { longer: 0.9, keep: 0.35 })];
       // the ums you taught Reel (🎙 in UMS): found in your voice, including the ones speech recognition didn't write
       // down; only the sure matches are cut here
       if (umModel()) {
         try {
           const yours = (await findYourUms(app, speechClips(app.doc, ''), t => { what.textContent = t; })).filter(y => y.sure); // everything you taught Reel: ums, uhs and your own sounds (breaths, sneezes…)
           if (yours.length) { ranges.push(...yours.map(y => ({ t: y.t, end: y.end }))); report.push(`${yours.length} of your ums found by ear`); }
-        } catch { /* listening for them failed: the words are still used */ }
+          app.deck?.tally(fillers.length + yours.length, 'filler words found by Auto Edit');
+        } catch { app.deck?.tally(fillers.length, 'filler words found by Auto Edit'); /* listening for them failed: the words are still used */ }
       }
       // sped-up clips (time-lapses, fast-forwards) are quiet on purpose: they stay whole
       if (o.keepSped !== false) {

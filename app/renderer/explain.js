@@ -51,7 +51,7 @@ const HELP = {
   '[data-cmd=zoom-fit]': ['Fit all', 'Zoom all the way out so the whole project fits (⌘0).'],
   '#tl-ruler': ['Ruler', 'Click or drag to move the playhead. In and out points show as shading.'],
   '#playhead': ['Tape head', 'The playhead. Drag it to scrub; during playback, dragging keeps playing when you let go. Its lamp lights while the tape rolls.'],
-  '.deck-index': ['Tape counter', 'A mechanical index counter: it rolls with the tape, one count per second. Press ZERO to set it to 0000 at the playhead, so you can measure from any point.'],
+  '.deck-index': ['Ums counter', 'Shows up beside the time while Reel scans for filler words (FILLERS, Auto Edit, Remove fillers) and counts the ums as it finds them, the drums rolling one by one. It slides away a few seconds after the last count; click it to put it away sooner.'],
   '.dial': ['Knob', 'Drag up or down to turn (⇧ for fine), scroll, or double-click to reset.'],
   '.kf': ['Keyframe', 'A point where a setting changes. Drag to move it in time; right-click to delete or change easing.'],
   '.pbtn': null, // lit buttons use their own label/tooltip

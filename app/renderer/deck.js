@@ -101,6 +101,8 @@ function makeVu(label) {
  * turns smoothly; each higher drum rolls over only while the one below goes from 9 to 0, as on a
  * real odometer.
  */
+const TAPE_TITLE = 'Ums counter: the filler words Reel finds as it scans (FILLERS, Auto Edit, Remove fillers). Click to put it away.';
+
 function makeCounter() {
   const drums = [];
   const box = el('div', { class: 'deck-drums' });
@@ -143,10 +145,12 @@ export class Deck {
     const counters = el('div', { class: 'deck-counter' }, ...['#timecode', '#duration'].map(s => host.querySelector(s)));
     // mechanical tape counter with a ZERO button
     this.counter = makeCounter();
-    this.zero = 0;
-    const index = el('div', { class: 'deck-index', title: 'Tape counter: one count per second. ZERO sets it to 0000 at the playhead.' },
+    // only shown while Reel counts filler words (a FILLERS scan, Auto Edit, Remove fillers), then it slides away
+    this.zeroBtn = el('span', { class: 'deck-zero engr', text: 'UMS' });
+    const index = this.index = el('div', { class: 'deck-index', title: TAPE_TITLE, onclick: () => this.untally() },
       el('div', { class: 'drum-window' }, this.counter.el),
-      el('button', { class: 'deck-zero', type: 'button', text: 'ZERO', onclick: () => { this.zero = this.app.player.time ?? this.last ?? 0; this.counter.set(0); } }));
+      this.zeroBtn);
+    this.tallying = false; this.tallyAt = 0; this.tallyRaf = 0; this.tallyHide = 0;
     const zoom = host.querySelector('#preview-zoom');
     // tape-speed switch
     const speeds = [[0.5, '3¾'], [1, '7½'], [2, '15']];
@@ -211,6 +215,38 @@ export class Deck {
     void well;
   }
 
+  /**
+   * The ums counter: it shows up beside the time when a scan for filler words starts (at 0000), rolls up to n as they're
+   * found, the drums turning one by one, and slides away a few seconds after the last count (or when clicked).
+   * label says what it counts, for its tooltip. done: that's the final count (it goes away after it).
+   */
+  tally(n, label = 'filler words found', { done = true } = {}) {
+    n = Math.max(0, Math.min(9999, Math.round(n) || 0));
+    const from = this.tallying ? this.tallyAt : 0;
+    if (!this.tallying) this.counter.set(0);
+    this.tallying = true;
+    this.index.classList.add('tally');
+    cancelAnimationFrame(this.tallyRaf); clearTimeout(this.tallyHide);
+    const t0 = performance.now(), dur = Math.min(1800, 250 + Math.abs(n - from) * 45);
+    const roll = now => {
+      const k = Math.min(1, (now - t0) / dur), e = 1 - (1 - k) ** 3;
+      this.tallyAt = from + (n - from) * e;
+      this.counter.set(this.tallyAt);
+      if (k < 1) this.tallyRaf = requestAnimationFrame(roll);
+      else { this.tallyAt = n; if (done) this.tallyHide = setTimeout(() => this.untally(), 8000); }
+    };
+    this.tallyRaf = requestAnimationFrame(roll);
+    this.index.title = `${n} ${label}${done ? '' : ' so far'}. Click to put it away.`;
+  }
+  /** Puts the ums counter away. */
+  untally() {
+    if (!this.tallying) return;
+    cancelAnimationFrame(this.tallyRaf); clearTimeout(this.tallyHide);
+    this.tallying = false; this.tallyAt = 0;
+    this.index.classList.remove('tally');
+    this.index.title = TAPE_TITLE;
+  }
+
   setFill(k) { this.supply.setFill(1 - k); this.takeup.setFill(k); }
 
   onTime(t) {
@@ -227,7 +263,6 @@ export class Deck {
       this.takeup.turn(deg / Math.max(0.3, this.takeup.r));
     }
     this.last = t;
-    this.counter.set(t - this.zero);
     this.app.$playKey?.classList.toggle('latched', this.app.player.playing);
     if (this.app.shuttle > 0 && !this.app.player.playing) this.app.setShuttle(0);
     this.app.timeline?.playheadEl?.classList.toggle('rolling', this.app.player.playing);

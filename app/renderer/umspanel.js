@@ -22,14 +22,16 @@ const CATS = [['all', 'All'], ['um', 'Um · uh'], ['phrase', 'Like · you know']
  * Reel (🎙), it also listens for those in your voice, and the guessed "sounds between words" are left out.
  */
 async function listen(app, { locale, track }, onStatus) {
+  app.deck?.tally(0, 'filler words found', { done: false });
   const words = await timelineWords(app, { locale, track }, onStatus);
   onStatus?.('Looking for ums between the words…', 1);
   const clips = speechClips(app.doc, track);
   const trained = !!umModel();
   let found = [];
   if (trained) {
-    const yours = await findYourUms(app, clips, onStatus);
     const heard = findUms(words, null);
+    app.deck?.tally(heard.length, 'filler words found', { done: false });
+    const yours = await findYourUms(app, clips, onStatus);
     found = [...heard, ...yours.filter(y => !heard.some(h => h.t < y.end && h.end > y.t)).map(y => ({ t: y.t, end: y.end, text: y.word === 'umm' ? 'um' : y.word, kind: 'voice', cut: y.sure }))]; // every sound you taught (ums, breaths, sneezes…) is marked CUT when Reel is sure
   } else {
     const sources = await Promise.all(clips.map(async clip => ({ clip, peaks: await peaksFor(app, mediaById(app.doc, clip.media)).catch(() => null) })));
@@ -38,6 +40,7 @@ async function listen(app, { locale, track }, onStatus) {
   const trackAt = t => clips.find(c => t >= c.start - 0.01 && t < c.start + c.duration)?.track;
   found = found.sort((a, b) => a.t - b.t).map(u => ({ id: uid('um'), t: +u.t.toFixed(3), end: +u.end.toFixed(3), text: u.text, kind: u.kind, cut: u.cut, track: trackAt(u.t) }));
   app.commit(d => { d.ums = [...found, ...(d.ums || []).filter(u => u.kind === 'find')]; });
+  app.deck?.tally(found.length, 'filler words found');
   return found;
 }
 
@@ -238,7 +241,7 @@ export function openUms(app) {
       const found = await listen(app, { locale: lang.value, track: track.value }, t => { status.textContent = t; });
       const n = found.filter(u => u.cut).length;
       status.textContent = found.length ? `${found.length} found, ${n} marked CUT.${umModel() ? '' : ' 🎙 Teach Reel your ums to find the ones it can’t hear as words.'}` : '';
-    } catch (e) { status.textContent = e.message; }
+    } catch (e) { status.textContent = e.message; app.deck?.untally(); }
     finally { busy = false; refresh(true); }
   });
   const timer = setInterval(() => refresh(), 700);
