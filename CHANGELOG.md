@@ -1,6 +1,7 @@
 # Changelog
 
 ## 1.11.0 — 2026-11-16
+- Remove from project (right-click a file in the media bin) just takes it out of the project's media list: no question, nothing goes to the Trash. The file you brought in stays where it was (the desktop, an external drive; Reel always worked from its own copy), and ⌘Z puts it back.
 - Tell Reel what a sound is before you use it: every sound in the media bin has a kind chip (🎙 DIALOGUE, 🎵 MUSIC, 💥 SFX, or ＋ KIND). Click it to go round them, or right-click the sound. Reel guesses where it can (your mic recordings are dialogue, its own sound effects are effects; shown dashed). Dragged onto the timeline (or double-clicked), a sound with a kind goes on a track of that kind: dropped on a track marked for something else (music on the dialogue track), it goes on the right one instead, made and named if there's none (Music, Dialogue, Sound FX), and Reel says where it went.
 - Rust core 1.6: the frame drawing does blur, exposure and colour moves (and the transitions made of them, like exposure burn) the way the editor's canvas filter does: a soft blur that spreads past the edges, brightness, then saturation, by the CSS formulas. Checked against the editor's drawing (over 50 dB alike). Not used for exports yet.
 - Rust core 1.5: the frame drawing does dips to black and to white (and the flash transitions' white) and stabilized clips (the picture moved against the shake inside its box, which cuts it), the way the editor draws them. Checked against the editor's drawing. Not used for exports yet.

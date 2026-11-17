@@ -282,7 +282,7 @@ export class Library {
       ['Add to Global Library', () => app.api.globalAdd(app.token, m.file, m.name).then(() => toast('Added to the Global Library: every project can use it now.'), e => toast(e.message))],
       ['Open Global Library…', () => app.cmd('global-library')],
       null,
-      used ? [`Remove from project with its ${app.doc.clips.filter(c => c.media === m.id).length} clip(s)…`, () => app.removeUsedMedia(m)] : ['Remove from project…', () => app.removeMedia(m)],
+      used ? [`Remove from project with its ${app.doc.clips.filter(c => c.media === m.id).length} clip(s)…`, () => app.removeUsedMedia(m)] : ['Remove from project', () => app.removeMedia(m)],
     ]);
   }
 

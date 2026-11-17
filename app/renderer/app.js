@@ -901,13 +901,13 @@ class App {
     });
     toast(`${list.length} files of the recording laid down in sync. They move together (UNGROUP to split them).`, 4500);
   }
-  async removeMedia(m) {
-    if (!(await ask('Remove from project?', `“${m.name}” isn’t used on the timeline. Move the file to the Trash?`, 'Move to Trash'))) return;
-    try {
-      await api.deleteMedia(this.token, m.file);
-      this.commit(doc => { doc.media = doc.media.filter(x => x !== m); });
-      await this.save();
-    } catch (e) { toast(e.message); }
+  /**
+   * Takes a file out of the project's media list, nothing more: no question, nothing thrown away. The file you brought
+   * in stays where it was (on the desktop, an external drive…; Reel worked from its own copy), and ⌘Z puts it back.
+   */
+  removeMedia(m) {
+    this.commit(doc => { doc.media = doc.media.filter(x => x.id !== m.id); });
+    toast(`Removed “${m.name}” from the project. The file you brought in is where it was; ⌘Z puts it back.`, 4500);
   }
 
   /** Takes media off the timeline and out of the library (undoable). Its file stays in the project folder. */
