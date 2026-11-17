@@ -87,8 +87,9 @@ export class ProxyQueue {
     this.busy = null; this.rid = null; this.total = 0; this.done = 0; this._emit();
   }
 
+  /** A proxy already on disk for m at this size (div), or at any size smaller than it (div null): { file, width, height, duration }. */
   async _existing(m, div) {
-    const stem = String(m.file).replace(/\.[^.]+$/, ''), want = Math.round((m.height || 0) / div);
+    const stem = String(m.file).replace(/\.[^.]+$/, ''), want = div ? Math.round((m.height || 0) / div) : null;
     for (const name of [`${stem} proxy.mp4`, `${stem} proxy-2.mp4`, `${stem} proxy-3.mp4`]) {
       const url = `app://reel/m/${this.app.token}/${encodeURIComponent(name)}`;
       const dims = await new Promise(res => {
@@ -98,7 +99,7 @@ export class ProxyQueue {
         v.onerror = () => done(null); setTimeout(() => done(null), 4000);
         v.src = url;
       });
-      if (dims && Math.abs(dims.height - want) <= 2 && Math.abs(dims.duration - (m.duration || dims.duration)) < 1) return { file: name, ...dims };
+      if (dims && (want == null ? dims.height < (m.height || Infinity) : Math.abs(dims.height - want) <= 2) && Math.abs(dims.duration - (m.duration || dims.duration)) < 1) return { file: name, ...dims };
     }
     return null;
   }
@@ -140,6 +141,13 @@ export class ProxyQueue {
       if (/Cancelled/.test(e.message)) return;
       if (rid) app.api.renderCancel(rid);
       const live = app.doc?.media.find(x => x.id === m.id);
+      // a copy already made another way (a clean copy, an older proxy at another size): play that
+      const other = live ? await this._existing(m, null).catch(() => null) : null;
+      if (live && other && app.token === token) {
+        live.proxy = { file: other.file, of: m.file, div: Math.max(1, Math.round((m.height || other.height) / other.height)), width: other.width, height: other.height, clean: true };
+        delete live.proxyFailed; app.setDirty(true); app.player.reloadMedia?.(m.id);
+        return;
+      }
       if (live) live.proxyFailed = true; // plays from the original from now on
       // the preview may well show it black too: the strip on the preview offers a clean copy made by macOS
       if (live) pictureTrouble(app, live, 'proxy');

@@ -52,7 +52,9 @@ export async function cleanCopy(app, m, onProgress) {
   const off = app.api.onCleanProxyProgress?.((file, v) => { if (file === m.file) onProgress?.(v); });
   try {
     const token = app.token;
-    const r = await app.api.cleanProxy(token, m.file);
+    // a copy already in the project folder (made earlier, another way): use it
+    const have = await app.proxies?._existing?.(m, null).catch(() => null);
+    const r = have || await app.api.cleanProxy(token, m.file);
     if (app.token !== token) return false;
     const live = app.doc.media.find(x => x.id === m.id);
     if (!live) return false;
@@ -64,8 +66,10 @@ export async function cleanCopy(app, m, onProgress) {
     toast(`“${m.name}”: the preview now plays its clean copy. Export still uses the original.`, 5000);
     return true;
   } catch (e) {
-    const old = /unknown kind/i.test(e.message);
-    toast(old ? 'Reel’s helper needs rebuilding for this: run “Build ProtoArt Reel”, open Reel again and try once more.' : `Couldn’t make a clean copy of “${m.name}”: ${e.message}`, 8000);
+    const old = /unknown kind/i.test(e.message), broken = /decode/i.test(e.message);
+    toast(old ? 'Reel’s helper needs rebuilding for this: run “Build ProtoArt Reel”, open Reel again and try once more.'
+      : broken ? `“${m.name}” is damaged: macOS itself can’t read its picture, so it can’t make a copy either. The sound and the rest of the project are fine. Replace it with a repaired copy (media panel › right-click › Replace file…); a proxy named “<file> proxy.mp4” in the media folder is used for the preview.`
+      : `Couldn’t make a clean copy of “${m.name}”: ${e.message.replace(/^Error invoking remote method '[^']+': (Error: )?/, '')}`, 10000);
     return false;
   } finally { busy.delete(m.id); off?.(); }
 }

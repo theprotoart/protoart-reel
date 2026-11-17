@@ -2,6 +2,8 @@
 
 ## 1.11.0 — 2026-11-16
 
+- Clean preview copy: uses a copy already in the project's media folder (any size) before asking macOS, and the preview's own proxy maker does too when it can't read a video. A recording macOS can't read at all now says so plainly.
+
 - Teach Reel your ums: asks for at least 10 takes of each sound (new ones you add too), and marks any sound with fewer as needing more, with how many.
 
 - Rust core 1.13: background graphics (Gradient flow, Tech grid, Bokeh…) no longer send an export the slow way: the editor draws them into their own place in the core's stack (under or between the videos, as on the timeline).
