@@ -2160,6 +2160,10 @@ class App {
     try { scrub.checked = localStorage.getItem('reel.scrubAudio') === '1'; } catch { /* default off */ }
     scrub.addEventListener('change', () => { try { localStorage.setItem('reel.scrubAudio', scrub.checked ? '1' : '0'); } catch { /* fine */ } });
     $('#t-play').addEventListener('click', () => { if (this.shuttle) { this.stopShuttle(); if (!this.player.playing) this.player.play(); } else this.player.toggle(); });
+    // the deck's buttons don't keep the keyboard: clicked, they'd stay lit with a focus ring (REW looking held down
+    // while it plays) and Space would press them again instead of play / stop
+    $('#transport').addEventListener('mousedown', e => { if (e.target.closest('button')) e.preventDefault(); });
+    $('#transport').addEventListener('click', e => { const b = e.target.closest('button'); if (b && document.activeElement === b) b.blur(); });
     $('#t-start').addEventListener('click', () => { this.stopShuttle(); this.seek(0); });
     $('#t-end').addEventListener('click', () => { this.stopShuttle(); this.seek(duration(this.doc)); });
     const frame = () => 1 / (this.doc?.canvas.fps || 30);

@@ -2,6 +2,8 @@
 
 ## 1.11.0 — 2026-11-16
 
+- The deck's buttons (REW, FRAME, PLAY…) no longer stay lit after a click, and Space always plays / stops instead of pressing the last button again.
+
 - 🎯 Punch in on an area: click 🎯 on the preview (under ✎), the new button at the top of Video motion, EFFECTS ▾ or the clip's right-click menu, and drag a box around what to show. The picture pushes in until the box fills the screen, holds and comes back out (or stays in). Quick push is now called 🎯 Punch in & out, and its zoom goes up to 500%.
 
 - A rectangle or ellipse callout (Area, Magnify) now has only sizing handles: drag any corner or side to size it (the opposite side stays put, ⇧ sizes from the centre). Moving single points is just for Freehand shapes.
