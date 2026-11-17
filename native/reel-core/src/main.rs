@@ -28,6 +28,7 @@
 
 mod analyze;
 mod mp4;
+mod frame;
 mod media;
 mod mix;
 mod stretch;
@@ -185,6 +186,39 @@ fn mp4head_job(inp: &mut Input) -> Result<String, String> {
     Ok(format!("{{\"ok\":true,\"head\":\"{}\"}}", head.iter().map(|b| format!("{:02x}", b)).collect::<String>()))
 }
 
+/// frame (1.3): draws one frame from lib/frameplan.js layers and writes its pixels (RGBA, row by row) to a new file.
+/// Body: width u32 · height u32 · background r, g, b u8 · pictures u32, each width u32 · height u32 · RGBA bytes ·
+/// layers u32, each picture u32 · alpha f64 · matrix 6 × f64 · shown part 4 × f64 · output path.
+fn frame_job(inp: &mut Input) -> Result<String, String> {
+    let (w, h) = (inp.u32()?, inp.u32()?);
+    if w == 0 || h == 0 || w > 8192 || h > 8192 { return Err("bad frame size".into()); }
+    let bg = [inp.u8()?, inp.u8()?, inp.u8()?];
+    let np = inp.count(8)?;
+    if np > 64 { return Err("too many pictures".into()); }
+    let mut pictures = Vec::with_capacity(np);
+    for _ in 0..np {
+        let (pw, ph) = (inp.u32()?, inp.u32()?);
+        if pw == 0 || ph == 0 || pw > 16384 || ph > 16384 { return Err("bad picture size".into()); }
+        pictures.push(frame::Picture { w: pw, h: ph, rgba: inp.take(pw * ph * 4)?.to_vec() });
+    }
+    let nl = inp.count(4 + 8 * 11)?;
+    let mut layers = Vec::with_capacity(nl);
+    for _ in 0..nl {
+        let src = inp.u32()?;
+        let alpha = inp.f64()?;
+        let mut m = [0.0; 6]; for v in m.iter_mut() { *v = inp.f64()?; }
+        let mut rect = [0.0; 4]; for v in rect.iter_mut() { *v = inp.f64()?; }
+        if src >= pictures.len() || !(0.0..=1.0).contains(&alpha) || m.iter().chain(rect.iter()).any(|v| !v.is_finite()) || rect[2] <= rect[0] || rect[3] <= rect[1] { return Err("bad layer".into()); }
+        layers.push(frame::Layer { src, alpha, m, rect });
+    }
+    let out = inp.path()?;
+    let px = frame::draw(w, h, bg, &pictures, &layers);
+    use std::io::Write;
+    let mut f = std::fs::OpenOptions::new().write(true).create_new(true).open(&out).map_err(|e| format!("can't write the file: {e}"))?;
+    f.write_all(&px).map_err(|e| e.to_string())?;
+    Ok("{\"ok\":true}".into())
+}
+
 fn mix_job(inp: &mut Input, loudness: bool, mastered: bool) -> Result<String, String> {
     // mixloud: the loudness target first (target LUFS · ceiling gain · release · look-ahead u32 · frames measured u64)
     // mixmaster (1.0): whether there's a loudness target u8 first, and after the limiter numbers the built-in
@@ -332,6 +366,7 @@ fn run(b: &[u8]) -> Result<String, String> {
         "analyze" => analyze_job(&mut inp),
         "mp4info" => mp4_job(&mut inp),
         "mp4head" => mp4head_job(&mut inp),
+        "frame" => frame_job(&mut inp),
         "mix" => mix_job(&mut inp, false, false),
         "mixloud" => mix_job(&mut inp, true, false),
         "mixmaster" => mix_job(&mut inp, false, true),

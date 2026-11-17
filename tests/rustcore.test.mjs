@@ -670,3 +670,70 @@ test('reel-core writes an MP4 head (ftyp, moov, mdat) byte for byte as the JavaS
   }
   t.diagnostic(`${Object.keys(cases).length} files' heads: byte for byte`);
 });
+
+// ------------------------------------------------------------------ drawing a frame (1.3)
+import { framePlan } from '../app/renderer/lib/frameplan.js';
+
+const frameDoc = (clips, media) => ({ canvas: { width: 64, height: 36, background: '#102030' }, media, tracks: clips.map((_, i) => ({ id: 't' + i })).reverse(),
+  clips: clips.map((c, i) => ({ id: 'c' + i, type: 'media', media: c.media, track: 't' + i, start: 0, in: 0, duration: 5, props: { x: 0.5, y: 0.5, scale: 1, rotation: 0, opacity: 1, crop: [0, 0, 0, 0], ...c.props } })) });
+/** A picture in four solid quarters (red, green, blue, white), so where each part lands can be told apart. */
+function quarters(w, h) {
+  const px = new Uint8Array(w * h * 4);
+  for (let y = 0; y < h; y++) for (let x = 0; x < w; x++) {
+    const q = (y < h / 2 ? 0 : 2) + (x < w / 2 ? 0 : 1), c = [[255, 0, 0], [0, 255, 0], [0, 0, 255], [255, 255, 255]][q];
+    px.set([...c, 255], (y * w + x) * 4);
+  }
+  return px;
+}
+async function drawFrame(doc, pics) {
+  const plan = framePlan(doc, 1, doc.canvas.width, doc.canvas.height);
+  assert.ok(!plan.why, plan.why);
+  const ids = Object.keys(pics), parts = [Buffer.from('RCORE1\nframe\n')];
+  const u32 = v => { const b = Buffer.alloc(4); b.writeUInt32LE(v); parts.push(b); }, f64 = v => { const b = Buffer.alloc(8); b.writeDoubleLE(v); parts.push(b); };
+  u32(doc.canvas.width); u32(doc.canvas.height); parts.push(Buffer.from(plan.bg));
+  u32(ids.length);
+  for (const id of ids) { const m = doc.media.find(x => x.id === id); u32(m.width); u32(m.height); parts.push(Buffer.from(pics[id])); }
+  u32(plan.layers.length);
+  for (const l of plan.layers) { u32(ids.indexOf(l.media)); f64(l.alpha); l.m.forEach(f64); l.rect.forEach(f64); }
+  const out = path.join(fs.mkdtempSync(path.join(os.tmpdir(), 'reel-frame-')), 'f.rgba');
+  const pb = Buffer.from(out); u32(pb.length); parts.push(pb);
+  await core.run(Buffer.concat(parts));
+  const px = fs.readFileSync(out); fs.rmSync(path.dirname(out), { recursive: true });
+  return (x, y) => [...px.subarray((y * doc.canvas.width + x) * 4, (y * doc.canvas.width + x) * 4 + 3)];
+}
+const near = (a, b, tol = 2) => a.every((v, i) => Math.abs(v - b[i]) <= tol);
+
+test('reel-core draws a frame: pictures placed, scaled, cropped, faded and turned where the editor draws them', { skip }, async t => {
+  const media = [{ id: 'scr', kind: 'video', width: 128, height: 72 }, { id: 'ph', kind: 'video', width: 36, height: 64, rotation: 90 }];
+  const pics = { scr: quarters(128, 72), ph: quarters(36, 64) };
+  await t.test('fitted: the picture fills the canvas, each quarter in its place', async () => {
+    const at = await drawFrame(frameDoc([{ media: 'scr' }], media), pics);
+    assert.deepEqual(at(5, 5), [255, 0, 0]); assert.deepEqual(at(58, 5), [0, 255, 0]); assert.deepEqual(at(5, 30), [0, 0, 255]); assert.deepEqual(at(58, 30), [255, 255, 255]);
+  });
+  await t.test('half size, moved to the top left, half faded: background around it, colours half mixed', async () => {
+    const at = await drawFrame(frameDoc([{ media: 'scr', props: { scale: 0.5, x: 0.25, y: 0.25, opacity: 0.5 } }], media), pics);
+    // the picture now covers x 0..32, y 0..18
+    assert.ok(near(at(4, 4), [136, 16, 24]), String(at(4, 4)));
+    assert.deepEqual(at(40, 25), [16, 32, 48]);
+    assert.deepEqual(at(33, 4), [16, 32, 48], 'hard edge: just past it is background');
+  });
+  await t.test('cropped to its right half: only green and white show, stretched to fit', async () => {
+    const at = await drawFrame(frameDoc([{ media: 'scr', props: { crop: [0.5, 0, 0, 0] } }], media), pics);
+    // the right half is 64 × 72, fitted to the 36 high canvas: 32 wide, in the middle (x 16..48)
+    assert.deepEqual(at(20, 5), [0, 255, 0]); assert.deepEqual(at(44, 30), [255, 255, 255]); assert.deepEqual(at(8, 18), [16, 32, 48]);
+  });
+  await t.test('a phone video turned 90° stands the way it was filmed', async () => {
+    const at = await drawFrame(frameDoc([{ media: 'ph' }], media), pics);
+    // turned clockwise, its top left (red) lands top right; it fills the canvas (64 × 36 once turned)
+    assert.deepEqual(at(58, 5), [255, 0, 0]); assert.deepEqual(at(5, 5), [0, 0, 255]); assert.deepEqual(at(58, 30), [0, 255, 0]); assert.deepEqual(at(5, 30), [255, 255, 255]);
+  });
+});
+
+test('a frame that needs more than pictures says why, for the JavaScript to draw', () => {
+  const media = [{ id: 'scr', kind: 'video', width: 128, height: 72 }];
+  assert.match(framePlan({ ...frameDoc([{ media: 'scr', props: { radius: 12 } }], media) }, 1, 64, 36).why, /rounded/);
+  const d = frameDoc([{ media: 'scr' }], media); d.clips[0].filters = [{ type: 'blur' }];
+  assert.match(framePlan(d, 1, 64, 36).why, /filters/);
+  d.clips[0].filters = []; d.clips.push({ id: 't', type: 'text', track: 't0', start: 0, duration: 5, props: {} });
+  assert.match(framePlan(d, 1, 64, 36).why, /titles/);
+});
