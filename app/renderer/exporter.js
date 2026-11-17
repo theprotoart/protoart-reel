@@ -77,7 +77,7 @@ export function openExport(app) {
     const list = allPresets();
     const groupOf = p => p.custom ? (p.group || 'My presets') : p.group || 'Reel';
     const groups = [...GROUPS, 'Imported from HandBrake', 'My presets'].filter(g => list.some(p => groupOf(p) === g));
-    const s = el('select', {}, ...groups.map(g => el('optgroup', { label: g === 'Reel' ? 'Reel' : g === 'General' || g === 'Web' || g === 'Devices' || g === 'Hardware' || g === 'Production' ? `HandBrake · ${g}` : g },
+    const s = el('select', {}, ...groups.map(g => el('optgroup', { label: g === 'Recommended' ? '★ Recommended' : g === 'Reel' ? 'Reel' : g === 'General' || g === 'Web' || g === 'Devices' || g === 'Hardware' || g === 'Production' ? `HandBrake · ${g}` : g },
       ...list.filter(p => groupOf(p) === g).map(p => el('option', { value: p.id, text: p.name + (p.custom && g === 'My presets' ? '  ★' : ''), selected: p.id === st.presetId })))),
       el('option', { value: '', text: 'Custom (as set below)', selected: !list.some(p => p.id === st.presetId) }));
     s.addEventListener('change', () => {
@@ -108,7 +108,11 @@ export function openExport(app) {
       } }),
       el('button', { class: 'tool', text: 'Import HandBrake…', title: 'Bring in presets from HandBrake: in HandBrake’s Presets window, choose a preset (or a folder) › Export…, then pick that .json file here', onclick: () => picker.click() }), picker,
       cur?.custom ? el('button', { class: 'mini', text: '×', title: 'Delete this preset', onclick: () => { saveCustom(loadCustom().filter(p => p.id !== cur.id)); st.presetId = ''; drawPresets(); } }) : null),
-      cur?.hint ? el('p', { class: 'note', text: cur.hint }) : null);
+      cur?.hint ? el('p', { class: 'note', text: cur.hint }) : null,
+      cur?.why ? el('p', { class: 'note', text: `★ ${cur.why}.` }) : null,
+      // a vertical preset on a wide project: the export keeps the project's shape, so offer the vertical copy
+      cur?.vertical && doc.canvas.width > doc.canvas.height ? el('p', { class: 'note warn' }, 'This project is wide, so this exports 1920 × 1080. For a full-screen 9:16 video, make a vertical copy first: ',
+        el('button', { class: 'mini', text: 'Make Vertical…', onclick: () => { app.cmd('make-vertical'); } })) : null);
   };
   const custom = () => { st.presetId = ''; remember(); drawPresets(); describe(); };
   const describeShort = () => { const { w, h } = sizeFor(st, doc.canvas); return SOUND.has(st.codec) ? (st.codec === 'wav' ? 'Sound only · WAV' : 'Sound only') : `${FORMATS.find(f => f[0] === st.codec)[1].split(' (')[0]} ${w}×${h} ${st.fps} fps`; };

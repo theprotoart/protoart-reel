@@ -25,7 +25,8 @@ export function videoJob(doc, from, to, W, H, fps, { maxSources = 48 } = {}) {
     for (const l of p.layers) {
       if (l.fill) continue;
       const m = mediaById(doc, l.media);
-      if (!m || m.kind !== 'video') return { why: 'still pictures', at: t };
+      if (!m || (m.kind !== 'video' && m.kind !== 'image')) return { why: 'a clip that’s neither a video nor a picture', at: t };
+      if (m.kind === 'image' && /\.(svg|gif)$/i.test(m.file || '')) return { why: 'an SVG or GIF picture', at: t };
       if ((((m.rotation || 0) % 360) + 360) % 360) return { why: 'a turned phone video', at: t };
       const k = Math.hypot(l.m[0], l.m[1]) * (l.grade ? l.grade.gw / Math.max(1, m.width) : 1); // canvas px per video px
       big.set(m.id, Math.max(big.get(m.id) || 0, k));

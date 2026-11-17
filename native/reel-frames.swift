@@ -12,10 +12,11 @@
 //   reel-frames --rgba <file> <from s> <to s> <w> <h>
 //
 // (1.10, exporting through reel-core) every frame from just before `from` to just after `to`, in colour, made w × h:
-// time f64 · w × h × 4 bytes BGRA (straight, opaque for video), to the end.
+// time f64 · w × h × 4 bytes BGRA (straight, opaque for video), to the end. A still picture gives its one frame.
 import AVFoundation
 import Accelerate
 import Foundation
+import ImageIO
 
 func die(_ msg: String) -> Never { FileHandle.standardError.write((msg + "\n").data(using: .utf8)!); exit(2) }
 
@@ -28,7 +29,8 @@ func rgbaFrames() -> Never {
           from >= 0, to > from, (2...8192).contains(w), (2...8192).contains(h)
     else { die("usage: reel-frames --rgba file from to w h") }
     let asset = AVURLAsset(url: URL(fileURLWithPath: a[2]))
-    guard let track = asset.tracks(withMediaType: .video).first else { die("no video in this file") }
+    // a still picture (a photo, a logo, a screenshot): one frame, the right way up, then done
+    guard let track = asset.tracks(withMediaType: .video).first else { stillFrame(a[2], w, h) }
     guard let reader = try? AVAssetReader(asset: asset) else { die("this video can't be read") }
     // from a moment early, so the frame already showing at `from` comes too
     let start = max(0, from - 0.5)
@@ -63,6 +65,29 @@ func rgbaFrames() -> Never {
         if t > to + 0.25 { break }
     }
     if reader.status == .failed { die(reader.error?.localizedDescription ?? "the video stopped reading part way") }
+    exit(0)
+}
+/// --rgba on a picture: its one frame (time 0), w × h, BGRA with straight (not premultiplied) alpha, as the core takes it.
+func stillFrame(_ path: String, _ w: Int, _ h: Int) -> Never {
+    guard let src = CGImageSourceCreateWithURL(URL(fileURLWithPath: path) as CFURL, nil) else { die("this picture can't be read") }
+    let opts: [CFString: Any] = [kCGImageSourceCreateThumbnailFromImageAlways: true, kCGImageSourceCreateThumbnailWithTransform: true,
+                                 kCGImageSourceThumbnailMaxPixelSize: max(w, h) * 2]
+    guard let img = CGImageSourceCreateThumbnailAtIndex(src, 0, opts as CFDictionary) else { die("this picture can't be read") }
+    var px = [UInt8](repeating: 0, count: w * h * 4)
+    let ok = px.withUnsafeMutableBytes { p -> Bool in
+        guard let ctx = CGContext(data: p.baseAddress, width: w, height: h, bitsPerComponent: 8, bytesPerRow: w * 4, space: CGColorSpace(name: CGColorSpace.sRGB)!,
+                                  bitmapInfo: CGImageAlphaInfo.premultipliedFirst.rawValue | CGBitmapInfo.byteOrder32Little.rawValue) else { return false }
+        ctx.interpolationQuality = .high
+        ctx.draw(img, in: CGRect(x: 0, y: 0, width: w, height: h))
+        var b = vImage_Buffer(data: p.baseAddress, height: vImagePixelCount(h), width: vImagePixelCount(w), rowBytes: w * 4)
+        return vImageUnpremultiplyData_BGRA8888(&b, &b, vImage_Flags(kvImageNoFlags)) == kvImageNoError
+    }
+    if !ok { die("this picture can't be drawn") }
+    var out = Data(capacity: w * h * 4 + 8)
+    var t = 0.0
+    withUnsafeBytes(of: &t) { out.append(contentsOf: $0) }
+    out.append(contentsOf: px)
+    do { try FileHandle.standardOutput.write(contentsOf: out) } catch { exit(0) }
     exit(0)
 }
 if a.count > 1 && a[1] == "--rgba" { rgbaFrames() }

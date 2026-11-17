@@ -22,6 +22,18 @@ const tiers = (prefix, label, q) => [
   P('General', `hb-${prefix}-480`, `${label} 480p30`, { codec: 'avc', height: 480, fpsMax: 30, q }),
 ];
 
+/**
+ * ★ Recommended: the four most people want, at the top. Each uses Apple's hardware encoder (the fastest) at a high
+ * bitrate (the sharpest the site keeps: it re-encodes whatever it's given, so starting high matters). The vertical
+ * ones keep the project's shape: VIEW › Make Vertical makes a 9:16 copy first (the export window says so).
+ */
+export const RECOMMENDED = [
+  P('Recommended', 'rec-youtube', '★ YouTube · 1080p · up to 60 fps', { codec: 'avc', height: 1080, fpsMax: 60, q: 1.4, abr: 320, hw: true, why: 'H.264 1080p at YouTube’s recommended high bitrate (about 12 Mbps at 60 fps), AAC 320 kbps, hardware encoder' }),
+  P('Recommended', 'rec-youtube-4k', '★ YouTube 4K · HEVC · up to 60 fps', { codec: 'hevc', height: 2160, fpsMax: 60, q: 1.4, abr: 320, hw: true, why: 'HEVC 4K (YouTube then streams it to everyone at its best quality, even in 1080p), AAC 320 kbps, hardware encoder' }),
+  P('Recommended', 'rec-vertical', '★ TikTok · Reels · Shorts · vertical 1080p', { codec: 'avc', height: 1080, fpsMax: 30, q: 1.4, abr: 256, hw: true, vertical: true, why: 'H.264 1080 × 1920 at 30 fps (what TikTok, Instagram and YouTube Shorts play back), AAC 256 kbps, hardware encoder' }),
+  P('Recommended', 'rec-instagram', '★ Instagram feed · 1080p', { codec: 'avc', height: 1080, fpsMax: 30, q: 1.4, abr: 256, hw: true, why: 'H.264 1080p at 30 fps (square, 4:5 or wide: the project’s shape), AAC 256 kbps, hardware encoder' }),
+];
+
 /** Reel's own presets (their ids are kept: exports remember the last one used). */
 export const REEL_PRESETS = [
   P('Reel', 'web', 'Web 1080p · H.264', { codec: 'avc', height: 1080, mbps: 12 }),
@@ -80,8 +92,8 @@ export const HANDBRAKE_PRESETS = [
   P('Production', 'hb-prod-proxy-540', 'Production Proxy 540p', { codec: 'avc', height: 540, q: 0.6 }),
 ];
 
-export const GROUPS = ['Reel', 'General', 'Web', 'Devices', 'Hardware', 'Production'];
-export const builtInPresets = () => [...REEL_PRESETS, ...HANDBRAKE_PRESETS];
+export const GROUPS = ['Recommended', 'Reel', 'General', 'Web', 'Devices', 'Hardware', 'Production'];
+export const builtInPresets = () => [...RECOMMENDED, ...REEL_PRESETS, ...HANDBRAKE_PRESETS];
 
 /** The frame rate a preset gives on a project: exact (fps), capped (fpsMax, never more than the project), or the project's. */
 export function presetFps(p, projectFps = 30) {

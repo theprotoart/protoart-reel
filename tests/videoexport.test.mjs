@@ -46,6 +46,11 @@ test('a video export plan: each clip read once at the size it needs, or why not'
   const t = videoJob({ ...doc, clips: [...doc.clips, { id: 'x', type: 'text', track: 't2', start: 1.5, duration: 0.2, props: props() }] }, 0, 2, 320, 180, 10);
   assert.match(t.why, /titles/);
   assert.ok(Math.abs(t.at - 1.5) < 1e-9);
+  // a still picture is a source of its own (the decoder gives its one frame)
+  const pic = videoJob({ ...doc, media: [...doc.media, { id: 'p', kind: 'image', file: 'logo.png', width: 400, height: 200 }], clips: [...doc.clips, { ...clip('c3', 'p', 't2', 0, 2, { scale: 0.3, x: 0.2, y: 0.2 }) }] }, 0, 2, 320, 180, 10);
+  assert.ok(!pic.why, pic.why);
+  assert.ok(pic.sources.some(s => s.file === 'logo.png' && s.w <= 400));
+  assert.match(videoJob({ ...doc, media: [...doc.media, { id: 'g', kind: 'image', file: 'a.gif', width: 40, height: 40 }], clips: [clip('c4', 'g', 't1', 0, 2)] }, 0, 2, 320, 180, 10).why, /GIF/);
   // played backwards: a decoder reads forwards only
   const back = videoJob(docOf([clip('c1', 'a', 't1', 0, 2, {}, { retime: [{ t: 0, s: 2 }, { t: 2, s: 0 }] })]), 0, 2, 320, 180, 10);
   assert.ok(back.why == null || /backwards/.test(back.why));
