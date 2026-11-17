@@ -37,6 +37,7 @@ mod fx;
 mod master;
 mod umvoice;
 mod watch;
+mod vexport;
 
 use std::io::{Read, Write};
 use umvoice::{Model, Print, Word, COEFS};
@@ -195,6 +196,56 @@ fn mp4head_job(inp: &mut Input) -> Result<String, String> {
 /// shadow drop f64 · cut to the box u8 (1.5); 0, none). A layer whose picture is 0xFFFFFFFF (1.5) is a colour over
 /// the whole canvas: alpha, then r, g, b u8. After a picture's look, its filter (1.6): u8 1, then blur px, brightness,
 /// saturation f64 (0: none). Then the output path.
+/// One layer of a frame (the frame job's format, which vexport's frames share): a picture's place and look, or a
+/// colour over everything. npics: how many pictures `src` can name.
+fn read_layer(inp: &mut Input, npics: usize) -> Result<frame::Layer, String> {
+    let src = inp.u32()?;
+    let alpha = inp.f64()?;
+    // 1.5: a colour over the whole canvas (a dip to black or white): r, g, b u8 instead of a picture's place
+    if src == u32::MAX as usize {
+        let rgb = [inp.u8()?, inp.u8()?, inp.u8()?];
+        if !(0.0..=1.0).contains(&alpha) { return Err("bad layer".into()); }
+        return Ok(frame::fill_layer(rgb, alpha));
+    }
+    let mut m = [0.0; 6]; for v in m.iter_mut() { *v = inp.f64()?; }
+    let mut rect = [0.0; 4]; for v in rect.iter_mut() { *v = inp.f64()?; }
+    if src >= npics || !(0.0..=1.0).contains(&alpha) || m.iter().chain(rect.iter()).any(|v| !v.is_finite()) || rect[2] <= rect[0] || rect[3] <= rect[1] { return Err("bad layer".into()); }
+    // 1.4: how its box looks (rounded corners, border, shadow), when it has more than a plain picture
+    let look = if inp.u8()? == 1 {
+        let mut b = [0.0; 6]; for v in b.iter_mut() { *v = inp.f64()?; }
+        let (bw, bh, radius, border) = (inp.f64()?, inp.f64()?, inp.f64()?, inp.f64()?);
+        let border_rgb = [inp.u8()?, inp.u8()?, inp.u8()?];
+        let (shadow, dy) = (inp.f64()?, inp.f64()?);
+        let cut = inp.u8()? == 1;
+        let ok = b.iter().chain([bw, bh, radius, border, shadow, dy].iter()).all(|v| v.is_finite()) && bw > 0.0 && bh > 0.0 && (0.0..=4096.0).contains(&radius) && (0.0..=512.0).contains(&border) && (0.0..=1024.0).contains(&shadow) && dy.abs() <= 1024.0;
+        if !ok { return Err("bad layer look".into()); }
+        Some(frame::Look { b, w: bw, h: bh, radius, border, border_rgb, shadow, dy, cut })
+    } else { None };
+    // 1.6: the canvas filter it's drawn with: u8 1, then blur px · brightness · saturation f64; 0, none
+    let filter = if inp.u8()? == 1 {
+        let (blur, bright, sat) = (inp.f64()?, inp.f64()?, inp.f64()?);
+        if !(0.0..=500.0).contains(&blur) || !(0.0..=20.0).contains(&bright) || !(0.0..=20.0).contains(&sat) { return Err("bad layer filter".into()); }
+        Some(frame::Filter { blur, bright, sat })
+    } else { None };
+    // 1.7: its filters (the GPU pass's colour work): u8 1, then the size it's graded at (w, h u32), exposure,
+    // contrast, saturation, vibrance, temperature, tint, highlights, shadows, in black, in white, gamma, out black,
+    // out white, brightness, sharpen, vignette, b&w, aberration f64, key u8 (1: r, g, b, tolerance, softness,
+    // spill f64), colour match × 3, add × 3, lift × 3, gamma × 3, gain × 3 f64; 0, none
+    let grade = if inp.u8()? == 1 {
+        let (gw, gh) = (inp.u32()?, inp.u32()?);
+        if gw == 0 || gh == 0 || gw > 16384 || gh > 16384 { return Err("bad grade size".into()); }
+        let mut v = [0.0; 18]; for x in v.iter_mut() { *x = inp.f64()?; }
+        let key = if inp.u8()? == 1 { let mut k = [0.0; 6]; for x in k.iter_mut() { *x = inp.f64()?; } Some(([k[0], k[1], k[2]], k[3], k[4], k[5])) } else { None };
+        let mut t = [0.0; 15]; for x in t.iter_mut() { *x = inp.f64()?; }
+        if v.iter().chain(t.iter()).any(|x| !x.is_finite()) { return Err("bad grade".into()); }
+        let three = |i: usize| [t[i], t[i + 1], t[i + 2]];
+        Some(grade::Grade { gw, gh, exposure: v[0], contrast: v[1], saturation: v[2], vibrance: v[3], temperature: v[4], tint: v[5], highlights: v[6], shadows: v[7],
+            in_black: v[8], in_white: v[9], gamma_v: v[10], out_black: v[11], out_white: v[12], brightness: v[13], sharpen: v[14], vignette: v[15], bw: v[16], aberr: v[17],
+            key, m_mul: three(0), m_add: three(3), lift: three(6), gam: three(9), gain: three(12) })
+    } else { None };
+    Ok(frame::Layer { src, alpha, m, rect, look, fill: None, filter, grade })
+}
+
 fn frame_job(inp: &mut Input) -> Result<String, String> {
     let (w, h) = (inp.u32()?, inp.u32()?);
     if w == 0 || h == 0 || w > 8192 || h > 8192 { return Err("bad frame size".into()); }
@@ -209,54 +260,7 @@ fn frame_job(inp: &mut Input) -> Result<String, String> {
     }
     let nl = inp.count(4 + 8 + 3)?;
     let mut layers = Vec::with_capacity(nl);
-    for _ in 0..nl {
-        let src = inp.u32()?;
-        let alpha = inp.f64()?;
-        // 1.5: a colour over the whole canvas (a dip to black or white): r, g, b u8 instead of a picture's place
-        if src == u32::MAX as usize {
-            let rgb = [inp.u8()?, inp.u8()?, inp.u8()?];
-            if !(0.0..=1.0).contains(&alpha) { return Err("bad layer".into()); }
-            layers.push(frame::fill_layer(rgb, alpha));
-            continue;
-        }
-        let mut m = [0.0; 6]; for v in m.iter_mut() { *v = inp.f64()?; }
-        let mut rect = [0.0; 4]; for v in rect.iter_mut() { *v = inp.f64()?; }
-        if src >= pictures.len() || !(0.0..=1.0).contains(&alpha) || m.iter().chain(rect.iter()).any(|v| !v.is_finite()) || rect[2] <= rect[0] || rect[3] <= rect[1] { return Err("bad layer".into()); }
-        // 1.4: how its box looks (rounded corners, border, shadow), when it has more than a plain picture
-        let look = if inp.u8()? == 1 {
-            let mut b = [0.0; 6]; for v in b.iter_mut() { *v = inp.f64()?; }
-            let (bw, bh, radius, border) = (inp.f64()?, inp.f64()?, inp.f64()?, inp.f64()?);
-            let border_rgb = [inp.u8()?, inp.u8()?, inp.u8()?];
-            let (shadow, dy) = (inp.f64()?, inp.f64()?);
-            let cut = inp.u8()? == 1;
-            let ok = b.iter().chain([bw, bh, radius, border, shadow, dy].iter()).all(|v| v.is_finite()) && bw > 0.0 && bh > 0.0 && (0.0..=4096.0).contains(&radius) && (0.0..=512.0).contains(&border) && (0.0..=1024.0).contains(&shadow) && dy.abs() <= 1024.0;
-            if !ok { return Err("bad layer look".into()); }
-            Some(frame::Look { b, w: bw, h: bh, radius, border, border_rgb, shadow, dy, cut })
-        } else { None };
-        // 1.6: the canvas filter it's drawn with: u8 1, then blur px · brightness · saturation f64; 0, none
-        let filter = if inp.u8()? == 1 {
-            let (blur, bright, sat) = (inp.f64()?, inp.f64()?, inp.f64()?);
-            if !(0.0..=500.0).contains(&blur) || !(0.0..=20.0).contains(&bright) || !(0.0..=20.0).contains(&sat) { return Err("bad layer filter".into()); }
-            Some(frame::Filter { blur, bright, sat })
-        } else { None };
-        // 1.7: its filters (the GPU pass's colour work): u8 1, then the size it's graded at (w, h u32), exposure,
-        // contrast, saturation, vibrance, temperature, tint, highlights, shadows, in black, in white, gamma, out black,
-        // out white, brightness, sharpen, vignette, b&w, aberration f64, key u8 (1: r, g, b, tolerance, softness,
-        // spill f64), colour match × 3, add × 3, lift × 3, gamma × 3, gain × 3 f64; 0, none
-        let grade = if inp.u8()? == 1 {
-            let (gw, gh) = (inp.u32()?, inp.u32()?);
-            if gw == 0 || gh == 0 || gw > 16384 || gh > 16384 { return Err("bad grade size".into()); }
-            let mut v = [0.0; 18]; for x in v.iter_mut() { *x = inp.f64()?; }
-            let key = if inp.u8()? == 1 { let mut k = [0.0; 6]; for x in k.iter_mut() { *x = inp.f64()?; } Some(([k[0], k[1], k[2]], k[3], k[4], k[5])) } else { None };
-            let mut t = [0.0; 15]; for x in t.iter_mut() { *x = inp.f64()?; }
-            if v.iter().chain(t.iter()).any(|x| !x.is_finite()) { return Err("bad grade".into()); }
-            let three = |i: usize| [t[i], t[i + 1], t[i + 2]];
-            Some(grade::Grade { gw, gh, exposure: v[0], contrast: v[1], saturation: v[2], vibrance: v[3], temperature: v[4], tint: v[5], highlights: v[6], shadows: v[7],
-                in_black: v[8], in_white: v[9], gamma_v: v[10], out_black: v[11], out_white: v[12], brightness: v[13], sharpen: v[14], vignette: v[15], bw: v[16], aberr: v[17],
-                key, m_mul: three(0), m_add: three(3), lift: three(6), gam: three(9), gain: three(12) })
-        } else { None };
-        layers.push(frame::Layer { src, alpha, m, rect, look, fill: None, filter, grade });
-    }
+    for _ in 0..nl { layers.push(read_layer(inp, pictures.len())?); }
     let out = inp.path()?;
     let px = frame::draw(w, h, bg, &pictures, &layers);
     use std::io::Write;
@@ -460,6 +464,54 @@ fn vwatch(r: &mut impl Read) -> Result<String, String> {
     Ok(w.answer())
 }
 
+/// vexport (1.10): see vexport.rs. Its stdout is the encoder's, so progress and the answer go to stderr.
+fn vexport_job(b: &[u8]) -> Result<String, String> {
+    use std::os::fd::FromRawFd;
+    let mut inp = Input { b, at: 0 };
+    let (w, h) = (inp.u32()?, inp.u32()?);
+    if w == 0 || h == 0 || w > 8192 || h > 8192 || w % 2 != 0 || h % 2 != 0 { return Err("bad frame size".into()); }
+    let bg = [inp.u8()?, inp.u8()?, inp.u8()?];
+    let ns = inp.count(12)?;
+    if ns > 48 { return Err("too many clips at once".into()); }
+    let mut fds = Vec::with_capacity(ns);
+    let mut sources = Vec::with_capacity(ns);
+    for _ in 0..ns {
+        let (fd, sw, sh) = (inp.u32()?, inp.u32()?, inp.u32()?);
+        // only the descriptors Reel's main process opened for this job: 3, 4, 5… one each
+        if fd < 3 || fd >= 3 + ns || fds.contains(&fd) || sw == 0 || sh == 0 || sw > 8192 || sh > 8192 { return Err("bad clip source".into()); }
+        fds.push(fd);
+        vexport::blocking(fd as i32);
+        let f = unsafe { std::fs::File::from_raw_fd(fd as i32) };
+        sources.push(vexport::Source::new(f, sw, sh));
+    }
+    let total = inp.u32()?;
+    if total == 0 || total > 3 * 3600 * 120 { return Err("bad frame count".into()); }
+    let mut left = total;
+    let plans = std::iter::from_fn(|| {
+        if left == 0 { return None; }
+        left -= 1;
+        Some((|| -> Result<vexport::FramePlan, String> {
+            let nu = inp.count(12)?;
+            if nu > ns { return Err("bad frame".into()); }
+            let mut uses = Vec::with_capacity(nu);
+            for _ in 0..nu { let s = inp.u32()?; let st = inp.f64()?; if s >= ns || !st.is_finite() { return Err("bad frame".into()); } uses.push((s, st)); }
+            let nl = inp.count(4 + 8 + 3)?;
+            if nl > 64 { return Err("too many layers".into()); }
+            let mut layers = Vec::with_capacity(nl);
+            for _ in 0..nl { layers.push(read_layer(&mut inp, ns)?); }
+            Ok(vexport::FramePlan { uses, layers })
+        })())
+    });
+    vexport::blocking(1); // stdout: the encoder's input
+    // stdout as the plain descriptor it is (not Rust's line-buffered stdout: these are frames, not lines)
+    let mut out = std::io::BufWriter::with_capacity(w * h * 4, unsafe { std::fs::File::from_raw_fd(1) });
+    let n = vexport::run(w, h, bg, &mut sources, plans, total, &mut out, |d, t| {
+        let mut e = std::io::stderr().lock();
+        let _ = writeln!(e, "{{\"progress\":{}}}", d as f64 / t.max(1) as f64);
+    })?;
+    Ok(format!("{{\"ok\":true,\"frames\":{n}}}"))
+}
+
 fn main() {
     let mut stdin = std::io::stdin().lock();
     // the first line says the command; vwatch streams, the rest read their whole job first
@@ -468,6 +520,15 @@ fn main() {
     while head.len() < 7 + 64 && stdin.read(&mut c).map(|n| n == 1).unwrap_or(false) {
         head.push(c[0]);
         if head.len() > 7 && c[0] == b'\n' { break; }
+    }
+    if head == b"RCORE1\nvexport\n" {
+        let mut b = Vec::new();
+        let ok = (&mut stdin).take(MAX_INPUT as u64 + 1).read_to_end(&mut b).is_ok() && b.len() <= MAX_INPUT;
+        let r = if ok { vexport_job(&b) } else { Err("the job is too large".into()) };
+        let line = match r { Ok(s) => s, Err(e) => format!("{{\"ok\":false,\"error\":{}}}", json_str(&e)) };
+        let mut e = std::io::stderr().lock();
+        let _ = writeln!(e, "{}", line);
+        return;
     }
     let out = if head == b"RCORE1\nvwatch\n" { vwatch(&mut stdin) } else {
         let mut b = head;

@@ -8,6 +8,11 @@
 // gw × gh greyscale bytes · and on a sample frame, when pw > 0, pw × ph greyscale bytes (little-endian). The grey
 // is the picture's own brightness (luma). Reads only the file it's given; writes nothing but stdout. Exits 0 when
 // done, 2 with a reason on stderr when the file can't be read.
+//
+//   reel-frames --rgba <file> <from s> <to s> <w> <h>
+//
+// (1.10, exporting through reel-core) every frame from just before `from` to just after `to`, in colour, made w × h:
+// time f64 · w × h × 4 bytes BGRA (straight, opaque for video), to the end.
 import AVFoundation
 import Accelerate
 import Foundation
@@ -15,12 +20,58 @@ import Foundation
 func die(_ msg: String) -> Never { FileHandle.standardError.write((msg + "\n").data(using: .utf8)!); exit(2) }
 
 let a = CommandLine.arguments
+signal(SIGPIPE, SIG_IGN) // Reel stopped listening: just stop
+
+/// --rgba: each frame in colour at the size the export draws it from.
+func rgbaFrames() -> Never {
+    guard a.count == 7, a[2].hasPrefix("/"), let from = Double(a[3]), let to = Double(a[4]), let w = Int(a[5]), let h = Int(a[6]),
+          from >= 0, to > from, (2...8192).contains(w), (2...8192).contains(h)
+    else { die("usage: reel-frames --rgba file from to w h") }
+    let asset = AVURLAsset(url: URL(fileURLWithPath: a[2]))
+    guard let track = asset.tracks(withMediaType: .video).first else { die("no video in this file") }
+    guard let reader = try? AVAssetReader(asset: asset) else { die("this video can't be read") }
+    // from a moment early, so the frame already showing at `from` comes too
+    let start = max(0, from - 0.5)
+    reader.timeRange = CMTimeRange(start: CMTime(seconds: start, preferredTimescale: 600), end: CMTime(seconds: to + 0.5, preferredTimescale: 600))
+    let out = AVAssetReaderTrackOutput(track: track, outputSettings: [kCVPixelBufferPixelFormatTypeKey as String: kCVPixelFormatType_32BGRA])
+    out.alwaysCopiesSampleData = false
+    guard reader.canAdd(out) else { die("this video can't be read") }
+    reader.add(out)
+    guard reader.startReading() else { die(reader.error?.localizedDescription ?? "this video can't be read") }
+    var px = [UInt8](repeating: 0, count: w * h * 4)
+    var buf = Data(capacity: w * h * 4 + 8)
+    let output = FileHandle.standardOutput
+    var lastT = -Double.infinity
+    while reader.status == .reading, let sb = out.copyNextSampleBuffer() {
+        guard let ib = CMSampleBufferGetImageBuffer(sb) else { continue }
+        let t = CMSampleBufferGetPresentationTimeStamp(sb).seconds
+        if !t.isFinite || t <= lastT { continue } // in order, once each
+        lastT = t
+        CVPixelBufferLockBaseAddress(ib, .readOnly)
+        var src = vImage_Buffer(data: CVPixelBufferGetBaseAddress(ib), height: vImagePixelCount(CVPixelBufferGetHeight(ib)),
+                                width: vImagePixelCount(CVPixelBufferGetWidth(ib)), rowBytes: CVPixelBufferGetBytesPerRow(ib))
+        px.withUnsafeMutableBytes { p in
+            var d = vImage_Buffer(data: p.baseAddress, height: vImagePixelCount(h), width: vImagePixelCount(w), rowBytes: w * 4)
+            _ = vImageScale_ARGB8888(&src, &d, nil, vImage_Flags(kvImageHighQualityResampling))
+        }
+        CVPixelBufferUnlockBaseAddress(ib, .readOnly)
+        buf.removeAll(keepingCapacity: true)
+        var tt = t
+        withUnsafeBytes(of: &tt) { buf.append(contentsOf: $0) }
+        buf.append(contentsOf: px)
+        do { try output.write(contentsOf: buf) } catch { exit(0) }
+        if t > to + 0.25 { break }
+    }
+    if reader.status == .failed { die(reader.error?.localizedDescription ?? "the video stopped reading part way") }
+    exit(0)
+}
+if a.count > 1 && a[1] == "--rgba" { rgbaFrames() }
+
 guard a.count == 9, a[1].hasPrefix("/"),
       let from = Double(a[2]), let to = Double(a[3]), let step = Double(a[4]),
       let gw = Int(a[5]), let gh = Int(a[6]), let pw = Int(a[7]), let ph = Int(a[8]),
       from >= 0, to > from, step > 0, (3...256).contains(gw), (3...256).contains(gh), pw >= 0, pw <= 3840, ph >= 0, ph <= 2160
 else { die("usage: reel-frames file from to step gw gh pw ph") }
-signal(SIGPIPE, SIG_IGN) // Reel stopped listening: just stop
 
 let asset = AVURLAsset(url: URL(fileURLWithPath: a[1]))
 // (the older synchronous call: a command-line tool has nothing else to do while it waits)

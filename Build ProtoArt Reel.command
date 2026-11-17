@@ -65,6 +65,10 @@ if xcrun --find swiftc >/dev/null 2>&1; then
     "$ROOT/native/reel-frames.swift" -o "$RES/app/bin/reel-frames" >"$ROOT/frames-helper-log.txt" 2>&1 \
     && codesign --force --sign - "$RES/app/bin/reel-frames" >/dev/null 2>&1 && echo "Frame reader built (fast Auto Edit and Smart Zoom watching)." \
     || echo "The frame reader didn't build (see frames-helper-log.txt); Auto Edit watches videos by playing them, as before."
+  xcrun swiftc -O -swift-version 5 -target arm64-apple-macos14.2 -framework AVFoundation -framework CoreMedia -framework CoreVideo \
+    "$ROOT/native/reel-encode.swift" -o "$RES/app/bin/reel-encode" >"$ROOT/encode-helper-log.txt" 2>&1 \
+    && codesign --force --sign - "$RES/app/bin/reel-encode" >/dev/null 2>&1 && echo "Encoder helper built (exports drawn by the Rust core)." \
+    || echo "The encoder helper didn't build (see encode-helper-log.txt); exports are drawn by the editor, as before."
 else
   echo "Swift isn't installed (xcode-select --install); per-app audio and plug-ins will be off."
 fi

@@ -18,6 +18,7 @@ const kitten = require('./engine/kitten');
 const ghost = require('./engine/ghost');
 const audio = require('./engine/audio');
 const core = require('./engine/core'); // reel-core: the Rust helper (falls back to JavaScript when missing)
+const { videoExport } = require('./engine/videoexport.js');
 const fx = require('./engine/fx');
 
 const APP_ORIGIN = 'app://reel';
@@ -1549,7 +1550,62 @@ handle('core:mixExport', async (id, token, job) => {
   } finally { coreMixes.delete(id); }
 });
 
+// A video export drawn by the Rust core (reel-core 1.10), when the editor sends it one (lib/videoplan.js made it, so
+// every frame is one the core draws): the Mac's decoder reads each clip (reel-frames --rgba), the core draws the
+// frames, the Mac's encoder writes them with the export's mixed sound (reel-encode). Only checked media names in this
+// project and the mix Reel just made; a new temporary file beside the destination, which replaces it only once
+// complete. null when this build hasn't all three, or has an older core: the editor then exports as before.
+const ENCODE_BIN = path.join(__dirname, 'bin', 'reel-encode');
+const coreVideos = new Map();
+handle('core:videoExport', async (id, token, job) => {
+  if (!core.available()) return null;
+  for (const b of [FRAMES_BIN, ENCODE_BIN]) { try { await fs.promises.access(b, fs.constants.X_OK); } catch { return null; } }
+  coreVersion ??= core.version();
+  const v = String((await coreVersion) || '0').split('.').map(Number);
+  if ((v[0] || 0) < 1 || ((v[0] || 0) === 1 && (v[1] || 0) < 10)) return null;
+  const h = handleOf(id, 'export');
+  const p = projectOf(token);
+  if (!/\.mp4$/i.test(h.dst)) throw new Error('Bad export');
+  const int = (x, a, b) => Number.isInteger(x) && x >= a && x <= b;
+  const num = (x, a, b) => typeof x === 'number' && Number.isFinite(x) && x >= a && x <= b;
+  if (!job || typeof job !== 'object' || !int(job.w, 2, 8192) || !int(job.h, 2, 8192) || job.w % 2 || job.h % 2 || !num(job.fps, 1, 240)
+    || !['h264', 'hevc'].includes(job.codec) || !int(job.vbr, 100000, 400000000) || !int(job.abr, 32000, 512000)
+    || !(job.body instanceof Uint8Array) || job.body.length > 1 << 30 || !Array.isArray(job.sources) || !job.sources.length || job.sources.length > 48) throw new Error('Bad export');
+  const sources = [];
+  for (const s of job.sources) {
+    if (!s || !validate.mediaName(s.file) || !num(s.from, 0, 1e6) || !num(s.to, 0, 1e6) || s.to < s.from || !int(s.w, 2, 8192) || !int(s.h, 2, 8192)) throw new Error('Bad export source');
+    const f = path.join(mediaDir(p), s.file), st = await fs.promises.lstat(f);
+    if (!st.isFile()) throw new Error('Not a media file');
+    sources.push({ path: f, from: s.from, to: Math.max(s.to, s.from + 0.001), w: s.w, h: s.h });
+  }
+  // the sound: the mix Reel wrote for this export (in the project's media folder), or none
+  let sound = null;
+  if (job.sound != null) {
+    if (!validate.mediaName(job.sound) || !/^master-mix/.test(job.sound)) throw new Error('Bad export sound');
+    sound = path.join(mediaDir(p), job.sound);
+    if (!(await fs.promises.lstat(sound)).isFile()) throw new Error('Bad export sound');
+  }
+  const tmp = path.join(path.dirname(h.dst), `.${path.basename(h.dst, '.mp4')}.${process.pid}.core.mp4`);
+  await fs.promises.rm(tmp, { force: true });
+  const ctl = new AbortController();
+  coreVideos.set(id, ctl);
+  const send = f => { if (win && !win.isDestroyed()) win.webContents.send('core:progress', id, f); };
+  try {
+    const r = await videoExport({ coreBin: core.binary(), framesBin: FRAMES_BIN, encodeBin: ENCODE_BIN, sources, body: job.body, out: tmp, w: job.w, h: job.h, fps: job.fps,
+      codec: job.codec, vbr: job.vbr, abr: job.abr, sound, onProgress: send, signal: ctl.signal });
+    await closeHandle(id);
+    await fs.promises.rm(h.file, { force: true }); // the JavaScript export's part file, unused
+    await fs.promises.rename(tmp, h.dst);
+    exportedFiles.add(h.dst);
+    return { name: path.basename(h.dst), frames: r.frames };
+  } catch (e) {
+    await fs.promises.rm(tmp, { force: true }).catch(() => {});
+    throw e;
+  } finally { coreVideos.delete(id); }
+});
+
 handle('export:cancel', async id => {
+  coreVideos.get(id)?.abort(); // a video the core is drawing stops
   coreMixes.delete(id); // a mix the core is still writing is thrown away when it ends
   const h = await closeHandle(id);
   if (h) await fs.promises.rm(h.file, { force: true });

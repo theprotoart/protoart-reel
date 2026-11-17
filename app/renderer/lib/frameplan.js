@@ -125,17 +125,31 @@ export function encodeFrame(plan, W, H, ids, pictures, out) {
   const chunks = [];
   let size = 0;
   const push = b => { chunks.push(b); size += b.length; };
+  const u32 = v => { const b = new Uint8Array(4); new DataView(b.buffer).setUint32(0, v >>> 0, true); push(b); };
+  u32(W); u32(H); push(Uint8Array.from(plan.bg));
+  u32(pictures.length);
+  for (const p of pictures) { u32(p.w); u32(p.h); push(p.rgba instanceof Uint8Array ? p.rgba : new Uint8Array(p.rgba)); }
+  encodeLayers(plan.layers, l => ids.indexOf(l.media), push);
+  const ob = new TextEncoder().encode(out);
+  u32(ob.length); push(ob);
+  const all = new Uint8Array(size);
+  let o = 0; for (const c of chunks) { all.set(c, o); o += c.length; }
+  return all;
+}
+
+/**
+ * A plan's layers as the frame job writes them (main.rs read_layer; vexport's frames share it): how many, then each.
+ * srcOf(layer) is the index of the picture a layer shows; push takes the bytes.
+ */
+export function encodeLayers(layers, srcOf, push) {
   const u8 = v => push(Uint8Array.of(v));
   const u32 = v => { const b = new Uint8Array(4); new DataView(b.buffer).setUint32(0, v >>> 0, true); push(b); };
   const f64 = v => { const b = new Uint8Array(8); new DataView(b.buffer).setFloat64(0, +v, true); push(b); };
   const rgb01 = h => { const x = hexRGB(h) || [0, 0, 0]; return x.map(v => v / 255); };
-  u32(W); u32(H); push(Uint8Array.from(plan.bg));
-  u32(pictures.length);
-  for (const p of pictures) { u32(p.w); u32(p.h); push(p.rgba instanceof Uint8Array ? p.rgba : new Uint8Array(p.rgba)); }
-  u32(plan.layers.length);
-  for (const l of plan.layers) {
+  u32(layers.length);
+  for (const l of layers) {
     if (l.fill) { u32(0xffffffff); f64(l.alpha); push(Uint8Array.from(l.fill)); continue; }
-    u32(ids.indexOf(l.media)); f64(l.alpha); l.m.forEach(f64); l.rect.forEach(f64);
+    u32(srcOf(l)); f64(l.alpha); l.m.forEach(f64); l.rect.forEach(f64);
     const k = l.look;
     if (!k) u8(0); else { u8(1); k.b.forEach(f64); [k.w, k.h, k.radius, k.border].forEach(f64); push(Uint8Array.from(k.borderColor)); [k.shadow, k.dy].forEach(f64); u8(k.cut ? 1 : 0); }
     const f = l.filter;
@@ -151,9 +165,4 @@ export function encodeFrame(plan, W, H, ids, pictures, out) {
       [...(g.mMul || [1, 1, 1]), ...(g.mAdd || [0, 0, 0]), ...(g.lift || [0, 0, 0]), ...(g.gam || [1, 1, 1]), ...(g.gain || [1, 1, 1])].forEach(f64);
     }
   }
-  const ob = new TextEncoder().encode(out);
-  u32(ob.length); push(ob);
-  const all = new Uint8Array(size);
-  let o = 0; for (const c of chunks) { all.set(c, o); o += c.length; }
-  return all;
 }

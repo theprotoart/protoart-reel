@@ -32,7 +32,16 @@
 - **Frame reader:** `reel-frames` is compiled from `native/reel-frames.swift` and signed with the app. It reads
   the one video file it's given (a checked media name inside the open project's media folder, chosen by the main
   process) with Apple's decoder and writes small greyscale frames to stdout, piped straight into `reel-core`. No
-  network, a minimal environment, and it writes no files.
+  network, a minimal environment, and it writes no files. With `--rgba` (exports drawn by the Rust core) it does the
+  same in colour, at the size the export needs.
+- **Encoder helper:** `reel-encode` is compiled from `native/reel-encode.swift` and signed with the app. It writes one
+  new MP4 (a temporary name beside the export's destination, chosen by the main process, which mustn't exist yet)
+  from frames on its stdin (the Rust core's output, piped directly) and the export's mixed sound (a WAV Reel just
+  wrote in the project's media folder). No network, a minimal environment. The main process renames the file over
+  the destination only once it's complete, and deletes it otherwise.
+- **Exports drawn by the Rust core** (Settings › Processing, off by default): the main process checks every media
+  name, size, time and bit rate the editor sends, starts the decoders, the encoder and the core itself, and hands the
+  decoders' output to the core as file descriptors 3, 4…; the core accepts only those descriptors, one per source.
 
 ## Audit, 14 November 2026
 

@@ -13,6 +13,8 @@ const MAX_SAMPLES = 16000 * 60 * 60 * 4; // four hours of 16 kHz sound per job
 let binPath = BIN;
 /** For tests: run a helper built somewhere else. */
 function useBinary(p) { binPath = p; }
+/** Where the core is (for a job another module starts itself, as engine/videoexport.js does). */
+function binary() { return binPath; }
 function available() { try { fs.accessSync(binPath, fs.constants.X_OK); return true; } catch { return false; } }
 
 const finite = v => typeof v === 'number' && Number.isFinite(v);
@@ -213,4 +215,4 @@ async function watch(opts, frames, { onProgress = null, signal = null, timeout =
 
 async function version() { try { return (await run(Buffer.from('RCORE1\nversion\n'), { timeout: 5000 })).version; } catch { return null; } }
 
-module.exports = { available, umFind, analyze, mix, mp4Info, version, encodeUmFind, run, useBinary, watch, watchHead };
+module.exports = { binary, available, umFind, analyze, mix, mp4Info, version, encodeUmFind, run, useBinary, watch, watchHead };

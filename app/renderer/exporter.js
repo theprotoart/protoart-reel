@@ -10,6 +10,7 @@ import { masterOf, openMaster, LOUDNESS, mixToFile, addMasterPlugin } from './ma
 import { LOUDNESS_TARGETS } from './lib/master.js';
 import { builtInPresets, GROUPS, QUALITY, SIZE_LIMITS, presetFps, videoBitrate, fromHandBrake } from './lib/exportpresets.js';
 import { exportMixJob } from './lib/mixplan.js';
+import { videoJob } from './lib/videoplan.js';
 
 const SOUND = new Set(['aac', 'wav']); // sound-only formats
 const FORMATS = [['avc', 'MP4 · H.264 (plays everywhere)'], ['hevc', 'MP4 · HEVC (smaller, newer devices)'], ['aac', 'Sound only · AAC (.m4a)'], ['wav', 'Sound only · WAV (uncompressed, 24-bit)'], ['gif', 'Animated GIF'], ['apng', 'Animated PNG']];
@@ -262,6 +263,45 @@ export function openExport(app) {
         temps.push(masterFile);
       } catch (err) { cleanup(); app.api.exportCancel(h.id); reject(new Error(`Mastering failed: ${err.message}`)); return; }
     }
+    // an MP4 the Rust core can draw (Settings › Processing, while it's tested): the Mac's decoder, the core and the
+    // Mac's encoder make it, with the sound mixed here first; anything it can't do exports the usual way below
+    const fps0 = s.fps || 30;
+    if (!SOUND.has(s.codec) && !anim && pref('rustVideo') && app.api.coreVideoExport && !st.motionBlur && loud == null) {
+      const job = videoJob(doc, from, to, w, hh, fps0);
+      if (job.why) usual = `drawn the usual way: ${job.why}`;
+      else {
+        let sound = masterFile;
+        try {
+          if (!sound) {
+            status.textContent = 'Mixing the sound…';
+            sound = await mixToFile(app, { from, to, master: null, onProgress: f => { progress.firstChild.style.width = (f * 15).toFixed(1) + '%'; } });
+            temps.push(sound);
+          }
+          status.textContent = 'Drawing the frames (Rust core)…';
+          const t0 = performance.now();
+          const off = app.api.onCoreProgress?.((id, f) => {
+            if (id !== h.id) return;
+            const k = 0.15 + f * 0.85, left = ((performance.now() - t0) / 1000) * (1 - f) / Math.max(f, 0.001);
+            progress.firstChild.style.width = (k * 100).toFixed(1) + '%';
+            status.textContent = `Frame ${Math.round(f * job.frames)} of ${job.frames} · Rust core · about ${fmtTime(left).replace(/\.\d$/, '')} left`;
+          });
+          let r = null;
+          try {
+            r = await app.api.coreVideoExport(h.id, app.token, { w, h: hh, fps: fps0, codec: s.codec === 'hevc' ? 'hevc' : 'h264', vbr: Math.round(videoBitrate(s, w, hh, fps0, to - from)),
+              abr: s.abr ? s.abr * 1000 : Number(pref('audioBitrate')) || 192000, sound, sources: job.sources.map(x => ({ file: x.file, from: x.from, to: x.to, w: x.w, h: x.h })), body: job.body });
+          } finally { off?.(); }
+          if (r) {
+            progress.firstChild.style.width = '100%'; cleanup();
+            resolve({ name: r.name, secs: (performance.now() - started) / 1000, how: 'drawn by the Rust core' }); return;
+          }
+          usual = 'drawn the usual way: this build hasn’t the Rust export helpers';
+        } catch (err) {
+          if (/Cancelled/.test(err.message)) { cleanup(); reject(new Error('Export cancelled.')); return; }
+          toast(`The Rust core couldn’t draw this one (${err.message}); exporting it the usual way.`, 6000);
+          usual = 'drawn the usual way: the Rust core failed';
+        }
+      }
+    }
     worker = new Worker('export-worker.js', { type: 'module' });
     worker.onmessage = async e => {
       const msg = e.data;
@@ -287,7 +327,7 @@ export function openExport(app) {
             if (caps.length) await app.api.captionsBeside(r.name, toSRT(caps)).catch(() => {});
           }
           cleanup();
-          resolve({ name: r.name, secs: (performance.now() - started) / 1000, how: usual ? `mixed the usual way: ${usual}` : '' });
+          resolve({ name: r.name, secs: (performance.now() - started) / 1000, how: usual ? (usual.startsWith('drawn') ? usual : `mixed the usual way: ${usual}`) : '' });
         } catch (err) { cleanup(); reject(new Error(`Couldn’t save: ${err.message}`)); }
       } else if (msg.type === 'error') {
         cleanup();

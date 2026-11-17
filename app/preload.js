@@ -82,6 +82,7 @@ contextBridge.exposeInMainWorld('reel', {
   coreAnalyze: (token, name) => invoke('core:analyze', token, name),
   coreMixExport: (id, token, job) => invoke('core:mixExport', id, token, job),
   coreWatch: (id, token, name, opts) => invoke('core:watch', id, token, name, opts),
+  coreVideoExport: (id, token, job) => invoke('core:videoExport', id, token, job),
   coreWatchStop: id => invoke('core:watchStop', id),
   onCoreProgress: fn => { const l = (_e, id, f) => fn(id, f); ipcRenderer.on('core:progress', l); return () => ipcRenderer.removeListener('core:progress', l); },
   shortcutsGet: () => invoke('shortcuts:get'),
