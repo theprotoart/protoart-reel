@@ -33,7 +33,10 @@ export class Markup {
     this.btn = el('button', { class: 'mk-toggle', type: 'button', title: 'Markup: sketch shapes, add arrows, boxes, bubbles, a loupe…, and set their line and colours, like Preview', onclick: () => this.toggle() },
       el('span', { text: '✎' }));
     this.bar = el('div', { class: 'mk-bar hidden' });
-    this.stage.parentElement.append(this.btn, this.bar);
+    // 🎯 punch in on an area, right under it: drag a box on the picture and it pushes in there and back out
+    this.punch = el('button', { class: 'mk-toggle mk-punch', type: 'button', title: 'Punch in on an area: drag a box around what to show, and the picture pushes in on it at the playhead, holds and comes back out', onclick: () => this.app.cmd('punch-zoom') },
+      el('span', { text: '🎯' }));
+    this.stage.parentElement.append(this.btn, this.punch, this.bar);
     this.pop = null;
     this.draw();
   }

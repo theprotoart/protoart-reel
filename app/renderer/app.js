@@ -585,6 +585,28 @@ class App {
     this.player.queueDraw(); this.overlay.update(); this.inspector.render();
   }
 
+  /**
+   * 🎯 Punch in on an area: drag a box around a spot on the preview and the picture pushes in on it at the playhead,
+   * holds, and comes back out (a Quick push, aimed and sized by the box, so its speed and hold are set in the same
+   * place afterwards).
+   */
+  punchZoom() {
+    const doc = this.doc;
+    if (!doc) return;
+    const t = this.player.time;
+    const isPic = c => c && c.type === 'media' && !c.audioOnly && mediaById(doc, c.media)?.kind !== 'audio';
+    const on = c => t >= c.start && t < clipEnd(c);
+    let c = this.selection.clips.map(id => doc.clips.find(x => x.id === id)).find(x => isPic(x) && on(x));
+    // nothing picked: the picture on top under the playhead
+    if (!c) { const order = doc.tracks.map(tr => tr.id); c = doc.clips.filter(x => isPic(x) && on(x)).sort((a, b) => order.indexOf(a.track) - order.indexOf(b.track))[0]; }
+    if (!c) { toast('Move the playhead over a video or picture first, then 🎯 Punch in.', 4000); return; }
+    if (clipEnd(c) - t < 0.4) { toast('Too close to the end of the clip to punch in: move the playhead back a little.', 4000); return; }
+    this.player.pause?.();
+    this.dzEdit = null; this.zmEdit = null;
+    this.select([c.id]);
+    this.overlay.punchDraw(c);
+  }
+
   dynamicZoom() {
     const doc = this.doc;
     if (!doc) return;
@@ -1302,6 +1324,7 @@ class App {
       case 'remove-background': return this.removeBackground();
       case 'pip': return this.pictureInPicture();
       case 'dynamic-zoom': return this.dynamicZoom();
+      case 'punch-zoom': return this.punchZoom();
       case 'dynamic-zoom-done': this.dzEdit = null; this.player.queueDraw(); this.overlay.update(); this.inspector.render(); return;
       case 'zoom-moves': return this.zoomMovesEdit();
       case 'zoom-moves-done': this.zmEdit = null; this.player.queueDraw(); this.overlay.update(); this.inspector.render(); return;

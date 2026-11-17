@@ -6,6 +6,10 @@ import { propsAt, uid } from '../model.js';
 import { propsOfShot } from './dynzoom.js';
 
 export const PUSH_DEFAULTS = { zoom: 1.5, inDur: 0.3, hold: 2, outDur: 0.3, ease: 'ease' };
+// the last push's settings, for the next one (kept in this computer's storage; the defaults when there's none)
+const PUSH_PREF = 'reel.push';
+export const pushPrefs = () => { try { return { ...PUSH_DEFAULTS, ...(JSON.parse(globalThis.localStorage?.getItem(PUSH_PREF) || '{}') || {}) }; } catch { return { ...PUSH_DEFAULTS }; } };
+export const savePush = v => { try { globalThis.localStorage?.setItem(PUSH_PREF, JSON.stringify({ zoom: v.zoom, inDur: v.inDur, hold: v.hold, outDur: v.outDur, ease: v.ease })); } catch { /* fine */ } };
 const clamp = (v, a, b) => Math.max(a, Math.min(b, v));
 
 /** The clip's position and size just before local time t (what a push comes back out to). */

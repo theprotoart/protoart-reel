@@ -284,7 +284,7 @@ export class Timeline {
       ['Fade in (½ s)', () => fade('in', Math.min(0.5, c.duration / 2))],
       ['Fade out (½ s)', () => fade('out', Math.min(0.5, c.duration / 2))],
       ['Remove fades', () => { fade('in', 0); fade('out', 0); }],
-      ...(c.audioOnly || m?.kind === 'audio' ? [] : [null, ['🔍 Dynamic zoom (start & end frames)…', () => { app.select([c.id]); app.cmd('dynamic-zoom'); }]]),
+      ...(c.audioOnly || m?.kind === 'audio' ? [] : [null, ['🎯 Punch in on an area…', () => { app.select([c.id]); if (app.player.time < c.start || app.player.time >= c.start + c.duration) app.seek(c.start + Math.min(1, c.duration / 3)); app.cmd('punch-zoom'); }], ['🔍 Dynamic zoom (start & end frames)…', () => { app.select([c.id]); app.cmd('dynamic-zoom'); }]]),
       // bounce in place: render the effects into new audio on a track below; originals muted and greyed out
       c.bounced || c.bounceOf ? ['↩ Back to the original sound (remove the rendered copy)', () => app.cmd('bounce-revert')]
         : audioish && !c.audio?.mute ? ['⤓ Bounce to new track (render effects in place)', () => app.cmd('bounce')] : null,

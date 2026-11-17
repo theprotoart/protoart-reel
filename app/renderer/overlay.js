@@ -1,7 +1,8 @@
 // Direct manipulation in the preview: drag the selected clip to move it, drag its corner to
 // scale it; callout boxes and arrow end points can be dragged too.
 import { elementBox } from './lib/elements.js';
-import { el, popMenu, dragBy } from './ui.js';
+import { el, popMenu, dragBy, toast } from './ui.js';
+import { addPush, pushPrefs } from './lib/push.js';
 import { propsAt, mediaById, ANIMATABLE, clipEnd, TEXT_DEFAULTS, animated, paramAt, setParam, clamp, uid, fmtTime } from './model.js';
 import { mediaRect, textFont } from './compositor.js';
 import { getDynZoom, setDynZoomFrame, swapDynZoom, setDynZoomEase, DZ_EASES, MIN_S, MAX_S, zoomMoves, shotOf, propsOfShot } from './lib/dynzoom.js';
@@ -634,6 +635,67 @@ export class Overlay {
         hd.addEventListener('pointermove', move); hd.addEventListener('pointerup', up);
       });
       this.root.append(hd);
+    });
+  }
+
+  /**
+   * 🎯 Punch in on an area: drag a box around a spot on the preview; a Quick push at the playhead aims at its middle
+   * and comes in close enough to fill the screen with it, holds and comes back out (speed and hold: the last ones used).
+   */
+  punchDraw(c) {
+    const app = this.app, doc = this.doc, m = mediaById(doc, c.media);
+    if (!m) return;
+    const t = clamp(app.player.time - c.start, 0, c.duration);
+    requestAnimationFrame(() => {
+      this.update();
+      const cr = this.canvas.getBoundingClientRect(), sr = this.root.parentElement.getBoundingClientRect();
+      Object.assign(this.root.style, { left: cr.left - sr.left + 'px', top: cr.top - sr.top + 'px', width: cr.width + 'px', height: cr.height + 'px' });
+      const W = cr.width, H = cr.height;
+      let stay = false;
+      const kind = el('button', { class: 'dz-mini', text: 'IN & BACK OUT', title: 'Click to switch: push in and come back out, or push in and stay', onclick: () => { stay = !stay; kind.textContent = stay ? 'IN AND STAY' : 'IN & BACK OUT'; } });
+      const box = el('div', { class: 'punch-box' });
+      const bar = el('div', { class: 'dz-bar punch-bar' },
+        el('b', { class: 'dz-title', text: '🎯 PUNCH IN' }),
+        el('span', { class: 'zm-count', text: 'Drag a box around what to show' }), kind,
+        el('button', { class: 'dz-done', text: 'CANCEL', title: 'Esc', onclick: () => done(null) }));
+      const pad = el('div', { class: 'draw-pad punch-pad', title: 'Drag a box around what you want the viewer to see · Esc to cancel' }, box);
+      for (const ev of ['pointerdown', 'click']) bar.addEventListener(ev, e => e.stopPropagation());
+      this.root.replaceChildren(pad, bar); // just the box being drawn: no handles in the way
+      this.dragging = true;
+      const done = r => {
+        pad.remove(); bar.remove(); this.dragging = false;
+        window.removeEventListener('keydown', esc, true);
+        if (!r || r.w * W < 12 || r.h * H < 12) { this.update(); return; }
+        const r0 = mediaRect(doc, m, { x: 0.5, y: 0.5, scale: 1, crop: c.props?.crop || [0, 0, 0, 0] }, W, H, m.width || 1920, m.height || 1080);
+        const fw = r0.w / W, fh = r0.h / H;
+        // the box as part of the whole picture: what the screen shows now, and where in it the box is
+        const f = shotOf(propsAt({ ...c, transIn: null, transOut: null }, t), fw, fh);
+        const aim = { fx: f.fx + (r.cx - 0.5) * f.s / fw, fy: f.fy + (r.cy - 0.5) * f.s / fh };
+        const zoom = clamp(1 / (Math.max(r.w, r.h) * 1.15), 1.1, 5); // a little room around it
+        let id = null;
+        app.commit(() => { id = addPush(c, t, { ...pushPrefs(), kind: stay ? 'in' : 'inout', aim, zoom, fw, fh }); });
+        if (!id) { toast('Not enough of the clip left after the playhead for a punch in.'); this.update(); return; }
+        const first = c.actions.find(a => a.push === id && a.pushPart === 'in');
+        app.select([c.id], first.id);
+        app.seek(c.start + Math.min(c.duration - 0.01, first.t + first.dur));
+        toast('Punched in. Its speed, hold and zoom are under 🎯 Punch in & out on the right; ⌘Z undoes it.', 4500);
+      };
+      const esc = e => { if (e.key === 'Escape') { e.stopPropagation(); done(null); } };
+      window.addEventListener('keydown', esc, true);
+      pad.addEventListener('pointerdown', e => {
+        if (e.button !== 0) return;
+        e.preventDefault(); pad.setPointerCapture(e.pointerId);
+        const at = ev => { const q = pad.getBoundingClientRect(); return [clamp((ev.clientX - q.left) / q.width, 0, 1), clamp((ev.clientY - q.top) / q.height, 0, 1)]; };
+        const a = at(e);
+        let r = null;
+        const move = ev => {
+          const b = at(ev);
+          r = { x0: Math.min(a[0], b[0]), y0: Math.min(a[1], b[1]), w: Math.abs(b[0] - a[0]), h: Math.abs(b[1] - a[1]) };
+          Object.assign(box.style, { display: 'block', left: r.x0 * W + 'px', top: r.y0 * H + 'px', width: r.w * W + 'px', height: r.h * H + 'px' });
+        };
+        const up = () => { pad.removeEventListener('pointermove', move); pad.removeEventListener('pointerup', up); done(r && { cx: r.x0 + r.w / 2, cy: r.y0 + r.h / 2, w: r.w, h: r.h }); };
+        pad.addEventListener('pointermove', move); pad.addEventListener('pointerup', up);
+      });
     });
   }
 

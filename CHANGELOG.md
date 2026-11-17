@@ -2,6 +2,8 @@
 
 ## 1.11.0 — 2026-11-16
 
+- 🎯 Punch in on an area: click 🎯 on the preview (under ✎), the new button at the top of Video motion, EFFECTS ▾ or the clip's right-click menu, and drag a box around what to show. The picture pushes in until the box fills the screen, holds and comes back out (or stays in). Quick push is now called 🎯 Punch in & out, and its zoom goes up to 500%.
+
 - A rectangle or ellipse callout (Area, Magnify) now has only sizing handles: drag any corner or side to size it (the opposite side stays put, ⇧ sizes from the centre). Moving single points is just for Freehand shapes.
 
 - Make Vertical and Auto Edit no longer stall on a recording the Mac's decoder gets stuck on: after 15 s with no frames it's stopped and that clip is watched by playing, and Make Vertical gives each clip a time limit, framing it from what was seen.

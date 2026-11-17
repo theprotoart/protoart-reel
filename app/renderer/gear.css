@@ -2664,3 +2664,10 @@ html[data-theme="light"] .lib-item .lsound.on { color: #1d1a14; }
 .remix-tape.spinning .cs-reel { animation: cs-spin .8s linear infinite; transform-origin: center; transform-box: fill-box; stroke-dasharray: 3 1.5; }
 @keyframes cs-spin { to { transform: rotate(360deg); } }
 @media (prefers-reduced-motion: reduce) { .remix-tape .cs-reel { animation: none !important; } }
+
+/* 🎯 Punch in: the box being dragged, and the bar on top */
+#overlay .punch-pad { background: rgba(0,0,0,0.28); }
+#overlay .punch-box { display: none; position: absolute; border: 2px solid var(--amber); border-radius: 3px; background: rgba(255,210,122,0.08); box-shadow: 0 0 0 9999px rgba(0,0,0,0.35), 0 0 8px rgba(var(--glow-a),0.8); pointer-events: none; }
+#overlay .punch-bar { top: 10px; bottom: auto; }
+.insp-section .punch-btn { width: 100%; margin: 4px 0 8px; }
+.mk-toggle.mk-punch { top: 60px; font-size: 15px; }

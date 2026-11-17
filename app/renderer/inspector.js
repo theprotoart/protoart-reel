@@ -17,7 +17,7 @@ import { hasDynZoom, getDynZoom, setDynZoomEase, swapDynZoom, removeDynZoom, DZ_
 import { ELEMENTS } from './lib/elements.js';
 import { pref } from './prefs.js';
 import { lookOf, lookName, isFav, toggleFav, saveMyLook, revealPreset } from './fxlibrary.js';
-import { addPush, pushOf, pushAt, setPush, removePush, PUSH_DEFAULTS } from './lib/push.js';
+import { addPush, pushOf, pushAt, setPush, removePush, pushPrefs, savePush } from './lib/push.js';
 import { cursorAt } from './cursor.js';
 import { frameFraction } from './autozoom.js';
 import { textKeys, withKeys } from './texttools.js';
@@ -202,7 +202,7 @@ export class Inspector {
     };
     // every section folds from its title (remembered), and Fold all does a whole tab at once
     // the Motion tab in order of use: quick push, zoom moves, actions, then the rest
-    const RANK = [/^quick push/, /^🎯 zoom moves/, /^actions/, /^dynamic zoom/, /^keyframes/, /^motion presets/];
+    const RANK = [/punch in & out/, /^🎯 zoom moves/, /^actions/, /^dynamic zoom/, /^keyframes/, /^motion presets/];
     const rank = sec => { const t = (sec.querySelector(':scope > .engr')?.textContent || '').toLowerCase(); const i = RANK.findIndex(r => r.test(t)); return i < 0 ? RANK.length : i; };
     const motion = secs.filter(sec => sec.dataset.cat === 'motion').sort((x, y) => rank(x) - rank(y));
     if (motion.length > 1) { const after = motion[0].previousSibling; const frag = document.createDocumentFragment(); motion.forEach(x => frag.append(x)); this.root.insertBefore(frag, after ? after.nextSibling : this.root.firstChild); }
@@ -829,9 +829,6 @@ function elementPanel(insp, c) {
 }
 
 // ---------------------------------------------------------------- quick push in / push out
-const PUSH_PREF = 'reel.push';
-const pushPrefs = () => { try { return { ...PUSH_DEFAULTS, ...(JSON.parse(localStorage.getItem(PUSH_PREF) || '{}') || {}) }; } catch { return { ...PUSH_DEFAULTS }; } };
-const savePush = v => { try { localStorage.setItem(PUSH_PREF, JSON.stringify({ zoom: v.zoom, inDur: v.inDur, hold: v.hold, outDur: v.outDur, ease: v.ease })); } catch { /* fine */ } };
 
 /**
  * Quick push: a zoom in at the playhead, a hold and a zoom back out, in one click, toward the pointer when the
@@ -856,16 +853,17 @@ function pushSection(app, ins, c, m) {
     const first = c.actions.find(a => a.push === id);
     app.select([c.id], first.id);
   };
-  const sec = section('Quick push',
-    el('p', { class: 'note', text: p ? 'This push: how far in, how fast it goes in, how long it stays and how fast it comes back. Both halves change together; drag their bars on the timeline too.' : `A quick zoom at the playhead${m?.cursor ? ', toward the pointer' : ''}: in, hold, back out. Then set its speed and length here.` }),
+  const sec = section('🎯 Punch in & out',
+    el('p', { class: 'note', text: p ? 'This punch in: how far in, how fast it goes in, how long it stays and how fast it comes back. Both halves change together; drag their bars on the timeline too.' : `Point the viewer at part of the screen: put the playhead where it should happen, then drag a box around what to show. It pushes in, holds and comes back out. Or punch in with one click${m?.cursor ? ', toward the pointer' : ', on the middle'}.` }),
+    el('button', { class: 'tool hw amber punch-btn', text: '🎯 PUNCH IN ON AN AREA…', title: 'Drag a box on the preview around what to show: it pushes in on it at the playhead, holds and comes back out', onclick: () => app.cmd('punch-zoom') }),
     el('div', { class: 'btn-row push-row' },
-      el('button', { class: 'tool hw amber', text: '⤢ Push in & out', title: 'Zoom in at the playhead, hold, and zoom back out', onclick: () => add('inout') }),
+      el('button', { class: 'tool', text: '⤢ Punch in & out', title: `Zoom in at the playhead${m?.cursor ? ' toward the pointer' : ''}, hold, and zoom back out`, onclick: () => add('inout') }),
       el('button', { class: 'tool', text: 'In', title: 'Zoom in at the playhead and stay in', onclick: () => add('in') }),
       el('button', { class: 'tool', text: 'Out', title: 'Zoom back out at the playhead (to how it was before the last push in)', onclick: () => add('out') })));
   if (p) {
     const id = (p.in || p.out).id;
     const set = (k, v) => { setPush(c, id, { [k]: v }); savePush({ ...pushOf(c, id) }); };
-    if (p.in) sec.append(ins.sl('Zoom', () => p.zoom, v => set('zoom', v), { min: 1.1, max: 3, step: 0.05, fmt: v => Math.round(v * 100) + '%' }));
+    if (p.in) sec.append(ins.sl('Zoom', () => p.zoom, v => set('zoom', v), { min: 1.1, max: 5, step: 0.05, fmt: v => Math.round(v * 100) + '%' }));
     if (p.in) sec.append(ins.sl('In speed', () => p.inDur, v => set('inDur', v), { min: 0.1, max: 3, step: 0.05, fmt: v => `${v.toFixed(2)} s` }));
     if (p.in && p.out) sec.append(ins.sl('Hold', () => p.hold, v => set('hold', v), { min: 0, max: Math.max(0.5, Math.min(30, c.duration - p.in.t - p.in.dur - 0.1)), step: 0.1, fmt: v => v.toFixed(1) + ' s' }));
     if (p.out) sec.append(ins.sl('Out speed', () => p.outDur, v => set('outDur', v), { min: 0.1, max: 3, step: 0.05, fmt: v => `${v.toFixed(2)} s` }));
