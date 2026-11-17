@@ -643,6 +643,10 @@ export class Inspector {
     this.root.append(section('Callout',
       el('p', { class: 'note', text: 'Darkens, blurs or magnifies everything on the tracks below except the focus area. Drag the box in the preview. ◆ sets a keyframe at the playhead: add two at different times and the callout moves between them.' }),
       selectRow('Shape', co.shape, [['rect', 'Rectangle'], ['ellipse', 'Ellipse'], ['freehand', 'Freehand']], v => { this.edit(() => { co.shape = v; }); if (v === 'freehand' && !(co.path && co.path.length > 2)) this.app.overlay.drawFreehand(c); }),
+      // the looks used most (magnify, dim, blur) first, right under the shape
+      this.ksl(c, 'callout.zoom', 'Magnify', { min: 1, max: 10, step: 0.05, fmt: v => v.toFixed(2) + '×' }),
+      this.ksl(c, 'callout.dim', 'Dim outside', { min: 0, max: 0.95, step: 0.01, fmt: v => (v * 100).toFixed(0) + '%' }),
+      this.ksl(c, 'callout.blur', 'Blur outside', { min: 0, max: 40, step: 0.5, fmt: v => v.toFixed(1) }),
       co.shape === 'freehand' ? el('div', { class: 'btn-row' }, el('button', { class: 'tool', text: co.path?.length > 2 ? 'Redraw shape' : 'Draw shape', title: 'Draw around what matters, right on the preview', onclick: () => this.app.overlay.drawFreehand(c) })) : null,
       co.shape === 'freehand' ? checkRow('Sharp corners', !!co.sharp, v => this.edit(() => { co.sharp = v; })) : null,
       el('p', { class: 'note', text: co.shape === 'freehand' ? 'Drag any point of the shape on the picture. Double-click a point to take it out, the outline to add one.' : 'Drag a corner or side on the picture to size it (⇧ from the centre), or inside it to move it. For a shape of your own, choose Freehand.' }),
@@ -655,9 +659,6 @@ export class Inspector {
       this.ksl(c, 'callout.h', 'Height', { min: 0.02, max: 1, step: 0.001, fmt: v => (v * 100).toFixed(0) + '%' }),
       this.ksl(c, 'callout.radius', 'Corners', { min: 0, max: 0.2, step: 0.001, fmt: v => (v * 100).toFixed(1) }),
       this.ksl(c, 'callout.feather', 'Feather', { min: 0, max: 0.2, step: 0.001, fmt: v => (v * 100).toFixed(1) }),
-      this.ksl(c, 'callout.dim', 'Dim outside', { min: 0, max: 0.95, step: 0.01, fmt: v => (v * 100).toFixed(0) + '%' }),
-      this.ksl(c, 'callout.blur', 'Blur outside', { min: 0, max: 40, step: 0.5, fmt: v => v.toFixed(1) }),
-      this.ksl(c, 'callout.zoom', 'Magnify', { min: 1, max: 10, step: 0.05, fmt: v => v.toFixed(2) + '×' }),
       this.ksl(c, 'callout.outline', 'Outline', { min: 0, max: 16, step: 0.5, fmt: v => v.toFixed(1) }),
       colorRow('Outline color', co.outlineColor, v => this.edit(() => { co.outlineColor = v; })),
     ));

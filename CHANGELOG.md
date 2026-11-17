@@ -2,6 +2,8 @@
 
 ## 1.11.0 — 2026-11-16
 
+- Callout inspector: Magnify, Dim outside and Blur outside now sit at the top, right under Shape.
+
 - Arrows and lines bend: a green handle in the middle (like Preview's); drag it to curve the arrow, double-click it to make it straight again. The head follows the curve, in the preview and the export.
 
 - FILLERS list: 🧹 CLEAR empties the list, and LISTEN AGAIN is now 🧹 CLEAR & RESCAN (or RESCAN CLIP with "Only the selected clip" ticked): the old list goes and it listens again with everything taught since.
