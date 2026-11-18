@@ -5,7 +5,8 @@ import { el, toast, dragBy } from './ui.js';
 import { removeRange, mediaById, uid } from './model.js';
 import { playRange } from './fillers.js';
 import { mergeRanges } from './lib/words.js';
-import { findUms, levelOnTimeline } from './lib/ums.js';
+import { findUms, levelOnTimeline, fillerHits } from './lib/ums.js';
+import { ensureSource } from './fx.js';
 import { timelineWords, speechClips, speechPrefs, saveSpeechPrefs, trackSelect, LANGS, stopListening } from './transcript.js';
 import { peaksFor } from './peaks.js';
 import { umModel, reloadModel, teachUms, findYourUms, teachFromTimeline, notAnUm, isSoundWord } from './umvoice.js';
@@ -59,7 +60,65 @@ const CATS = [['all', 'All'], ['um', 'Um · uh'], ['phrase', 'Like · you know']
  * Listens to the speech and replaces the project's list of ums (words you looked for stay). With ums you taught
  * Reel (🎙), it also listens for those in your voice; sounds in the pauses it didn't match are listed too, kept.
  */
-async function listen(app, { locale, track, ranges = null, clipIds = null, stop = null }, onStatus) {
+/**
+ * With word-for-word speech set up (CrisperWhisper on this Mac): every word said, ums and uhs included, so the fillers
+ * are read off what was said rather than guessed by ear. Each sound file is written down once and kept.
+ */
+async function listenVerbatim(app, { locale, track, ranges = null, clipIds = null, stop = null }, onStatus) {
+  app.deck?.tally(0, 'filler words found', { done: false });
+  const doc = app.doc;
+  const clips = speechClips(doc, track).filter(c => (!clipIds || clipIds.includes(c.id)) && !notVoice(doc, c));
+  const words = [];
+  const bySource = new Map();
+  // its progress while it writes a recording down (the first time: a minute or two for ten minutes of talk)
+  if (!app._vbHooked) { app._vbHooked = true; app.api.onAi?.(ev => { if (ev?.type === 'verbatimRun') app._vbProgress?.(ev); }); }
+  app._vbProgress = ev => onStatus?.(`${ev.msg || 'Writing down every word…'}`, ev.f || 0);
+  try {
+  for (const [i, c] of clips.entries()) {
+    if (stop?.()) throw new Error('Stopped.');
+    const m = mediaById(doc, c.media);
+    if (!m) continue;
+    onStatus?.(`Writing down every word of “${c.name || m.name}” (${i + 1} of ${clips.length})… the first time takes a while; then it’s kept`, i / Math.max(1, clips.length));
+    let src = m.kind === 'audio' && /\.wav$/i.test(m.file) ? m.file : null;
+    if (!src) src = await ensureSource(app, m);
+    let r = bySource.get(src);
+    if (!r) { r = await app.api.verbatimWords(app.token, src, locale); bySource.set(src, r); }
+    const sp = c.speed || 1, a = c.in || 0, b = a + c.duration * sp;
+    for (const [ws, we, text] of r?.words || []) {
+      if (ws < a - 0.01 || ws >= b) continue;
+      words.push({ t: c.start + (ws - a) / sp, end: c.start + (Math.min(we, b) - a) / sp, text: String(text), track: c.track });
+    }
+  }
+  } finally { app._vbProgress = null; }
+  words.sort((p, q) => p.t - q.t);
+  ctxWords = words.map(w => ({ ...w, text: String(w.text).replace(/^\[|\]$/g, '') })); ctxSig = layoutSig(doc);
+  // the fillers it wrote down ([um], [uh], "you know"…), and its sounds ([breath], [laughter], [cough]) to keep or cut
+  const plain = words.map(w => ({ ...w, text: String(w.text).replace(/^\[|\]$/g, '') }));
+  const hits = fillerHits(plain).map(h => ({ ...h, kind: 'word' }));
+  for (const w of words) {
+    const tag = /^\[(.+)\]$/.exec(String(w.text).trim());
+    if (!tag) continue;
+    const name = tag[1].toLowerCase();
+    if (/^(u+m+|u+h+|uhm|er+m?|ah+|hm+|mm+)$/.test(name)) continue; // already one of the hits
+    if (!hits.some(h => h.t < w.end && h.end > w.t)) hits.push({ t: w.t, end: w.end, text: name, kind: 'sound', cut: false });
+  }
+  const trackAt = t => clips.find(c => t >= c.start - 0.01 && t < c.start + c.duration)?.track;
+  const within = u => !ranges || ranges.some(([p, q]) => u.t >= p - 0.01 && u.t < q);
+  const found = hits.filter(within).filter(u => trackAt(u.t)).sort((p, q) => p.t - q.t).map(u => ({ id: uid('um'), t: +u.t.toFixed(3), end: +u.end.toFixed(3), text: u.text, kind: u.kind, cut: u.cut, track: trackAt(u.t), verbatim: true }));
+  if (stop?.()) throw new Error('Stopped.');
+  app.commit(d => { d.ums = [...found, ...(d.ums || []).filter(u => u.kind === 'find' || (ranges && !within(u)))].sort((p, q) => p.t - q.t); });
+  app.deck?.tally(fillerCount(app), ranges ? 'filler words found in the scanned clips' : 'filler words found');
+  return found;
+}
+
+async function listen(app, opts, onStatus) {
+  // the word-for-word speech model, when it's set up: by far the most accurate
+  const vst = await app.api.verbatimStatus?.().catch(() => null);
+  if (vst?.ready) return listenVerbatim(app, opts, onStatus);
+  return listenByEar(app, opts, onStatus);
+}
+
+async function listenByEar(app, { locale, track, ranges = null, clipIds = null, stop = null }, onStatus) {
   app.deck?.tally(0, 'filler words found', { done: false });
   const words = await timelineWords(app, { locale, track, clipIds }, onStatus);
   ctxWords = words; ctxSig = layoutSig(app.doc);
@@ -157,7 +216,7 @@ let scanning = false, stopped = false;
 export async function scanFillers(app) {
   const doc = app.doc;
   // pressed again while it listens: stop
-  if (scanning) { stopListening(app); stopped = true; return; }
+  if (scanning) { stopListening(app); app.api.verbatimCancel?.().catch?.(() => {}); stopped = true; return; }
   if (!doc) return;
   stopped = false;
   const p = speechPrefs();
@@ -228,11 +287,41 @@ export function openUms(app) {
   };
   teachBtn.addEventListener('click', () => teachUms(app, { onDone: () => { drawTeach(); refresh(true); } }));
   drawTeach();
+  // ⭐ word-for-word speech (CrisperWhisper on this Mac): how fillers are found best. Offered here until it's set up
+  const vbBox = el('div', { class: 'ums-vb' });
+  let vbBusy = false;
+  const drawVb = async () => {
+    const st = await app.api.verbatimStatus?.().catch(() => null);
+    if (!st) { vbBox.replaceChildren(); return; }
+    if (st.ready) {
+      vbBox.replaceChildren(el('div', { class: 'ums-vb-on', title: 'Every word said is written down, ums and uhs included, on this Mac; each recording once, then kept.' },
+        el('b', { text: '✓ WORD-FOR-WORD SPEECH' }), el('span', { text: ` · CrisperWhisper ${st.use} finds them (not by ear)` })));
+      return;
+    }
+    if (!st.allowed || !st.best) { vbBox.replaceChildren(el('p', { class: 'note', text: st.reason || 'This Mac hasn’t enough memory for word-for-word speech: ums are found by ear.' })); return; }
+    const m = st.models[st.best];
+    const bar = el('div', { class: 'progress' + (vbBusy ? '' : ' hidden') }, el('i'));
+    const note = el('span', { class: 'note', text: `Ums are guessed by ear now, and it gets many wrong. CrisperWhisper writes down every word said, ums and uhs included, timed to the word. ${m.label}, a ${m.gb} GB download plus PyTorch, set up once, then it runs on this Mac with no internet. (nyra health’s model: free for non-commercial use.)` });
+    const go = el('button', { class: 'hw amber', text: vbBusy ? '■ STOP' : `⭐ GET WORD-FOR-WORD SPEECH`, onclick: async () => {
+      if (vbBusy) { app.api.verbatimSetupCancel(); return; }
+      vbBusy = true; drawVb();
+    } });
+    vbBox.replaceChildren(el('div', { class: 'ums-vb-get' }, el('b', { text: '⭐ FAR MORE ACCURATE FILLERS' }), note, el('div', { class: 'row' }, go), bar));
+    if (vbBusy && !vbBox._running) {
+      vbBox._running = true;
+      const off = app.api.onAi?.(ev => { if (ev?.type === 'verbatimSetup') { bar.firstChild.style.width = Math.round((ev.f || 0) * 100) + '%'; if (ev.msg) note.textContent = ev.msg; } });
+      try { await app.api.verbatimSetup(st.best); toast('Word-for-word speech is ready: 🧹 CLEAR & RESCAN to find the fillers with it.', 6000); }
+      catch (e) { toast(/Stopped/.test(e.message) ? 'Stopped. Press GET again to carry on.' : `Couldn’t set it up: ${e.message.replace(/^Error invoking remote method '[^']+': (Error: )?/, '')}`, 9000); }
+      vbBusy = false; vbBox._running = false; void off; drawVb();
+    }
+  };
+  drawVb();
   const root = el('div', { class: 'vo-panel takes-panel ums-panel' },
     el('div', { class: 'vo-head' }, el('b', { text: '💬 FILLER WORDS' }), el('span', { class: 'spacer' }), el('button', { class: 'mini', text: '×', title: 'Close', onclick: () => close() })),
     el('p', { class: 'note takes-how' },
       el('b', { text: 'Ums, uhs, filler words and the sounds you taught Reel. ' }),
       'Reel lists them here. Um and uh are marked CUT; "like", "you know" and sounds are marked KEEP: play them first. 🗑 removes one now; REMOVE cuts the ones shown marked CUT.'),
+    vbBox,
     el('div', { class: 'row ums-opts' }, lang, track),
     el('div', { class: 'row ums-find' }, findIn, findBtn),
     el('div', { class: 'row ums-teach-row' }, teachBtn),

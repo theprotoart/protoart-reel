@@ -16,6 +16,7 @@ const store = require('./store');
 const ai = require('./engine/ai');
 const kitten = require('./engine/kitten');
 const ghost = require('./engine/ghost');
+const verbatim = require('./engine/verbatim');
 const audio = require('./engine/audio');
 const core = require('./engine/core'); // reel-core: the Rust helper (falls back to JavaScript when missing)
 const { videoExport } = require('./engine/videoexport.js');
@@ -1892,6 +1893,27 @@ handle('ghost:separate', async (token, req) => {
   }
 });
 
+// Word-for-word speech (CrisperWhisper on this Mac): every word said, ums and uhs included, timed to the word. A
+// sound file's words are worked out once and kept beside it (<file>-verbatim-<model>.json), as the transcripts are.
+handle('verbatim:status', async () => verbatim.status());
+handle('verbatim:setup', async key => verbatim.setup(key ? String(key) : null, kittenEvent));
+handle('verbatim:setupCancel', async () => verbatim.cancelSetup());
+handle('verbatim:cancel', async () => verbatim.cancel());
+handle('verbatim:words', async (token, source, language) => {
+  const p = projectOf(token);
+  if (!validate.mediaName(source)) throw new Error('Bad source');
+  const st = verbatim.status();
+  if (!st.use) return null;
+  const stem = path.basename(source, path.extname(source));
+  const cache = path.join(mediaDir(p), `${stem}-verbatim-${st.use}.json`);
+  try { const c = JSON.parse(await fs.promises.readFile(cache, 'utf8')); if (Array.isArray(c.words)) return { words: c.words, model: st.use, cached: true }; } catch { /* not yet */ }
+  const lang = typeof language === 'string' && /^[a-z]{2}(-[A-Z]{2})?$/.test(language) ? language.slice(0, 2) : 'en';
+  const r = await verbatim.transcribe({ src: path.join(mediaDir(p), path.basename(source)), from: 0, to: 1e9, language: lang },
+    ev => kittenEvent({ type: 'verbatimRun', f: Number(ev.f) || 0, msg: typeof ev.msg === 'string' ? ev.msg.slice(0, 120) : '', source }));
+  await writeAtomic(cache, JSON.stringify({ model: st.use, words: r.words, at: new Date().toISOString() }));
+  return { words: r.words, model: st.use, cached: false };
+});
+
 // Kitten voices (KittenTTS 2 on this Mac): natural speech, emotion, and voices cloned from the person's recordings
 const kittenEvent = ev => { if (win && !win.isDestroyed()) win.webContents.send('ai-event', ev); };
 handle('kitten:status', async () => ({ ...kitten.status(), mine: await kitten.myVoices() }));
@@ -2438,6 +2460,7 @@ app.whenReady().then(() => {
   ai.setUserData(app.getPath('userData'));
   kitten.setUserData(app.getPath('userData'));
   ghost.setUserData(app.getPath('userData'));
+  verbatim.setUserData(app.getPath('userData'));
   lockDownSession();
   buildMenu();
   createWindow();

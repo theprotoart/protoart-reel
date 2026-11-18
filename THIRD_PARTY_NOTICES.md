@@ -37,3 +37,11 @@ original to this project. ProtoArt Reel was designed after studying how ScreenFl
 per-app audio, master and voice tools were likewise designed from the public documentation and manuals
 of Loopback, SoundSource, Waves Clarity Vx and the Abbey Road TG Mastering Chain; no code, neural
 networks, impulse responses or other resources from those products are included.
+
+
+## CrisperWhisper 2.0 (word-for-word speech, downloaded only when you press GET WORD-FOR-WORD SPEECH)
+- Inference code: nyrahealth/CrisperWhisper (MIT License), installed into Reel's own Python environment from a pinned
+  commit, with PyTorch and Hugging Face Transformers.
+- Model weights: nyralabs/CrisperWhisper2.0_large / _turbo, © nyra health GmbH, under the Nyra Health
+  Non-Commercial Research License: free for research and other non-commercial use; commercial use needs a licence
+  from nyra health. Reel doesn't ship the weights: they are downloaded from Hugging Face to this Mac.
