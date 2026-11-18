@@ -2757,11 +2757,7 @@ html[data-theme="light"] .proxy-chip { background: linear-gradient(#fbfbfd, #dcd
 /* the handle in the middle of an arrow or line: drag to bend it (green, like Preview's) */
 #overlay .sel-box.bend-h { background: #6fd36a; border: 2px solid #fff; box-shadow: 0 0 0 1px rgba(0,0,0,.6), 0 1px 4px rgba(0,0,0,.5); cursor: grab; z-index: 3; }
 #overlay .sel-box.bend-h:active { cursor: grabbing; }
-/* the In–Out section's grip on the ruler: drag it to move the section */
-#tl-ruler .move-grip { position: absolute; top: 1px; transform: translateX(-50%); height: 15px; display: flex; align-items: center; gap: 4px; padding: 0 7px; border-radius: 8px; cursor: ew-resize; z-index: 3;
-  background: linear-gradient(#bfe6ff, #5fb2ec); color: #06263f; box-shadow: 0 0 0 1px rgba(0,0,0,.6), 0 2px 4px rgba(0,0,0,.4); font: 800 9px/15px var(--font-engrave, sans-serif); letter-spacing: .12em; white-space: nowrap; }
-#tl-ruler .move-grip span { font-size: 8px; }
-#tl-ruler .move-grip:hover { background: linear-gradient(#e2f4ff, #7fc6f5); }
+/* a section being dragged by its label: where it'll go in */
 .move-line { position: absolute; top: 0; width: 3px; margin-left: -1px; background: #ffcf3a; box-shadow: 0 0 8px rgba(255,207,58,.8); pointer-events: none; z-index: 10; }
 /* just changed (a file replaced, a copy made): a green glow that fades */
 @keyframes done-flash { 0% { box-shadow: 0 0 0 2px #6fe36a, 0 0 18px 4px rgba(111,227,106,.8); } 100% { box-shadow: 0 0 0 0 rgba(111,227,106,0), 0 0 0 0 rgba(111,227,106,0); } }
@@ -2811,3 +2807,9 @@ html[data-theme="light"] .ums-prog-bar { background: rgba(0,0,0,.1); }
 .plug-strip .ps-stop { grid-area: b; }
 html[data-theme="light"] .plug-strip { background: rgba(252, 248, 240, .97); color: #2a2620; }
 html[data-theme="light"] .plug-strip .ps-bar { background: rgba(0,0,0,.1); }
+
+/* typing a time into the playhead display (click it) */
+#timecode { position: relative; }
+#timecode .tc-entry { position: absolute; inset: 0; width: 100%; box-sizing: border-box; border: 1px solid #ffb02a; border-radius: 4px; background: #0a0503; color: #ffb02a;
+  font: 600 18px/1 var(--font-mono, ui-monospace, Menlo, monospace); letter-spacing: 1px; text-align: center; padding: 0 6px; outline: none; box-shadow: 0 0 10px rgba(255,176,42,.35); }
+#timecode .tc-entry.bad { border-color: #ff5a3c; box-shadow: 0 0 10px rgba(255,90,60,.5); }

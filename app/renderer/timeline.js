@@ -1721,8 +1721,9 @@ export class Timeline {
   // ---------------------------------------------------------------- labels on the ruler
   /**
    * 🏷 Labels: named, coloured stretches along the top of the ruler, for the parts you'll come back to. Click one to
-   * go there; drag it to move it, its right edge to make it longer; double-click to rename; right-click to recolour,
-   * move the whole section of the edit it covers, or delete it.
+   * go there. Drag it and that whole section of the edit goes with it (picture, sound and titles inside it, with their
+   * cuts and fades; the rest closes up and makes room). ⌥-drag moves just the label; drag its right edge to make it
+   * longer; double-click to rename; right-click to recolour or delete it.
    */
   _drawLabels() {
     const host = document.getElementById('tl-ruler');
@@ -1731,30 +1732,27 @@ export class Timeline {
     const box = el('div', { class: 'tl-labels' });
     for (const l of this.doc.labels || []) {
       const w = Math.max(14, this.x(l.t1 - l.t0));
-      const tag = el('div', { class: 'tl-label', title: `${l.text} · ${fmtTime(l.t0)}–${fmtTime(l.t1)} · click to go there · drag to move · drag the end to resize · double-click to rename · right-click for more`,
+      const tag = el('div', { class: 'tl-label', title: `${l.text} · ${fmtTime(l.t0)}–${fmtTime(l.t1)} · click to go there · drag to move this section of the edit (everything in it) · ⌥-drag to move just the label · drag the end to resize · double-click to rename · right-click for more`,
         style: { left: this.x(l.t0) + 'px', width: w + 'px', background: l.color || LABEL_COLORS[0][1] } },
         el('span', { text: l.text }), el('i', { class: 'tl-label-end' }));
-      tag.addEventListener('pointerdown', e => this._labelDrag(e, l.id, e.target.classList.contains('tl-label-end') ? 'end' : 'move'));
+      tag.addEventListener('pointerdown', e => {
+        if (e.target.classList.contains('tl-label-end')) this._labelDrag(e, l.id, 'end');
+        else if (e.altKey) this._labelDrag(e, l.id, 'move');
+        else { e.stopPropagation(); this._dragSection(e, l.t0, l.t1, l.id); }
+      });
       tag.addEventListener('dblclick', e => { e.stopPropagation(); this._renameLabel(l.id); });
       tag.addEventListener('contextmenu', e => { e.preventDefault(); e.stopPropagation(); this._labelMenu(l, e.clientX, e.clientY); });
       box.append(tag);
     }
-    // In and Out set: a ◀▶ grip in the middle of them; drag it to move that stretch of the edit (everything in it)
-    const rg = this.doc.range;
-    if (rg && rg.in != null && rg.out != null && rg.out - rg.in > 0.05) {
-      const mid = this.x((rg.in + rg.out) / 2);
-      const grip = el('div', { class: 'move-grip', title: `Drag left or right to move ${fmtTime(rg.in)}–${fmtTime(rg.out)} (picture, sound and titles, with their cuts and fades). The rest closes up and makes room. Locked tracks stay put. ⌘Z undoes.`, style: { left: mid + 'px' } },
-        el('span', { text: '◀' }), el('b', { text: 'MOVE' }), el('span', { text: '▶' }));
-      grip.addEventListener('pointerdown', e => { e.stopPropagation(); this._dragSection(e, rg.in, rg.out); });
-      box.append(grip);
-    }
+    // (In and Out are plain points again, 1.11: a section's moved by dragging its label)
     host.append(box);
   }
   /**
-   * Dragging the In–Out stretch (its ◀▶ grip): it follows the pointer as a band, with a line where it'll go in;
-   * let go and it's moved there (model.moveRange), the In and Out going with it.
+   * Dragging a section of the edit by its label: it follows the pointer as a band, with a line where it'll go in;
+   * let go and it's moved there (model.moveRange), the label (and any labels inside it) going with it. A click
+   * without a drag goes to the label's start.
    */
-  _dragSection(e, a, b) {
+  _dragSection(e, a, b, labelId = null) {
     if (e.button !== 0) return;
     e.preventDefault();
     const app = this.app, doc = this.doc, L = b - a;
@@ -1764,9 +1762,11 @@ export class Timeline {
     const line = el('div', { class: 'move-line', style: { height: H + 'px', display: 'none' } });
     host.append(from, ghost, line);
     document.getElementById('timeline')?.classList.add('moving-section');
-    const t0 = this._timeAt(e.clientX);
-    let to = null;
+    const t0 = this._timeAt(e.clientX), x0 = e.clientX;
+    let to = null, dragged = false;
     const move = ev => {
+      if (!dragged && Math.abs(ev.clientX - x0) < 4) return;
+      dragged = true;
       const dt = this._timeAt(ev.clientX) - t0;
       // where it goes in, on the edit as it is now: before it (moving left) or after it (moving right)
       let t = dt < 0 ? Math.max(0, a + dt) : b + dt;
@@ -1782,9 +1782,13 @@ export class Timeline {
       window.removeEventListener('pointerup', up);
       from.remove(); ghost.remove(); line.remove();
       document.getElementById('timeline')?.classList.remove('moving-section');
-      if (to == null) { toast('Drag the ◀ MOVE ▶ grip left or right to move the In–Out section.', 3000); return; }
+      if (!dragged) { if (labelId) app.seek(a); return; } // a click on the label: go there
+      if (to == null) return; // let go where it started
       let dest = null;
-      app.commit(d => { dest = moveRange(d, a, b, to); if (dest != null) d.range = { ...(d.range || {}), in: dest, out: dest + L }; });
+      app.commit(d => {
+        dest = moveRange(d, a, b, to);
+        // (labels, markers, captions and parts go with their part of the edit: moveRange moves them)
+      });
       if (dest == null) { toast('It can’t go there.'); return; }
       toast(`Moved to ${fmtTime(dest)}, cuts and fades and all. ⌘Z puts it back.`, 4000);
     };

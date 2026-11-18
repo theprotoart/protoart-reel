@@ -1032,6 +1032,32 @@ export function fmtTime(t, fps, frames = false) {
   return (h ? h + ':' : '') + pad(m) + ':' + pad(s) + tail;
 }
 
+/**
+ * A time typed in by hand, read the way the playhead display shows it (1.11): "02:48:21" is 2 min 48 s and frame 21,
+ * "1:02:48:21" adds the hour, "2:48" is minutes and seconds, "168" (or "168.5") is seconds, "2:48.5" takes a decimal.
+ * Commas and spaces count as colons; a leading + or − moves from `from`. null when it can't be read.
+ */
+export function parseTimecode(str, fps = 30, from = 0) {
+  let s = String(str || '').trim().replace(/[,;\s]+/g, ':').replace(/:+/g, ':').replace(/^:|:$/g, '');
+  if (!s) return null;
+  let sign = 0;
+  if (/^[+\-−]/.test(s)) { sign = s[0] === '+' ? 1 : -1; s = s.slice(1); }
+  if (!/^\d+(\.\d+)?(:\d+(\.\d+)?){0,3}$/.test(s)) return null;
+  const p = s.split(':').map(Number);
+  if (p.slice(0, -1).some(n => !Number.isInteger(n))) return null; // a decimal only in the last part
+  let t;
+  if (p.length === 1) t = p[0];
+  else if (p.length === 2) t = p[0] * 60 + p[1];
+  else {
+    const f = p[p.length - 1];
+    if (!Number.isInteger(f) || f >= Math.max(1, Math.round(fps))) return null; // frames: whole, under a second's worth
+    const [h, m, sec] = p.length === 4 ? p : [0, p[0], p[1]];
+    t = h * 3600 + m * 60 + sec + f / fps;
+  }
+  if (!Number.isFinite(t)) return null;
+  return Math.max(0, sign ? from + sign * t : t);
+}
+
 // ------------------------------------------------------------------ speed
 export const SPEED_STEPS = [0.1, 0.25, 0.5, 0.75, 1, 1.25, 1.5, 2, 3, 4, 8, 16, 32, 64];
 export const SPEED_MIN = 0.05, SPEED_MAX = 100;

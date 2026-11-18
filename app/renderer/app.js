@@ -13,7 +13,7 @@ import { el, $, toast, modal, ask, promptText, popMenu, hint } from './ui.js';
 import { installFaceplate, lamp, sevenSegment, screwCorners } from './gear.js';
 import {
   History, timeFormat, withGroups, normalize, uid, duration, split, remove, newMediaClip, newTextClip, newCalloutClip, newShapeClip,
-  freeTrack, layerTrack, addTrack, autoNameTracks, emptyTracks, deleteEmptyTracks, clipEnd, propsAt, ANIMATABLE, mediaById, fmtTime, isFree,
+  freeTrack, layerTrack, addTrack, autoNameTracks, emptyTracks, deleteEmptyTracks, clipEnd, propsAt, ANIMATABLE, mediaById, fmtTime, parseTimecode, isFree,
   setSpeed, SPEED_STEPS, SPEED_MIN, SPEED_MAX, putKey,
   mergeOverlapTracks, removeRange, applyTrackLocks, findGaps, closeGaps, smoothCuts, raisePip,
 } from './model.js';
@@ -119,6 +119,34 @@ class App {
     this.lamps.rec.classList.add('blink');
     const segInto = (host, height, dim) => { let last = null; return t => { if (t === last) return; last = t; host.replaceChildren(sevenSegment(t, height, dim ? 'rgba(255,176,42,0.75)' : '#ffb02a')); }; };
     this.showTime = segInto($('#timecode'), 20);
+    // click the playhead time to type one and jump there (1.11): as it shows (02:48:21 is 2 min 48 s, frame 21),
+    // or 2:48, or seconds; +5 / −5 moves from where it is. Return goes, Esc leaves it
+    {
+      const tc = $('#timecode');
+      tc.title = 'Click to type a time and jump the playhead there (02:48:21, 2:48, 168, +5)';
+      tc.style.cursor = 'text';
+      tc.addEventListener('click', () => {
+        if (!this.doc || tc.querySelector('input')) return;
+        const fps = this.doc.canvas.fps || 30;
+        const box = el('input', { class: 'tc-entry', type: 'text', value: fmtTime(this.player.time, fps, true), spellcheck: 'false', autocomplete: 'off', 'aria-label': 'Go to time' });
+        tc.append(box);
+        box.focus(); box.select();
+        let done = false;
+        const close = () => { if (!done) { done = true; box.remove(); } };
+        box.addEventListener('keydown', e => {
+          e.stopPropagation(); // typing here isn't the editor's shortcuts
+          if (e.key === 'Escape') { e.preventDefault(); close(); return; }
+          if (e.key !== 'Enter') return;
+          e.preventDefault();
+          const t = parseTimecode(box.value, fps, this.player.time);
+          if (t == null) { box.classList.add('bad'); toast('Type a time like 02:48:21 (minutes, seconds, frames), 2:48, or 168 seconds.', 3500); return; }
+          close();
+          this.seek(Math.min(t, duration(this.doc)));
+        });
+        box.addEventListener('input', () => box.classList.remove('bad'));
+        box.addEventListener('blur', close);
+      });
+    }
     this.showDuration = segInto($('#duration'), 14, true);
     this.doc = null; this.token = null;
     this.history = new History();
@@ -1454,7 +1482,7 @@ class App {
       case 'ums': closeTakes(); return openUms(this);
       case 'move-section': {
         const rg = this.doc?.range;
-        if (!rg || rg.in == null || rg.out == null || !(rg.out - rg.in > 0.05)) return toast('Set In and Out around the section first (I and O, or PARTS ▾), then drag the ◀ MOVE ▶ grip on the ruler, or use this again.', 6000);
+        if (!rg || rg.in == null || rg.out == null || !(rg.out - rg.in > 0.05)) return toast('Set In and Out around the section first (I and O, or PARTS ▾), or put a 🏷 label over it and drag the label.', 6000);
         return this.timeline.moveSection(rg.in, rg.out);
       }
       case 'ums-clear': {
