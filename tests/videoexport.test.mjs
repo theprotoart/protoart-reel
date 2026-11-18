@@ -52,6 +52,14 @@ test('a video export plan: each clip read once at the size it needs, or why not'
   assert.ok(!pic.why, pic.why);
   assert.ok(pic.sources.some(s => s.file === 'logo.png' && s.w <= 400));
   assert.match(videoJob({ ...doc, media: [...doc.media, { id: 'g', kind: 'image', file: 'a.gif', width: 40, height: 40 }], clips: [clip('c4', 'g', 't1', 0, 2)] }, 0, 2, 320, 180, 10).why, /GIF/);
+  // a glitch on the way in (1.14): those frames are the editor's, drawn whole; the rest stays the core's
+  const g = videoJob(docOf([{ ...clip('c1', 'a', 't1', 0, 2), transIn: { type: 'glitch', dur: 0.5 } }]), 0, 2, 320, 180, 10);
+  assert.ok(!g.why, g.why);
+  assert.deepEqual(g.whole, [0, 1, 2, 3, 4], 'the half second of the glitch');
+  assert.deepEqual(g.overlays, g.whole);
+  assert.deepEqual(g.wholeWhy, ['transition effects']);
+  // mostly the editor's: the usual export instead
+  assert.match(videoJob(docOf([{ ...clip('c1', 'a', 't1', 0, 2), transIn: { type: 'glitch', dur: 1.8 } }]), 0, 2, 320, 180, 10).why, /transition/);
   // played backwards: a decoder reads forwards only
   const back = videoJob(docOf([clip('c1', 'a', 't1', 0, 2, {}, { retime: [{ t: 0, s: 2 }, { t: 2, s: 0 }] })]), 0, 2, 320, 180, 10);
   assert.ok(back.why == null || /backwards/.test(back.why));
@@ -209,5 +217,59 @@ f.on('close', c => process.exit(c));
       for (let p = 0; p < avg.length; p += 4) if (avg[p] !== got[p + 2] || avg[p + 1] !== got[p + 1] || avg[p + 2] !== got[p]) diff++;
       assert.equal(diff, 0, `motion-blurred frame ${i}: ${diff} pixels differ`);
     }
+  } finally { fs.rmSync(dir, { recursive: true, force: true }); }
+});
+
+test('frames the core can’t draw yet are the editor’s, whole, and the rest still the core’s (1.14)', { skip }, async () => {
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'vexp-'));
+  try {
+    execFileSync(ffmpeg, ['-v', 'error', '-f', 'lavfi', '-i', 'testsrc2=s=640x360:r=25:d=3', '-pix_fmt', 'yuv420p', path.join(dir, 'a.mp4')]);
+    execFileSync(ffmpeg, ['-v', 'error', '-f', 'lavfi', '-i', 'sine=f=440:d=2', '-ar', '48000', '-ac', '2', path.join(dir, 'mix.wav')]);
+    const helpers = fs.readFileSync(new URL(import.meta.url), 'utf8');
+    void helpers;
+    const fakeFrames = path.join(dir, 'reel-frames'), fakeEncode = path.join(dir, 'reel-encode');
+    fs.writeFileSync(fakeFrames, `#!${process.execPath}
+const { spawn, execFileSync } = require('child_process');
+const [, , mode, file, from, to, w, h] = process.argv;
+const r = execFileSync('${ffprobe}', ['-v', 'error', '-select_streams', 'v', '-show_entries', 'stream=r_frame_rate', '-of', 'csv=p=0', file]).toString().trim().split('/');
+const fps = r[0] / (r[1] || 1), first = Math.max(0, Math.floor((+from - 0.5) * fps));
+const f = spawn('${ffmpeg}', ['-v', 'error', '-i', file, '-vf', 'select=gte(n\\\\,' + first + '),scale=' + w + ':' + h + ':flags=area,format=bgra', '-vsync', '0', '-f', 'rawvideo', '-'], { stdio: ['ignore', 'pipe', 'inherit'] });
+const size = w * h * 4; let buf = Buffer.alloc(0), n = first;
+process.stdout.on('error', () => process.exit(0));
+f.stdout.on('data', d => { buf = Buffer.concat([buf, d]); while (buf.length >= size) { const t = Buffer.alloc(8); t.writeDoubleLE(n++ / fps); if (!process.stdout.write(Buffer.concat([t, buf.subarray(0, size)]))) f.stdout.pause(); buf = buf.subarray(size); if (n / fps > +to + 0.25) { f.kill(); process.stdout.end(() => process.exit(0)); return; } } });
+process.stdout.on('drain', () => f.stdout.resume());
+f.on('close', () => process.stdout.end(() => process.exit(0)));
+`, { mode: 0o755 });
+    fs.writeFileSync(fakeEncode, `#!${process.execPath}
+const { spawn } = require('child_process'); const fs = require('fs');
+const [, , out, w, h, fps, codec, vbr, abr, sound] = process.argv;
+const f = spawn('${ffmpeg}', ['-v', 'error', '-f', 'rawvideo', '-pix_fmt', 'bgra', '-s', w + 'x' + h, '-r', fps, '-i', '-', '-c:v', 'libx264', '-pix_fmt', 'yuv420p', out], { stdio: ['pipe', 'ignore', 'inherit'] });
+const raw = fs.createWriteStream(out + '.raw');
+process.stdin.on('data', d => { raw.write(d); if (!f.stdin.write(d)) { process.stdin.pause(); f.stdin.once('drain', () => process.stdin.resume()); } });
+process.stdin.on('end', () => { raw.end(); f.stdin.end(); });
+f.on('close', c => process.exit(c));
+`, { mode: 0o755 });
+    const W = 320, H = 180, fps = 10;
+    const doc = docOf([{ ...clip('c1', 'a', 't1', 0, 2), transIn: { type: 'glitch', dur: 0.5 } }]);
+    const job = videoJob(doc, 0, 2, W, H, fps);
+    assert.deepEqual(job.whole, [0, 1, 2, 3, 4]);
+    // what sendOverlays sends for an editor frame: the whole frame as one picture (here, one flat colour per frame)
+    const editorFrame = k => { const b = Buffer.alloc(4 + 1 + 16 + W * H * 4); b.writeUInt32LE(1, 0); b[4] = 0; [0, 0, W, H].forEach((v, i) => b.writeUInt32LE(v, 5 + i * 4)); for (let i = 0; i < W * H; i++) b.set([10 + k * 40, 200 - k * 30, 77, 255], 21 + i * 4); return b; };
+    const out = path.join(dir, 'out.mp4');
+    const r = await videoExport({ coreBin: bin, framesBin: fakeFrames, encodeBin: fakeEncode, sources: job.sources.map(s => ({ ...s, path: path.join(dir, s.file) })), body: job.body,
+      out, w: W, h: H, fps, codec: 'h264', vbr: 2_000_000, abr: 128_000, sound: path.join(dir, 'mix.wav'), onProgress: () => {},
+      overlay: true, onOverlay: w => { (async () => { for (const [k] of job.overlays.entries()) { if (!w.write(editorFrame(k))) await new Promise(r => w.once('drain', r)); } w.end(); })(); } });
+    assert.equal(r.frames, 20);
+    const raw = fs.readFileSync(out + '.raw');
+    for (const k of [0, 2, 4]) {
+      const f = raw.subarray(k * W * H * 4, (k + 1) * W * H * 4);
+      let diff = 0;
+      for (let p = 0; p < f.length; p += 4) if (f[p] !== 77 || f[p + 1] !== 200 - k * 30 || f[p + 2] !== 10 + k * 40) diff++; // BGRA
+      assert.equal(diff, 0, `editor frame ${k}: ${diff} pixels differ`);
+    }
+    // after the glitch: the core's own drawing (the video, not a flat colour)
+    const f10 = raw.subarray(10 * W * H * 4, 11 * W * H * 4), seen = new Set();
+    for (let p = 0; p < f10.length; p += 4 * 97) seen.add(f10[p] + ',' + f10[p + 1]);
+    assert.ok(seen.size > 20, 'frame 10 is the video');
   } finally { fs.rmSync(dir, { recursive: true, force: true }); }
 });

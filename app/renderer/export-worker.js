@@ -17,11 +17,13 @@ import { mapAt } from './lib/retime.js';
 import { clipPlan, sourceRange, mixClip, softClip as softClipMix, pcm24 } from './lib/mixplan.js';
 
 let cancelled = false;
+let more = null; // frames mode (1.14): resolves when the editor wants the next frame
 const RATE = 48000, BLOCK = 1024;
 
 self.onmessage = async e => {
   const m = e.data;
-  if (m.type === 'cancel') { cancelled = true; return; }
+  if (m.type === 'cancel') { cancelled = true; const w = more; more = null; w?.(); return; }
+  if (m.type === 'more') { const w = more; more = null; w?.(); return; } // frames mode: the next frame is wanted
   if (m.type !== 'start') return;
   try {
     const res = await run(m);
@@ -67,6 +69,9 @@ async function run({ doc, token, opts }) {
   const wav = opts.kind === 'wav'; // sound only, uncompressed 24-bit 48 kHz stereo (Broadcast WAV-compatible PCM)
   const withVideo = opts.kind !== 'm4a' && !wav && opts.mode !== 'mix';
   const anim = opts.kind === 'gif' || opts.kind === 'apng'; // silent animated picture: no sound, no MP4
+  // frames mode (1.14): for an export the Rust core draws, the few frames it can't (a text reveal, a glitch…) are
+  // drawn here exactly as the usual export draws them, and handed back one at a time (no encoder, no sound)
+  const framesOnly = opts.mode === 'frames';
 
   // ---------------- sources
   const used = doc.clips.filter(c => c.type === 'media' && !c.disabled && spanStart(c) < end && spanEnd(c) > start);
@@ -98,7 +103,7 @@ async function run({ doc, token, opts }) {
       video.set(c.id, v);
     }
     if (withVideo && m.kind === 'image' && !images.has(m.id)) images.set(m.id, await createImageBitmap(await (await fetch(urlFor(token, m.file))).blob()));
-    if (!anim && (m.hasAudio || m.kind === 'audio') && !(c.audio && c.audio.mute) && !opts.masterFile) {
+    if (!anim && !framesOnly && (m.hasAudio || m.kind === 'audio') && !(c.audio && c.audio.mute) && !opts.masterFile) {
       // rendered effects (voice tools, plug-ins) replace the clip's original sound
       const file = c.fx && c.fx.file && !c.fx.bypass ? c.fx.file : m.file;
       try { const a = await openAudio(urlFor(token, file), file); if (a) audio.set(c.id, a); } catch (err) { self.postMessage({ type: 'warn', message: `${m.name}: ${err.message}` }); }
@@ -117,7 +122,7 @@ async function run({ doc, token, opts }) {
   // ---------------- encoders + muxer
   let vcfg = null;
   const vTrack = withVideo ? { codec: '', width: W, height: H, description: null } : null;
-  const aTrack = anim || wav ? null : audio.size || !withVideo || opts.masterFile || used.some(c => c.cursor?.clickSound > 0) ? { codec: 'mp4a.40.2', sampleRate: RATE, channels: 2, description: null, bitrate: opts.audioBitrate || 192000 } : null;
+  const aTrack = anim || wav || framesOnly ? null : audio.size || !withVideo || opts.masterFile || used.some(c => c.cursor?.clickSound > 0) ? { codec: 'mp4a.40.2', sampleRate: RATE, channels: 2, description: null, bitrate: opts.audioBitrate || 192000 } : null;
   const mux = new Muxer({ video: vTrack, audio: aTrack });
   let pending = [], pendingBytes = 0, written = 0;
   const flush = (force) => {
@@ -132,7 +137,7 @@ async function run({ doc, token, opts }) {
   let encErr = null;
 
   let venc = null;
-  if (withVideo && !anim) {
+  if (withVideo && !anim && !framesOnly) {
     vcfg = await pickVideoCodec(opts.codec, W, H, fps, opts.bitrate || Math.round(W * H * fps * 0.12), opts.hardware !== false);
     vTrack.codec = vcfg.codec;
     venc = new VideoEncoder({
@@ -340,7 +345,7 @@ async function run({ doc, token, opts }) {
 
   // ---------------- video frames
   const canvas = withVideo ? new OffscreenCanvas(W, H) : null;
-  const ctx = canvas ? canvas.getContext('2d', { alpha: false, willReadFrequently: anim }) : null;
+  const ctx = canvas ? canvas.getContext('2d', { alpha: false, willReadFrequently: anim || framesOnly }) : null;
   const animEnc = !anim ? null : opts.kind === 'gif' ? new GifEncoder(W, H, emit, { dither: opts.dither !== false, loop: opts.loop !== false }) : new ApngEncoder(W, H, emit, { loop: opts.loop !== false });
   if (ctx) { ctx.imageSmoothingEnabled = true; ctx.imageSmoothingQuality = 'high'; }
   const current = new Map(); // clip id -> source for this frame
@@ -383,6 +388,19 @@ async function run({ doc, token, opts }) {
   const sub = mbSamples > 1 ? new OffscreenCanvas(W, H) : null;
   const subCtx = sub ? sub.getContext('2d', { alpha: false }) : null;
   const keyEvery = Math.round(fps * 2);
+  if (framesOnly) {
+    for (const [i, t] of (opts.times || []).entries()) {
+      if (cancelled) throw new Error('Cancelled');
+      await gather(t); drawFrame(ctx, doc, t, sources);
+      const px = ctx.getImageData(0, 0, W, H).data;
+      const ready = new Promise(r => { more = r; });
+      self.postMessage({ type: 'frame', i, data: px }, [px.buffer]);
+      await ready; // one frame at a time: a 4K frame is 33 MB
+    }
+    for (const v of video.values()) v && v.close();
+    forgetVideos();
+    return { head: new Uint8Array(0) };
+  }
   const t0 = performance.now();
   for (let i = 0; i < (withVideo ? frames : 0); i++) {
     if (cancelled) throw new Error('Cancelled');

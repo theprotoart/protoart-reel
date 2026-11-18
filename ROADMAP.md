@@ -49,9 +49,13 @@ JavaScript runs, as before). When little JavaScript is left, the window itself c
      graphics and device frames (the editor draws them into their place in the core's stack), LUT files and
      background removal, and the sound
      mixed and mastered; encoded by VideoToolbox. Each checked frame by frame against the editor's own drawing.
-   - Still drawn by the editor (an export that needs them goes the usual way):
-     the text reveal, and the transitions that read the picture (glitch, film
-     burn, light leak, vertigo, radial shutter).
+   - **Done (1.14): every export through the core.** The moments the core can't draw itself yet (the text reveal,
+     the transitions that read the picture: glitch, film burn, light leak, vertigo, radial shutter; a turned phone
+     video, an SVG or GIF, a clip played backwards) are drawn whole by the editor, exactly as its own export draws
+     them, and handed to the core in their place; the rest of the export stays the core's. Only an export that's
+     mostly such moments goes the usual way.
+   - Next: drawing those effects in the core itself, one by one, each checked against the editor's drawing; then
+     the setting comes on by default.
 6. **Recording:** screen, window and camera through ScreenCaptureKit.
 7. **The window:** a plain Rust interface (egui or Slint), once the pieces above no longer need the browser.
 

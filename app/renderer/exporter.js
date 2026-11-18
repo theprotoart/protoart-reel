@@ -75,8 +75,38 @@ export async function sendOverlays(app, doc, job, W, H, cursor, send) {
   await document.fonts?.ready;
   const sources = { frame: () => null, image: id => images.get(id) || null, cursor, input: cursor?.input || (() => null), fx: () => null, lut: () => null, matte: () => null };
   let prev = null;
+  // frames the core can't draw yet (1.14): the usual export's worker draws them whole, one at a time, in order
+  const whole = new Set(job.whole || []);
+  let next = null, worker = null;
+  if (whole.size) {
+    worker = new Worker('export-worker.js', { type: 'module' });
+    const queue = [], waiting = [];
+    let failed = null;
+    worker.onmessage = e => {
+      const msg = e.data;
+      if (msg.type === 'frame') { const w = waiting.shift(); if (w) w.ok(msg.data); else queue.push(msg.data); }
+      else if (msg.type === 'error') { failed = new Error(msg.message); for (const w of waiting.splice(0)) w.no(failed); }
+      else if (msg.type === 'warn') toast(msg.message, 5000);
+    };
+    const times = [...whole].sort((a, b) => a - b).map(fi => (job.times ? job.times[fi] : job.from + fi / job.fps));
+    worker.postMessage({ type: 'start', doc, token: app.token, opts: { mode: 'frames', kind: 'mp4', times, width: W, height: H, fps: job.fps, from: Math.min(...times), to: Math.max(...times) + 1 / job.fps } });
+    next = () => {
+      if (failed) return Promise.reject(failed);
+      const p = queue.length ? Promise.resolve(queue.shift()) : new Promise((ok, no) => waiting.push({ ok, no }));
+      return p.then(px => { worker.postMessage({ type: 'more' }); return px; });
+    };
+  }
+  try {
   for (const fi of job.overlays) {
     const t = job.times ? job.times[fi] : job.from + fi / job.fps;
+    if (whole.has(fi)) {
+      // the whole frame, as one picture over nothing (overlay.rs: a picture step)
+      const px = await next();
+      const out = new Uint8Array(4 + 1 + 16 + px.length), dv = new DataView(out.buffer);
+      dv.setUint32(0, 1, true); out[4] = 0; [0, 0, W, H].forEach((v, i) => dv.setUint32(5 + i * 4, v, true)); out.set(px, 21);
+      await send(out); prev = out;
+      continue;
+    }
     const parts = [];
     let size = 4;
     // what's on the canvas so far, as the smallest picture that holds it, then a clear canvas
@@ -119,6 +149,7 @@ export async function sendOverlays(app, doc, job, W, H, cursor, send) {
     await send(same ? Uint8Array.of(255, 255, 255, 255) : out);
     if (!same) prev = out;
   }
+  } finally { if (worker) { worker.postMessage({ type: 'cancel' }); setTimeout(() => worker.terminate(), 1000); } }
   await send(null);
 }
 
@@ -446,7 +477,8 @@ export function openExport(app) {
           } finally { off?.(); }
           if (r) {
             progress.firstChild.style.width = '100%'; cleanup();
-            resolve({ name: r.name, secs: (performance.now() - started) / 1000, how: 'drawn by the Rust core' }); return;
+            const nw = job.whole?.length || 0;
+            resolve({ name: r.name, secs: (performance.now() - started) / 1000, how: nw ? `drawn by the Rust core (${nw} frame${nw === 1 ? '' : 's'} with ${job.wholeWhy.join(', ')} drawn by the editor)` : 'drawn by the Rust core' }); return;
           }
           usual = 'drawn the usual way: this build hasn’t the Rust export helpers';
         } catch (err) {

@@ -2,7 +2,8 @@
 // whose video it shows (each read by the Mac's decoder, reel-frames --rgba, at the size it needs), and the job those
 // make. When any frame needs more than the core draws (titles, pointer effects…), it answers { why } and the export
 // is drawn by the editor as before. No DOM here, so it's tested in Node.
-import { framePlan, encodeLayers } from './frameplan.js';
+import { framePlan, encodeLayers, hexRGB } from './frameplan.js';
+const hexBg = doc => hexRGB(doc.canvas.background || '#000') || [0, 0, 0];
 import { mediaById, duration as docDuration } from '../model.js';
 
 const even = v => Math.max(2, Math.round(v / 2) * 2);
@@ -24,19 +25,30 @@ export function videoJob(doc, from, to, W, H, fps, { maxSources = 48, cursor = n
   // (export-worker.js) takes them
   const times = [];
   for (let i = 0; i < frames; i++) for (let s = 0; s < samples; s++) times.push(samples === 1 ? start + i / fps : Math.max(start, start + i / fps + ((s / samples) - 0.5) * 0.5 / fps));
-  for (const t of times) {
-    const p = framePlan(doc, t, W, H, undefined, cursor, { luts });
-    if (p.why) return { why: p.why, at: t };
+  // a frame the core can't draw yet (a text reveal, a glitch, a turned phone video…) is drawn whole by the editor and
+  // handed to the core (1.14): the rest of the export stays the core's. whyOf(i): why frame i is the editor's
+  const whole = new Map();
+  const layerWhy = p => {
     for (const l of p.layers) {
       if (l.fill || l.ink || l.slot != null) continue;
       const m = mediaById(doc, l.media);
-      if (!m || (m.kind !== 'video' && m.kind !== 'image')) return { why: 'a clip that’s neither a video nor a picture', at: t };
-      if (m.kind === 'image' && /\.(svg|gif)$/i.test(m.file || '')) return { why: 'an SVG or GIF picture', at: t };
-      if ((((m.rotation || 0) % 360) + 360) % 360) return { why: 'a turned phone video', at: t };
+      if (!m || (m.kind !== 'video' && m.kind !== 'image')) return 'a clip that’s neither a video nor a picture';
+      if (m.kind === 'image' && /\.(svg|gif)$/i.test(m.file || '')) return 'an SVG or GIF picture';
+      if ((((m.rotation || 0) % 360) + 360) % 360) return 'a turned phone video';
+    }
+    return null;
+  };
+  for (const [i, t] of times.entries()) {
+    const p = framePlan(doc, t, W, H, undefined, cursor, { luts });
+    const why = p.why || layerWhy(p);
+    plans.push(t);
+    if (why) { whole.set(i, why); continue; }
+    for (const l of p.layers) {
+      if (l.fill || l.ink || l.slot != null) continue;
+      const m = mediaById(doc, l.media);
       const k = Math.hypot(l.m[0], l.m[1]) * (l.grade ? l.grade.gw / Math.max(1, m.width) : 1); // canvas px per video px
       big.set(m.id, Math.max(big.get(m.id) || 0, k));
     }
-    plans.push(t);
   }
   // each video decoded at the size it's shown biggest (never bigger than it is), so a 5K screen recording on a 1080p
   // export isn't pushed through at 5K
@@ -54,9 +66,24 @@ export function videoJob(doc, from, to, W, H, fps, { maxSources = 48, cursor = n
   const f64 = v => { const b = new Uint8Array(8); new DataView(b.buffer).setFloat64(0, +v, true); push(b); };
   let bg = null, ink = false, blur = false;
   const overlays = [], sent = new Map();
+  const editorFrame = fi => { u32(0); u32(0); push(Uint8Array.of(1)); overlays.push(fi); }; // no layers: the editor's picture is all of it
   for (const [fi, t] of plans.entries()) {
+    if (whole.has(fi)) { editorFrame(fi); continue; }
     const p = framePlan(doc, t, W, H, size, cursor, { luts });
-    if (p.why) return { why: p.why, at: t };
+    if (p.why) { whole.set(fi, p.why); editorFrame(fi); continue; }
+    // a clip played backwards or repeating, or more clips than the core reads at once: this frame's the editor's
+    {
+      let why = null, add = 0;
+      for (const l of p.layers) {
+        if (l.fill || l.ink || l.slot != null) continue;
+        const s0 = srcOf.get(l.clip);
+        if (s0 == null) add++;
+        else if (l.st < sources[s0].to - 1e-6) why = 'a clip that plays backwards or repeats';
+        if (l.grade?.matte) { const ms = srcOf.get(l.clip + '#matte'); if (ms == null) add++; else if (l.st < sources[ms].to - 1e-6) why = 'a clip that plays backwards or repeats'; }
+      }
+      if (!why && sources.length + add > maxSources) why = 'too many clips';
+      if (why) { whole.set(fi, why); editorFrame(fi); continue; }
+    }
     bg ||= p.bg;
     ink ||= p.layers.some(l => l.ink);
     blur ||= !!p.needs13;
@@ -98,6 +125,9 @@ export function videoJob(doc, from, to, W, H, fps, { maxSources = 48, cursor = n
     push(Uint8Array.of(p.overlay ? 1 : 0));
     if (p.overlay) overlays.push(fi);
   }
+  // mostly the editor's (a long turned phone video, say): the usual export is as quick, so it goes that way
+  if (whole.size && whole.size > plans.length * 0.5) { const [i, why] = whole.entries().next().value; return { why, at: plans[i] }; }
+  bg ||= hexBg(doc);
   // the head: the canvas, the sources (descriptor 3 + index), how many frames; then the frames written above
   const head = [];
   let hsize = 0;
@@ -114,5 +144,7 @@ export function videoJob(doc, from, to, W, H, fps, { maxSources = 48, cursor = n
   for (const c of head) { out.set(c, o); o += c.length; }
   for (const c of chunks) { out.set(c, o); o += c.length; }
   // core: the oldest core that can draw it (a blurring call-out or a transition's shape: 1.13)
-  return { frames, sources, body: out, ink, overlays, times: plans, from: start, fps, luts, core: blur || samples > 1 ? 13 : 12 };
+  const editor = [...whole.keys()].sort((a, b) => a - b);
+  return { frames, sources, body: out, ink, overlays, times: plans, from: start, fps, luts, core: blur || samples > 1 ? 13 : 12,
+    whole: editor, wholeWhy: editor.length ? [...new Set(whole.values())] : [] };
 }
