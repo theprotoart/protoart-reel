@@ -2,6 +2,8 @@
 
 ## 1.11.0 — 2026-11-16
 
+- Fillers: a sound you taught is only listed when it's about as long as you said it when teaching, and not on top of an ordinary word the speech recogniser heard clearly. (Before, a few takes of "you know" made Reel list dozens of 0.2 s scraps of ordinary speech as "you know".)
+
 - Recording: if the window being recorded changes size during a take (which can damage the screen picture), a notification says so straight away, so it can be stopped and recorded again.
 
 - Recording: as soon as a take is saved, Reel checks the Mac can actually play its screen picture (a moment at its start, middle and end). A damaged take is said at once — an alarm, a notification and a ⚠ window with ● RECORD AGAIN — instead of turning up black or smeared later in the edit.

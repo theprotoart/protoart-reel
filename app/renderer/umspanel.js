@@ -85,7 +85,19 @@ async function listen(app, { locale, track, ranges = null, clipIds = null, stop 
     const yours = await findYourUms(app, clips, onStatus);
     // one found inside a word the recogniser heard clearly (a long one: "people", "floating") is that word, not a filler
     const inWord = y => y.joined && words.some(w => String(w.text).replace(/[^\p{L}]/gu, '').length >= 4 && Math.min(w.end, y.end) - Math.max(w.t, y.t) > (y.end - y.t) * 0.8);
-    found = [...heard, ...yours.filter(y => !heard.some(h => h.t < y.end && h.end > y.t) && !inWord(y)).map(y => ({ t: y.t, end: y.end, text: y.word === 'umm' ? 'um' : y.word, kind: 'voice', cut: y.sure }))]; // every sound you taught (ums, breaths, sneezes…) is marked CUT when Reel is sure
+    // a taught sound has to sound like one: about as long as you said it when teaching (not a 0.2 s scrap of a 0.6 s
+    // "you know"), and not sitting on an ordinary word the speech recogniser heard clearly ("screen", "the"…).
+    // Without these, a voice model with only a few takes listed ordinary speech as dozens of "you know"s.
+    const model = umModel(), took = new Map();
+    for (const w of model?.words || []) { const ls = w.prints.map(pr => (pr.length * 160 + 400) / 16000).sort((a, b) => a - b); if (ls.length) took.set(w.word, ls[Math.floor(ls.length / 2)]); }
+    const norm = x => String(x).toLowerCase().replace(/[^\p{L}']+/gu, '');
+    const FILL = new Set(['um', 'umm', 'uh', 'uhh', 'uhm', 'er', 'erm', 'ah', 'hmm', 'mm', 'mhm']);
+    const longEnough = y => !took.has(y.word) || (y.end - y.t) >= took.get(y.word) * 0.6;
+    const onSpeech = y => {
+      const own = new Set(String(y.word).toLowerCase().split(/\s+/).map(norm));
+      return words.some(w => { const n = norm(w.text); return n && !FILL.has(n) && !own.has(n) && Math.min(w.end, y.end) - Math.max(w.t, y.t) > (y.end - y.t) * 0.5; });
+    };
+    found = [...heard, ...yours.filter(y => !heard.some(h => h.t < y.end && h.end > y.t) && !inWord(y) && longEnough(y) && !onSpeech(y)).map(y => ({ t: y.t, end: y.end, text: y.word === 'umm' ? 'um' : y.word, kind: 'voice', cut: y.sure }))]; // every sound you taught (ums, breaths, sneezes…) is marked CUT when Reel is sure
     // what your voice didn't match is still listed from the pauses (kept until you choose CUT): a taught voice can
     // miss an um said into the next word, or on another mic, and it used to mean those weren't listed at all
     for (const g of guessed) if (g.kind === 'sound' && !found.some(f => f.t < g.end && f.end > g.t)) found.push(g);
