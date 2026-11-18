@@ -2,6 +2,8 @@
 
 ## 1.11.0 — 2026-11-16
 
+- Word-for-word speech writes down only the selected clip’s part of the recording (inside the scanned range), not the whole recording: a 2-minute clip takes a couple of minutes, not the time for all 12. What’s written down is kept, and scanning more of the same recording only does the new parts.
+
 - 💬 FILLER WORDS is taller (down to near the bottom of the window, and its corner drags), and while it listens it shows a bar, how far it has got and about how long is left. Word-for-word speech reports every minute of talk ("4:12 of 11:20 of talk") instead of every five, with a moving bar while the model loads. The 🎙 scan button fills along its bottom edge as it goes.
 
 - Word-for-word speech: setup failed its test with "'EncoderDecoderCache' object has no attribute 'layers'" (the newest Transformers changed how Whisper keeps its cache). Its Python environment is now pinned to versions that work together (Transformers 4.49, PyTorch 2.5.1) and is made again once; the model already downloaded is kept. Download sizes corrected (Turbo about 3.3 GB).

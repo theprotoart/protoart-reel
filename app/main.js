@@ -1899,19 +1899,33 @@ handle('verbatim:status', async () => verbatim.status());
 handle('verbatim:setup', async key => verbatim.setup(key ? String(key) : null, kittenEvent));
 handle('verbatim:setupCancel', async () => verbatim.cancelSetup());
 handle('verbatim:cancel', async () => verbatim.cancel());
-handle('verbatim:words', async (token, source, language) => {
+handle('verbatim:words', async (token, source, language, from, to) => {
   const p = projectOf(token);
   if (!validate.mediaName(source)) throw new Error('Bad source');
   const st = verbatim.status();
   if (!st.use) return null;
   const stem = path.basename(source, path.extname(source));
   const cache = path.join(mediaDir(p), `${stem}-verbatim-${st.use}.json`);
-  try { const c = JSON.parse(await fs.promises.readFile(cache, 'utf8')); if (Array.isArray(c.words)) return { words: c.words, model: st.use, cached: true }; } catch { /* not yet */ }
+  // only the part asked for (the clip's stretch of the recording) is written down; what's done is kept for next time
+  const a = Number.isFinite(from) ? Math.max(0, from) : 0, b = Number.isFinite(to) && to > a ? to : 1e9;
+  let c = { model: st.use, words: [], have: [] };
+  try { const x = JSON.parse(await fs.promises.readFile(cache, 'utf8')); if (Array.isArray(x.words)) c = { ...x, have: Array.isArray(x.have) ? x.have : [[0, 1e9]] }; } catch { /* not yet */ }
+  const gaps = verbatim.missing(c.have, a, b);
+  if (!gaps.length) return { words: c.words, model: st.use, cached: true };
   const lang = typeof language === 'string' && /^[a-z]{2}(-[A-Z]{2})?$/.test(language) ? language.slice(0, 2) : 'en';
-  const r = await verbatim.transcribe({ src: path.join(mediaDir(p), path.basename(source)), from: 0, to: 1e9, language: lang },
-    ev => kittenEvent({ type: 'verbatimRun', f: Number(ev.f) || 0, loading: !!ev.loading, msg: typeof ev.msg === 'string' ? ev.msg.slice(0, 120) : '', source }));
-  await writeAtomic(cache, JSON.stringify({ model: st.use, words: r.words, at: new Date().toISOString() }));
-  return { words: r.words, model: st.use, cached: false };
+  const total = gaps.reduce((n, [g, h]) => n + (h - g), 0) || 1;
+  let done = 0;
+  for (const [g, h] of gaps) {
+    // a second either side so a word at the edge isn't cut in half; only the words starting inside are kept
+    const r = await verbatim.transcribe({ src: path.join(mediaDir(p), path.basename(source)), from: Math.max(0, g - 1), to: h + 1, language: lang },
+      ev => kittenEvent({ type: 'verbatimRun', f: (done + (h - g) * Math.min(1, Number(ev.f) || 0)) / total, loading: !!ev.loading, msg: typeof ev.msg === 'string' ? ev.msg.slice(0, 120) : '', source }));
+    const fresh = (r.words || []).filter(w => w[0] >= g - 0.01 && w[0] < h);
+    c.words = [...c.words.filter(w => w[0] < g - 0.01 || w[0] >= h), ...fresh].sort((x, y) => x[0] - y[0]);
+    c.have = verbatim.addRange(c.have, g, h);
+    done += h - g;
+    await writeAtomic(cache, JSON.stringify({ model: st.use, words: c.words, have: c.have, at: new Date().toISOString() })); // kept even if stopped later
+  }
+  return { words: c.words, model: st.use, cached: false };
 });
 
 // Kitten voices (KittenTTS 2 on this Mac): natural speech, emotion, and voices cloned from the person's recordings

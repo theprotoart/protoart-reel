@@ -69,27 +69,38 @@ async function listenVerbatim(app, { locale, track, ranges = null, clipIds = nul
   const doc = app.doc;
   const clips = speechClips(doc, track).filter(c => (!clipIds || clipIds.includes(c.id)) && !notVoice(doc, c));
   const words = [];
-  const bySource = new Map();
-  // its progress while it writes a recording down (the first time: a minute or two for ten minutes of talk)
+  // each clip's stretch of its recording (inside the scanned range): only that is written down, not the whole recording
+  const span = c => {
+    const sp = c.speed || 1, a = c.in || 0, b = a + c.duration * sp;
+    if (!ranges) return [a, b];
+    const on = ranges.map(([p, q]) => [Math.max(p, c.start), Math.min(q, c.start + c.duration)]).filter(([p, q]) => q > p);
+    if (!on.length) return null;
+    return [a + (Math.min(...on.map(r => r[0])) - c.start) * sp, a + (Math.max(...on.map(r => r[1])) - c.start) * sp];
+  };
+  const jobs = clips.map(c => ({ c, s: span(c) })).filter(j => j.s);
+  const total = jobs.reduce((n, j) => n + (j.s[1] - j.s[0]), 0) || 1;
+  let before = 0, at = 0;
   if (!app._vbHooked) { app._vbHooked = true; app.api.onAi?.(ev => { if (ev?.type === 'verbatimRun') app._vbProgress?.(ev); }); }
-  let at = 0; // which clip, for the overall fraction
-  app._vbProgress = ev => onStatus?.(`${ev.msg || 'Writing down every word…'}${clips.length > 1 ? ` (clip ${at + 1} of ${clips.length})` : ''}`, (at + Math.min(1, ev.f || 0)) / Math.max(1, clips.length), ev.loading ? 'loading' : '');
+  app._vbProgress = ev => {
+    const len = jobs[at] ? jobs[at].s[1] - jobs[at].s[0] : 0;
+    onStatus?.(`${ev.msg || 'Writing down every word…'}${jobs.length > 1 ? ` (clip ${at + 1} of ${jobs.length})` : ''}`, (before + len * Math.min(1, ev.f || 0)) / total, ev.loading ? 'loading' : '');
+  };
   try {
-  for (const [i, c] of clips.entries()) {
+  for (const [i, { c, s: [a, b] }] of jobs.entries()) {
     at = i;
     if (stop?.()) throw new Error('Stopped.');
     const m = mediaById(doc, c.media);
     if (!m) continue;
-    onStatus?.(`Writing down every word of “${c.name || m.name}” (${i + 1} of ${clips.length})… the first time takes a while; then it’s kept`, i / Math.max(1, clips.length), 'loading');
+    onStatus?.(`Writing down every word of “${c.name || m.name}” (${i + 1} of ${jobs.length})… only this clip’s part; then it’s kept`, before / total, 'loading');
     let src = m.kind === 'audio' && /\.wav$/i.test(m.file) ? m.file : null;
     if (!src) src = await ensureSource(app, m);
-    let r = bySource.get(src);
-    if (!r) { r = await app.api.verbatimWords(app.token, src, locale); bySource.set(src, r); }
-    const sp = c.speed || 1, a = c.in || 0, b = a + c.duration * sp;
+    const r = await app.api.verbatimWords(app.token, src, locale, a, b);
+    const sp = c.speed || 1, ci = c.in || 0;
     for (const [ws, we, text] of r?.words || []) {
       if (ws < a - 0.01 || ws >= b) continue;
-      words.push({ t: c.start + (ws - a) / sp, end: c.start + (Math.min(we, b) - a) / sp, text: String(text), track: c.track });
+      words.push({ t: c.start + (ws - ci) / sp, end: c.start + (Math.min(we, b) - ci) / sp, text: String(text), track: c.track });
     }
+    before += b - a;
   }
   } finally { app._vbProgress = null; }
   words.sort((p, q) => p.t - q.t);

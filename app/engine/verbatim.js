@@ -145,4 +145,20 @@ async function remove() {
   return true;
 }
 
-module.exports = { setUserData, status, setup, cancelSetup, transcribe, cancel, stop, remove, MODELS, RELEASE };
+// What's been written down of a recording, as seconds [[from, to]…] (sorted, merged): only the parts used get transcribed
+const NEAR = 0.25; // gaps shorter than this count as done
+function addRange(have, a, b) {
+  const all = [...(have || []), [a, b]].filter(r => r[1] > r[0]).sort((p, q) => p[0] - q[0]);
+  const out = [];
+  for (const r of all) { const l = out[out.length - 1]; if (l && r[0] <= l[1] + NEAR) l[1] = Math.max(l[1], r[1]); else out.push([r[0], r[1]]); }
+  return out;
+}
+/** The parts of [a, b] not written down yet. */
+function missing(have, a, b) {
+  const gaps = []; let at = a;
+  for (const [p, q] of have || []) { if (q <= at) continue; if (p >= b) break; if (p > at + NEAR) gaps.push([at, Math.min(p, b)]); at = Math.max(at, q); if (at >= b) break; }
+  if (b > at + NEAR) gaps.push([at, b]);
+  return gaps;
+}
+
+module.exports = { addRange, missing, setUserData, status, setup, cancelSetup, transcribe, cancel, stop, remove, MODELS, RELEASE };

@@ -146,7 +146,7 @@ contextBridge.exposeInMainWorld('reel', {
   verbatimSetup: key => invoke('verbatim:setup', key),
   verbatimSetupCancel: () => invoke('verbatim:setupCancel'),
   verbatimCancel: () => invoke('verbatim:cancel'),
-  verbatimWords: (token, source, language) => invoke('verbatim:words', token, source, language),
+  verbatimWords: (token, source, language, from, to) => invoke('verbatim:words', token, source, language, from, to),
   ghostStatus: () => invoke('ghost:status'),
   ghostSetup: key => invoke('ghost:setup', key),
   ghostSetupCancel: () => invoke('ghost:setupCancel'),
