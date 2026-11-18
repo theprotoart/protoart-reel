@@ -2,6 +2,8 @@
 
 ## 1.11.0 — 2026-11-16
 
+- Replace file… (and a clean preview copy) now chimes when it's done, says what changed and in how many clips, and lights up the media item and its clips for a moment.
+
 - Moving a section, easier: set In and Out (I, O) and a ◀ MOVE ▶ grip appears on the ruler between them: drag it left or right (the timeline scrolls on at its edges, so the end can go to the start in one drag); a yellow line shows where it goes in. Also PARTS ▾ › ↔ Move In–Out section…
 
 - Clean preview copy: uses a copy already in the project's media folder (any size) before asking macOS, and the preview's own proxy maker does too when it can't read a video. A recording macOS can't read at all now says so plainly.

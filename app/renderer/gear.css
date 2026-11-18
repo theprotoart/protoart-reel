@@ -2758,3 +2758,6 @@ html[data-theme="light"] .proxy-chip { background: linear-gradient(#fbfbfd, #dcd
 #tl-ruler .move-grip span { font-size: 8px; }
 #tl-ruler .move-grip:hover { background: linear-gradient(#e2f4ff, #7fc6f5); }
 .move-line { position: absolute; top: 0; width: 3px; margin-left: -1px; background: #ffcf3a; box-shadow: 0 0 8px rgba(255,207,58,.8); pointer-events: none; z-index: 10; }
+/* just changed (a file replaced, a copy made): a green glow that fades */
+@keyframes done-flash { 0% { box-shadow: 0 0 0 2px #6fe36a, 0 0 18px 4px rgba(111,227,106,.8); } 100% { box-shadow: 0 0 0 0 rgba(111,227,106,0), 0 0 0 0 rgba(111,227,106,0); } }
+.done-flash { animation: done-flash 1.6s ease-out 1; }

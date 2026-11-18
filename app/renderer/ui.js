@@ -40,6 +40,31 @@ export function toast(msg, ms = 2600) {
 }
 
 /**
+ * A short two-note chime (something finished: a file replaced, a copy made), made on the spot, quiet. Off when
+ * Settings has sounds off (localStorage reel.chime = "off").
+ */
+let chimeCtx = null;
+export function chime() {
+  try {
+    if (localStorage.getItem('reel.chime') === 'off') return;
+    chimeCtx ||= new AudioContext();
+    const ac = chimeCtx, t = ac.currentTime + 0.02;
+    [[880, 0], [1318.5, 0.11]].forEach(([f, d]) => {
+      const o = ac.createOscillator(), g = ac.createGain();
+      o.type = 'sine'; o.frequency.value = f;
+      g.gain.setValueAtTime(0, t + d); g.gain.linearRampToValueAtTime(0.12, t + d + 0.01); g.gain.exponentialRampToValueAtTime(0.0008, t + d + 0.7);
+      o.connect(g).connect(ac.destination); o.start(t + d); o.stop(t + d + 0.75);
+    });
+  } catch { /* no sound: the note still shows */ }
+}
+/** Flashes an element green for a moment (it just changed). */
+export function flashDone(node) {
+  if (!node) return;
+  node.classList.remove('done-flash'); void node.offsetWidth; node.classList.add('done-flash');
+  setTimeout(() => node.classList.remove('done-flash'), 1800);
+}
+
+/**
  * A how-to note that shows the first few times only (`times`), with a DON'T SHOW AGAIN button. key: which note.
  * Settings › Show tips again brings them all back (resetHints).
  */

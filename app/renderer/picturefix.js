@@ -3,7 +3,7 @@
 // made by macOS itself (AVFoundation reads damaged or unusual recordings that the preview can't), which the preview
 // plays from then on. Export still reads the original. The same fix is in PROXY ▾, in 🩺 Check & repair, and on a
 // clip's right-click menu.
-import { el, toast } from './ui.js';
+import { el, toast, chime } from './ui.js';
 
 const told = new Set(), trouble = new Map();
 /** Videos found this session whose picture the preview can't show (media id → why), for Check & repair. */
@@ -63,7 +63,8 @@ export async function cleanCopy(app, m, onProgress) {
     delete live.proxyFailed; trouble.delete(live.id);
     app.setDirty(true);
     app.player.reloadMedia(live.id);
-    toast(`“${m.name}”: the preview now plays its clean copy. Export still uses the original.`, 5000);
+    chime();
+    toast(`✓ “${m.name}”: the preview now plays its clean copy. Export still uses the original.`, 6000);
     return true;
   } catch (e) {
     const old = /unknown kind/i.test(e.message), broken = /decode/i.test(e.message);

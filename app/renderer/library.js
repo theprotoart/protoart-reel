@@ -4,7 +4,7 @@
 import { cleanCopy } from './picturefix.js';
 import { soundRoleOf } from './lib/soundrole.js';
 import { ROLES as SOUND_ROLES, ROLE_ORDER, nextRole } from './lib/automix.js';
-import { el, $, toast, popMenu, promptText } from './ui.js';
+import { el, $, toast, popMenu, promptText, chime, flashDone } from './ui.js';
 import { fmtTime } from './model.js';
 import { posterFor } from './peaks.js';
 import { openPresetBrowser, PRESET_PAGES } from './fxlibrary.js';
@@ -306,7 +306,14 @@ export class Library {
         delete m.peaks; delete m.poster; delete m.proxy; delete m.proxyFailed; // a new file: its own proxy (if it needs one)
       });
       this.app.player.prune?.();
-      toast(`Replaced. Clips that used “${old}” now use “${r.name}”. Trims longer than the new file are kept short.`);
+      chime();
+      const n = this.app.doc.clips.filter(c => c.media === m.id).length;
+      toast(`✓ Replaced: “${old}” is now “${r.name}”${n ? ` in ${n} clip${n === 1 ? '' : 's'}` : ''}. Trims longer than the new file are kept short. ⌘Z undoes it.`, 7000);
+      // the media item and its clips light up for a moment, so you can see what changed
+      setTimeout(() => {
+        flashDone(document.querySelector(`.lib-item[data-media="${m.id}"]`));
+        for (const c of this.app.doc.clips) if (c.media === m.id) flashDone(document.querySelector(`.clip[data-id="${c.id}"]`));
+      }, 60);
       // clips can't run past the end of the new file
       if (m.kind !== 'image' && m.duration) this.app.commit(d => { for (const c of d.clips) if (c.media === m.id) { const max = (m.duration - (c.in || 0)) / (c.speed || 1); if (c.in >= m.duration) c.in = 0; if (c.duration > max && max > 0.05) c.duration = max; } });
     } catch (e) { toast(e.message); }
