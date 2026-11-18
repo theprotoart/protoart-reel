@@ -16,3 +16,10 @@ test('verbatim: only the parts not written down yet are transcribed', () => {
   assert.deepEqual(missing(have, 344.1, 520.2), []); // a hair's breadth counts as done
   assert.deepEqual(missing([[0, 1e9]], 10, 20), []); // an older whole-recording transcript
 });
+
+test('verbatim: the open first CrisperWhisper is only a fallback, never picked first', () => {
+  const v = createRequire(import.meta.url)('../app/engine/verbatim.js');
+  assert.equal(v.MODELS.v1.repo, 'nyrahealth/CrisperWhisper');
+  assert.ok(v.MODELS.v1.fallback);
+  assert.notEqual(v.status().best, 'v1');
+});

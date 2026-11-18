@@ -2,6 +2,8 @@
 
 ## 1.11.0 — 2026-11-16
 
+- GET WORD-FOR-WORD SPEECH still finishes if Hugging Face starts asking for a login or licence agreement before the CrisperWhisper 2.0 download: it gets the first CrisperWhisper instead (open to download, same licence), and says so.
+
 - Recording watches the free space on the drive it records to: below 5 GB it says so (with about how many minutes are left at the rate it’s filling), and at 1.5 GB it stops and saves the recording by itself, before a full drive can cut it off and damage it.
 
 - Reel’s window no longer uses about half a processor core while it’s just sitting there: the FILLERS counter’s glow and the current step in the guide pulsed endlessly in a way that repainted the window 60 times a second. The counter now glows steadily and the guide’s step breathes a few times, then stays lit (0.3% instead of 55% in testing), leaving more of the Mac for exports and the speech model.

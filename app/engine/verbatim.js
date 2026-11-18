@@ -21,7 +21,12 @@ const SCRIPT = path.join(__dirname, '..', 'ai', 'reel_verbatim.py');
 const MODELS = {
   large: { repo: 'nyralabs/CrisperWhisper2.0_large', label: 'Large (most accurate)', gb: 6.2, minRamGb: 16 },
   turbo: { repo: 'nyralabs/CrisperWhisper2.0_turbo', label: 'Turbo (fast, nearly as accurate)', gb: 3.3, minRamGb: 8 },
+  // the first CrisperWhisper, open to download (no licence page to agree to): used only if Hugging Face starts asking
+  // for an agreement or a login for the ones above, so setup still finishes
+  v1: { repo: 'nyrahealth/CrisperWhisper', label: 'Classic (the first CrisperWhisper)', gb: 3.1, minRamGb: 8, fallback: true },
 };
+/** Hugging Face asking for a login or a licence agreement before it lets a model download. */
+const gated = e => /gated|GatedRepo|401|403|Access to model|restricted|authenticat|accept.*(terms|conditions)/i.test(`${e?.message || ''}\n${e?.tail || ''}`);
 const HOME = os.homedir();
 const exists = p => { try { fs.accessSync(p); return true; } catch { return false; } };
 const safeReal = p => { try { return fs.realpathSync(p); } catch { return '/nonexistent'; } };
@@ -36,7 +41,7 @@ function info() { try { return JSON.parse(fs.readFileSync(marker(), 'utf8')); } 
 const cached = repo => { try { return fs.readdirSync(path.join(ai.hubCache(), 'models--' + repo.replace('/', '--'), 'snapshots')).length > 0; } catch { return false; } };
 
 /** The best model this Mac can run. */
-function best() { const ram = ramGb(); return Object.keys(MODELS).find(k => ram >= MODELS[k].minRamGb) || null; }
+function best() { const ram = ramGb(); return Object.keys(MODELS).find(k => !MODELS[k].fallback && ram >= MODELS[k].minRamGb) || null; }
 
 function status() {
   const ram = ramGb(), arm = process.arch === 'arm64';
@@ -91,19 +96,29 @@ async function setup(key, onEvent) {
       i = { release: INSTALL, python: base.version, models: {}, at: new Date().toISOString() };
       await fs.promises.writeFile(marker(), JSON.stringify(i));
     }
-    say(0.42, `Downloading the ${m.label.split(' (')[0].toLowerCase()} model…`);
-    const dir = path.join(ai.hubCache(), 'models--' + m.repo.replace('/', '--'));
-    let last = -1, still = Date.now();
-    const timer = setInterval(async () => {
-      const b = await ai.folderBytes(dir);
-      if (b !== last) { last = b; still = Date.now(); }
-      // nothing new for three minutes: say so (it carries on where it left off when started again)
-      const stuck = Date.now() - still > 180000;
-      say(0.42 + Math.min(0.5, b / (m.gb * 1e9) * 0.5), stuck ? `The download hasn’t moved for a few minutes (${(b / 1e9).toFixed(1)} GB so far). Check the internet; STOP and GET again carries on from there.` : `Downloading the model… ${(b / 1e9).toFixed(1)} of about ${m.gb} GB`);
-    }, 1500);
+    const fetchModel = async (key, m) => {
+      say(0.42, `Downloading the ${m.label.split(' (')[0].toLowerCase()} model…`);
+      const dir = path.join(ai.hubCache(), 'models--' + m.repo.replace('/', '--'));
+      let last = -1, still = Date.now();
+      const timer = setInterval(async () => {
+        const b = await ai.folderBytes(dir);
+        if (b !== last) { last = b; still = Date.now(); }
+        // nothing new for three minutes: say so (it carries on where it left off when started again)
+        const stuck = Date.now() - still > 180000;
+        say(0.42 + Math.min(0.5, b / (m.gb * 1e9) * 0.5), stuck ? `The download hasn’t moved for a few minutes (${(b / 1e9).toFixed(1)} GB so far). Check the internet; STOP and GET again carries on from there.` : `Downloading the model… ${(b / 1e9).toFixed(1)} of about ${m.gb} GB`);
+      }, 1500);
+      try { return await kitten.run(py(), ['-I', SCRIPT, '--setup', key], { env, job }); }
+      finally { clearInterval(timer); }
+    };
     let out;
-    try { out = await kitten.run(py(), ['-I', SCRIPT, '--setup', key], { env, job }); }
-    finally { clearInterval(timer); }
+    try { out = await fetchModel(key, m); }
+    catch (e) {
+      // Hugging Face wants a login or a licence agreement for it now: the open first CrisperWhisper instead
+      if (job.cancelled || MODELS[key].fallback || !gated(e)) throw e;
+      say(0.42, 'Hugging Face now asks for an agreement before that model downloads, so Reel is getting the open first CrisperWhisper instead…');
+      key = 'v1';
+      out = await fetchModel(key, MODELS.v1);
+    }
     let ok = false;
     for (const l of out.split('\n')) { try { const x = JSON.parse(l); if (x.type === 'ready') ok = true; else if (x.type === 'error') throw new Error(x.msg); } catch (e) { if (!(e instanceof SyntaxError)) throw e; } }
     if (!ok) throw new Error('The speech model didn’t pass its test. Try again.');

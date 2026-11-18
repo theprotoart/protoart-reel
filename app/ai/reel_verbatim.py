@@ -41,16 +41,18 @@ def load(size):
         models.clear()  # one model in memory at a time
         send({"type": "progress", "f": 0.0, "loading": True, "msg": "Loading the word-for-word speech model…"})
         from crisperwhisper import CrisperWhisperModel
+        # "v1": the first CrisperWhisper (open to download), Reel's fallback when the 2.0 models are gated
+        name = {"v1": "nyrahealth/CrisperWhisper"}.get(size, size)
         dev = device()
         try:
-            models[size] = CrisperWhisperModel(size, backend="transformers", device=dev, compute_type="float16")
+            models[size] = CrisperWhisperModel(name, backend="transformers", device=dev, compute_type="float16")
             where[size] = dev
         except Exception as e:  # noqa: BLE001
             if dev == "cpu":
                 raise
             # the graphics chip couldn't take it (usually too little free memory): the processor can, much slower
             sys.stderr.write(f"graphics chip load failed, using the processor: {e}\n")
-            models[size] = CrisperWhisperModel(size, backend="transformers", device="cpu", compute_type="float32")
+            models[size] = CrisperWhisperModel(name, backend="transformers", device="cpu", compute_type="float32")
             where[size] = "cpu"
     return models[size]
 
