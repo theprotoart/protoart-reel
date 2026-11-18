@@ -1739,7 +1739,67 @@ export class Timeline {
       tag.addEventListener('contextmenu', e => { e.preventDefault(); e.stopPropagation(); this._labelMenu(l, e.clientX, e.clientY); });
       box.append(tag);
     }
+    // In and Out set: a ◀▶ grip in the middle of them; drag it to move that stretch of the edit (everything in it)
+    const rg = this.doc.range;
+    if (rg && rg.in != null && rg.out != null && rg.out - rg.in > 0.05) {
+      const mid = this.x((rg.in + rg.out) / 2);
+      const grip = el('div', { class: 'move-grip', title: `Drag left or right to move ${fmtTime(rg.in)}–${fmtTime(rg.out)} (picture, sound and titles, with their cuts and fades). The rest closes up and makes room. Locked tracks stay put. ⌘Z undoes.`, style: { left: mid + 'px' } },
+        el('span', { text: '◀' }), el('b', { text: 'MOVE' }), el('span', { text: '▶' }));
+      grip.addEventListener('pointerdown', e => { e.stopPropagation(); this._dragSection(e, rg.in, rg.out); });
+      box.append(grip);
+    }
     host.append(box);
+  }
+  /**
+   * Dragging the In–Out stretch (its ◀▶ grip): it follows the pointer as a band, with a line where it'll go in;
+   * let go and it's moved there (model.moveRange), the In and Out going with it.
+   */
+  _dragSection(e, a, b) {
+    if (e.button !== 0) return;
+    e.preventDefault();
+    const app = this.app, doc = this.doc, L = b - a;
+    const host = this.playheadEl.parentElement, H = 28 + this.totalH();
+    const from = el('div', { class: 'move-from', style: { left: this.x(a) + 'px', width: this.x(L) + 'px', height: H + 'px' } });
+    const ghost = el('div', { class: 'move-ghost', style: { left: this.x(a) + 'px', width: this.x(L) + 'px', height: H + 'px' } }, el('span', { text: '' }));
+    const line = el('div', { class: 'move-line', style: { height: H + 'px', display: 'none' } });
+    host.append(from, ghost, line);
+    document.getElementById('timeline')?.classList.add('moving-section');
+    const t0 = this._timeAt(e.clientX);
+    let to = null;
+    const move = ev => {
+      const dt = this._timeAt(ev.clientX) - t0;
+      // where it goes in, on the edit as it is now: before it (moving left) or after it (moving right)
+      let t = dt < 0 ? Math.max(0, a + dt) : b + dt;
+      if (this.snapOn) t = this._snap(doc, t, this._tol());
+      to = Math.abs(dt) < 0.05 || (t > a + 0.01 && t < b - 0.01) ? null : t;
+      const start = to == null ? a : to > b ? to - L : to;
+      ghost.style.left = this.x(a + dt) + 'px';
+      ghost.firstChild.textContent = to == null ? '' : `starts at ${fmtTime(start)}`;
+      line.style.display = to == null ? 'none' : 'block';
+      if (to != null) line.style.left = this.x(to) + 'px';
+    };
+    const up = () => {
+      window.removeEventListener('pointerup', up);
+      from.remove(); ghost.remove(); line.remove();
+      document.getElementById('timeline')?.classList.remove('moving-section');
+      if (to == null) { toast('Drag the ◀ MOVE ▶ grip left or right to move the In–Out section.', 3000); return; }
+      let dest = null;
+      app.commit(d => { dest = moveRange(d, a, b, to); if (dest != null) d.range = { ...(d.range || {}), in: dest, out: dest + L }; });
+      if (dest == null) { toast('It can’t go there.'); return; }
+      toast(`Moved to ${fmtTime(dest)}, cuts and fades and all. ⌘Z puts it back.`, 4000);
+    };
+    // near either edge of the timeline it scrolls on, so a section can go a long way (end to start) in one drag
+    let lastEv = e;
+    const edge = setInterval(() => {
+      const r = this.scroll.getBoundingClientRect(), x = lastEv.clientX, zone = 48;
+      const v = x < r.left + zone ? -(r.left + zone - x) : x > r.right - zone ? x - (r.right - zone) : 0;
+      if (v) { this.scroll.scrollLeft += Math.sign(v) * Math.min(60, 6 + Math.abs(v)); move(lastEv); }
+    }, 30);
+    const track = ev => { lastEv = ev; move(ev); };
+    window.addEventListener('pointermove', track);
+    window.addEventListener('pointerup', up);
+    const stopEdge = () => { clearInterval(edge); window.removeEventListener('pointermove', track); window.removeEventListener('pointerup', stopEdge); };
+    window.addEventListener('pointerup', stopEdge);
   }
   /** A new label at t (the In–Out range when it's set and t is in it), named straight away. */
   async addLabel(t, span = null) {

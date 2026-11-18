@@ -1452,6 +1452,11 @@ class App {
       case 'find-claps': return openClapFinder(this);
       case 'takes': closeUms(); return openTakes(this);
       case 'ums': closeTakes(); return openUms(this);
+      case 'move-section': {
+        const rg = this.doc?.range;
+        if (!rg || rg.in == null || rg.out == null || !(rg.out - rg.in > 0.05)) return toast('Set In and Out around the section first (I and O, or PARTS ▾), then drag the ◀ MOVE ▶ grip on the ruler, or use this again.', 6000);
+        return this.timeline.moveSection(rg.in, rg.out);
+      }
       case 'ums-clear': {
         const n = (this.doc?.ums || []).filter(u => u.kind !== 'find').length;
         if (!n) return;
