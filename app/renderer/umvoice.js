@@ -209,14 +209,14 @@ export function teachUms(app, { onDone } = {}) {
   };
   drawKnown();
   // with something learned already, recording the takes again is optional: folded away
-  const takesBox = el('details', { class: 'umt-takes', open: !model },
-    el('summary', { text: model ? 'Record more takes (optional: Reel already knows your voice)' : 'Record your takes' }),
+  const takesBox = el('details', { class: 'umt-takes' },
+    el('summary', { text: 'One take at a time (the old way, and the sentence that helps tell ums from words)' }),
     list, el('div', { class: 'row kit-rec-row' }, recB, meter));
   // 🔁 THE DRILL: each sound or phrase said ENOUGH (15) times in one go, with a pause between: Reel splits the
   // recording at the pauses and learns every one (its sound and its waveform shape). The ones still short of 15 come
   // first; a word or sound you add joins the list and needs its 15 too.
   const drillBox = el('div', { class: 'umt-drill' });
-  let drillWord = null, dRec = null, dStream = null, dChunks = [], dTimer = 0;
+  let drillWord = null, dRec = null, dStream = null, dChunks = [], dTimer = 0, dLive = 0, dWant = 0, dCtx = null, dRaf = 0, chain = false, nextTimer = 0;
   const added = new Set();
   const drillWords = () => {
     const m = umModel(), have = new Map((m?.words || []).map(w => [w.word, w.prints.length]));
@@ -233,11 +233,27 @@ export function teachUms(app, { onDone } = {}) {
       el('div', { class: 'umt-drill-head' }, el('b', { text: `🔁 SAY EACH ONE ${ENOUGH} TIMES` }),
         el('span', { class: 'note', text: 'Pick one, press RECORD, and say it over and over with a short pause (about a second) between each. Mix it up as you really talk: some soft, some normal, some loud; some slow, some quick. Reel splits them at the pauses and learns each one: how it sounds and how it looks on the waveform.' })),
       el('div', { class: 'umt-drill-words' }, ...ws.map(w => el('button', { class: 'umt-dw' + (w.word === drillWord ? ' on' : '') + (w.n >= ENOUGH ? ' done' : ''), type: 'button', title: `${w.n} of ${ENOUGH} learned`, onclick: () => { if (!dRec) { drillWord = w.word; drawDrill(); } } },
-        el('span', { text: label(w.word) }), el('i', { style: { width: Math.min(100, (w.n / ENOUGH) * 100) + '%' } }), el('small', { text: `${Math.min(w.n, 999)}/${ENOUGH}` }))),
+        el('span', { text: label(w.word) }), el('i', { style: { width: Math.min(100, (w.n / ENOUGH) * 100) + '%' } }), el('small', { text: w.n >= ENOUGH ? `${w.n} ✓` : `${w.n}/${ENOUGH}` }))),
         el('button', { class: 'umt-dw add', type: 'button', text: '＋ a word or sound', title: 'Another sound or phrase that keeps being missed (“you know”, “so”, a breath…): it gets its 15 too', onclick: async () => { const { newSoundWord } = await import('./fillers.js'); const w = await newSoundWord(); if (w) { added.add(w); drillWord = w; drawDrill(); } } })),
       el('div', { class: 'row umt-drill-row' },
-        el('button', { class: 'hw kit-rec-btn' + (dRec ? ' lit' : ''), text: dRec ? '■ STOP' : left ? `● RECORD “${label(drillWord)}” ×${left}` : `● RECORD MORE “${label(drillWord)}”`, onclick: () => (dRec ? stopDrill() : startDrill()) }),
-        el('span', { class: 'note umt-drill-say', text: dRec ? `Say “${label(drillWord)}”… pause… “${label(drillWord)}”… ${left || ENOUGH} times (soft, normal and loud; slow and quick), then STOP.` : left ? `${left} more “${label(drillWord)}” to go.` : `“${label(drillWord)}” has its ${ENOUGH}. More never hurts.` })));
+        el('button', { class: 'hw kit-rec-btn' + (dRec ? ' lit' : ''), text: dRec ? '■ STOP' : nextTimer ? '■ WAIT, STOP HERE' : left ? `● RECORD “${label(drillWord)}” ×${left}` : `● RECORD MORE “${label(drillWord)}”`, onclick: () => (dRec ? stopDrill(true) : nextTimer ? cancelNext() : startDrill()) }),
+        el('span', { class: 'umt-drill-count' + (dRec ? ' live' : ''), text: dRec ? `${dLive} / ${dWant}` : '' }),
+        el('span', { class: 'note umt-drill-say', text: dRec ? `Say “${label(drillWord)}”, pause, again… It counts each one and stops by itself at ${dWant}, then goes on to the next word.` : nextTimer ? '' : left ? `${left} more “${label(drillWord)}” to go.` : `“${label(drillWord)}” has its ${ENOUGH}. More never hurts.` })));
+  };
+  // after one word's done: the next that's short of 15 starts by itself, after a moment to breathe
+  const cancelNext = () => { clearInterval(nextTimer); nextTimer = 0; chain = false; status.textContent = 'Stopped. Pick a word and press RECORD to go on.'; drawDrill(); };
+  const goNext = () => {
+    const next = drillWords().find(w => w.n < ENOUGH && w.word !== drillWord) || drillWords().find(w => w.n < ENOUGH);
+    if (!next || !chain) { chain = false; if (!next) status.textContent += ' Every word has its 15. 🎉'; drawDrill(); return; }
+    drillWord = next.word;
+    let n = 3;
+    status.textContent = `Next: “${label(drillWord)}” — starting in ${n}…`;
+    nextTimer = setInterval(() => {
+      n--;
+      if (n > 0) { status.textContent = `Next: “${label(drillWord)}” — starting in ${n}…`; return; }
+      clearInterval(nextTimer); nextTimer = 0; startDrill();
+    }, 1000);
+    drawDrill();
   };
   async function startDrill() {
     try {
@@ -248,10 +264,38 @@ export function teachUms(app, { onDone } = {}) {
     dRec.ondataavailable = e => { if (e.data.size) dChunks.push(e.data); };
     dRec.onstop = finishDrill;
     dRec.start(250);
-    dTimer = setTimeout(stopDrill, 90000); // a minute and a half at most
+    chain = true;
+    const have = drillWords().find(w => w.word === drillWord)?.n || 0;
+    dWant = Math.max(1, ENOUGH - have) > 0 && have < ENOUGH ? ENOUGH - have : 5; // a word that has its 15: five more
+    dLive = 0;
+    // counting as you go: a take is sound for at least 0.12 s, then a pause of 0.3 s (the room's own level learned
+    // in the first half second); at the count wanted it stops by itself
+    dCtx = new AudioContext();
+    const an = dCtx.createAnalyser(); an.fftSize = 1024; dCtx.createMediaStreamSource(dStream).connect(an);
+    const buf = new Float32Array(1024), t0 = performance.now();
+    let floor = Infinity, on = false, since = 0, quietSince = 0;
+    const tick = () => {
+      if (!dRec) return;
+      an.getFloatTimeDomainData(buf); let e = 0; for (const v of buf) e += v * v; e = Math.sqrt(e / buf.length);
+      const now = performance.now();
+      if (now - t0 < 500) floor = Math.min(floor, e);
+      const bar = Math.max(0.012, (isFinite(floor) ? floor : 0) * 4);
+      if (e > bar) { if (!on) { on = true; since = now; } quietSince = 0; }
+      else if (on) {
+        if (!quietSince) quietSince = now;
+        if (now - quietSince > 300) { on = false; if (quietSince - since >= 120) { dLive++; drawDrill(); if (dLive >= dWant) { stopDrill(); return; } } quietSince = 0; }
+      }
+      dRaf = requestAnimationFrame(tick);
+    };
+    tick();
+    dTimer = setTimeout(() => stopDrill(), 90000); // a minute and a half at most
     drawDrill();
   }
-  function stopDrill() { clearTimeout(dTimer); if (dRec && dRec.state !== 'inactive') dRec.stop(); }
+  function stopDrill(byHand = false) {
+    if (byHand) chain = false; // STOP pressed: no going on to the next word
+    clearTimeout(dTimer); cancelAnimationFrame(dRaf); dCtx?.close().catch(() => {}); dCtx = null;
+    if (dRec && dRec.state !== 'inactive') dRec.stop();
+  }
   async function finishDrill() {
     dStream?.getTracks().forEach(t => t.stop()); dStream = null; dRec = null;
     try {
@@ -271,7 +315,9 @@ export function teachUms(app, { onDone } = {}) {
       const n = m?.words.find(w => w.word === drillWord)?.prints.length || 0;
       status.textContent = got ? `Learned ${got} “${label(drillWord)}”${got === 1 ? '' : 's'} (${n} of ${ENOUGH}).${n < ENOUGH ? ` Record ${ENOUGH - n} more.` : ' That one’s done.'}` : 'No clear takes were heard: leave a pause of about a second between each, and speak up a little.';
       drawKnown?.(true); onDone?.();
+      if (got && n >= ENOUGH && chain && drillBox.isConnected) { goNext(); return; }
     } catch (e) { status.textContent = `Couldn’t read the recording: ${e.message}`; }
+    chain = false;
     drawDrill();
   }
   drawDrill();

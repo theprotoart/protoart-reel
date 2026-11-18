@@ -2,6 +2,8 @@
 
 ## 1.11.0 — 2026-11-16
 
+- The 15-times drill counts each one as you say it (a big counter beside RECORD), stops by itself at the count, and after a 3-second countdown goes straight on to the next word still short of 15. ■ STOP ends the run. A word that has its 15 shows "47 ✓" instead of "47/15"; the old one-take-at-a-time list is folded away.
+
 - Teach Reel your ums: 🔁 SAY EACH ONE 15 TIMES — pick a sound (um, uh, or any word or sound you add, like “you know” or a breath), press RECORD and say it over and over with a pause between, soft, normal and loud, slow and quick; Reel splits the recording at the pauses and learns every one (sound and waveform shape). Each shows how many of its 15 it has, the ones still short first.
 
 - Teaching fillers with 〰 FILLER now keeps how each one looks on the waveform too (its loudness from start to end: a steady ummm is a plateau, an uh a quick hump, speech a row of peaks), and a match has to look like one of your takes as well as sound like it. Takes taught before this have only their sound: re-mark a few with 〰 FILLER to give Reel their shape.
