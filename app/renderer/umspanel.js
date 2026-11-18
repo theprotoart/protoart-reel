@@ -95,6 +95,7 @@ async function listenVerbatim(app, { locale, track, ranges = null, clipIds = nul
     let src = m.kind === 'audio' && /\.wav$/i.test(m.file) ? m.file : null;
     if (!src) src = await ensureSource(app, m);
     const r = await app.api.verbatimWords(app.token, src, locale, a, b);
+    if (r?.device === 'cpu' && !app._vbCpuTold) { app._vbCpuTold = true; toast('Word-for-word speech ran on the processor, not the graphics chip, so it was slow: the Mac was short of memory. Quit other apps (browsers especially) before scanning.', 9000); }
     const sp = c.speed || 1, ci = c.in || 0;
     for (const [ws, we, text] of r?.words || []) {
       if (ws < a - 0.01 || ws >= b) continue;

@@ -127,11 +127,15 @@ function transcribe({ src, from, to, language }, onEvent) {
     cancelled = false;
     const st = status();
     if (!st.use) throw new Error('Word-for-word speech isn’t set up yet: press GET WORD-FOR-WORD SPEECH.');
-    if (!helper) helper = new ai.Helper('Word-for-word speech', py(), SCRIPT);
+    if (!helper) {
+      // on an 8 or 16 GB Mac, the other AI models out of memory first: short of memory, the speech model crawls
+      ai.release();
+      helper = new ai.Helper('Word-for-word speech', py(), SCRIPT);
+    }
     clearTimeout(idle);
     try {
       const r = await helper.request({ cmd: 'transcribe', src, from, to, model: st.use, language: language || 'en' }, onEvent, ['done']);
-      return { words: r.words || [], model: st.use, seconds: r.seconds };
+      return { words: r.words || [], model: st.use, seconds: r.seconds, audio: r.audio, device: r.device };
     } catch (e) { if (cancelled) throw new Error('Stopped'); throw e; } finally { cancelled = false; idle = setTimeout(stop, IDLE_MS); }
   });
   queue = run.catch(() => {});

@@ -1914,18 +1914,20 @@ handle('verbatim:words', async (token, source, language, from, to) => {
   if (!gaps.length) return { words: c.words, model: st.use, cached: true };
   const lang = typeof language === 'string' && /^[a-z]{2}(-[A-Z]{2})?$/.test(language) ? language.slice(0, 2) : 'en';
   const total = gaps.reduce((n, [g, h]) => n + (h - g), 0) || 1;
-  let done = 0;
+  let done = 0, device = '';
   for (const [g, h] of gaps) {
     // a second either side so a word at the edge isn't cut in half; only the words starting inside are kept
     const r = await verbatim.transcribe({ src: path.join(mediaDir(p), path.basename(source)), from: Math.max(0, g - 1), to: h + 1, language: lang },
       ev => kittenEvent({ type: 'verbatimRun', f: (done + (h - g) * Math.min(1, Number(ev.f) || 0)) / total, loading: !!ev.loading, msg: typeof ev.msg === 'string' ? ev.msg.slice(0, 120) : '', source }));
+    if (r.device) device = r.device;
+    console.log(`verbatim: ${(h - g).toFixed(0)} s of talk in ${r.seconds} s on ${r.device}`);
     const fresh = (r.words || []).filter(w => w[0] >= g - 0.01 && w[0] < h);
     c.words = [...c.words.filter(w => w[0] < g - 0.01 || w[0] >= h), ...fresh].sort((x, y) => x[0] - y[0]);
     c.have = verbatim.addRange(c.have, g, h);
     done += h - g;
     await writeAtomic(cache, JSON.stringify({ model: st.use, words: c.words, have: c.have, at: new Date().toISOString() })); // kept even if stopped later
   }
-  return { words: c.words, model: st.use, cached: false };
+  return { words: c.words, model: st.use, cached: false, device };
 });
 
 // Kitten voices (KittenTTS 2 on this Mac): natural speech, emotion, and voices cloned from the person's recordings

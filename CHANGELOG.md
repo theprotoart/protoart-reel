@@ -2,6 +2,8 @@
 
 ## 1.11.0 — 2026-11-16
 
+- Word-for-word speech on an 8 or 16 GB Mac frees Reel’s other AI models from memory before it starts (as recording and export do), and says while it works whether it’s on the graphics chip or the processor; if it had to fall back to the processor (short of memory), Reel says so and suggests quitting other apps.
+
 - Word-for-word speech writes down only the selected clip’s part of the recording (inside the scanned range), not the whole recording: a 2-minute clip takes a couple of minutes, not the time for all 12. What’s written down is kept, and scanning more of the same recording only does the new parts.
 
 - 💬 FILLER WORDS is taller (down to near the bottom of the window, and its corner drags), and while it listens it shows a bar, how far it has got and about how long is left. Word-for-word speech reports every minute of talk ("4:12 of 11:20 of talk") instead of every five, with a moving bar while the model loads. The 🎙 scan button fills along its bottom edge as it goes.

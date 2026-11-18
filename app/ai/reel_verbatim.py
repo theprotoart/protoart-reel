@@ -18,6 +18,7 @@ import sys
 import time
 
 models = {}
+where = {}  # model -> "mps" or "cpu": where it actually loaded
 
 
 def send(obj):
@@ -43,12 +44,19 @@ def load(size):
         dev = device()
         try:
             models[size] = CrisperWhisperModel(size, backend="transformers", device=dev, compute_type="float16")
-        except Exception:
+            where[size] = dev
+        except Exception as e:  # noqa: BLE001
             if dev == "cpu":
                 raise
-            # the graphics chip couldn't take it: the processor can (slower)
+            # the graphics chip couldn't take it (usually too little free memory): the processor can, much slower
+            sys.stderr.write(f"graphics chip load failed, using the processor: {e}\n")
             models[size] = CrisperWhisperModel(size, backend="transformers", device="cpu", compute_type="float32")
+            where[size] = "cpu"
     return models[size]
+
+
+def chip(size):
+    return "on the graphics chip" if where.get(size) == "mps" else "on the processor (slow: close other apps to free memory)"
 
 
 def read_wav_range(path, t0, t1):
@@ -165,11 +173,13 @@ def main():
             x = to16k(x, rate)
             secs = len(x) / 16000
 
-            def prog(f, done, total):
-                send({"type": "progress", "f": f, "msg": f"Writing down every word… {clock(done)} of {clock(total)} of talk"})
+            size = msg.get("model", "large")
 
-            words = transcribe(msg.get("model", "large"), x, msg.get("language", "en"), t0, prog)
-            send({"type": "done", "words": words, "seconds": round(time.time() - started, 1), "audio": round(secs, 1)})
+            def prog(f, done, total):
+                send({"type": "progress", "f": f, "msg": f"Writing down every word… {clock(done)} of {clock(total)} of talk, {chip(size)}"})
+
+            words = transcribe(size, x, msg.get("language", "en"), t0, prog)
+            send({"type": "done", "words": words, "seconds": round(time.time() - started, 1), "audio": round(secs, 1), "device": where.get(size, "cpu")})
         except Exception as e:  # noqa: BLE001
             send({"type": "error", "msg": str(e)[:300]})
 
