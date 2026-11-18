@@ -258,6 +258,8 @@ fn read_ink(inp: &mut Input) -> Result<ink::Ink, String> {
             7 => ink::Shape::Except(if inp.u8()? == 1 { Some(read_pts(inp)?) } else { None }),
             8 => { let (ox, oy, a) = (num(inp, 1e5)?, num(inp, 1e5)?, num(inp, 1.0)?); if a < 0.0 { return Err(bad()); } ink::Shape::Grain { ox, oy, a } }
             9 => { let pts = read_pts(inp)?; let (w, sigma) = (num(inp, 1e4)?, num(inp, 1e3)?); if w < 0.0 || sigma < 0.0 { return Err(bad()); } ink::Shape::Rim { pts, w, sigma, c: colour(inp)? } }
+            10 => { let (x, y, w, h, dx) = (num(inp, BIG)?, num(inp, BIG)?, num(inp, BIG)?, num(inp, BIG)?, num(inp, BIG)?); ink::Shape::Shift { x, y, w, h, dx } }
+            11 => { let (cx, cy, r, s, a) = (num(inp, BIG)?, num(inp, BIG)?, num(inp, BIG)?, num(inp, 100.0)?, num(inp, 1.0)?); if r < 0.0 || a < 0.0 { return Err(bad()); } ink::Shape::Vertigo { cx, cy, r, s, a } }
             _ => return Err(bad()),
         });
     }

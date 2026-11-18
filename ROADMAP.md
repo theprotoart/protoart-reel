@@ -56,11 +56,12 @@ JavaScript runs, as before). When little JavaScript is left, the window itself c
      mostly such moments goes the usual way.
    - **Done (1.14): the transitions that paint over the picture, in the core.** Light leak, film burn (and the vintage
      one's burning holes and flicker), glitch bars, the lens flare sweep, the fast wipe's streak, letterbox bars, the
-     radial shutter (its iris and blades), and film grain (transition or filter): written down by lib/fxshapes.js from
+     radial shutter (its iris and blades), film grain (transition or filter), and the two that move the picture
+     about (glitch blocks, the vertigo ramp's hold): written down by lib/fxshapes.js from
      the editor's own drawing code (shared with it) and drawn by ink.rs with the canvas's blend modes. Each checked
      against the editor's drawing in Chrome (mostly within 1 level in 255; 40–55 dB).
-   - Still the editor's (drawn whole and handed to the core): the text reveal, the vertigo ramp and glitch blocks,
-     which move parts of the picture; a turned phone video; SVG and GIF pictures; transition effects on a title.
+   - Still the editor's (drawn whole and handed to the core): the text reveal (the picture cut to the shape of
+     words); a turned phone video; SVG and GIF pictures; transition effects on a title or graphic.
    - Next: those, then the setting comes on by default.
 6. **Recording:** screen, window and camera through ScreenCaptureKit.
 7. **The window:** a plain Rust interface (egui or Slint), once the pieces above no longer need the browser.

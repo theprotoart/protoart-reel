@@ -52,17 +52,18 @@ test('a video export plan: each clip read once at the size it needs, or why not'
   assert.ok(!pic.why, pic.why);
   assert.ok(pic.sources.some(s => s.file === 'logo.png' && s.w <= 400));
   assert.match(videoJob({ ...doc, media: [...doc.media, { id: 'g', kind: 'image', file: 'a.gif', width: 40, height: 40 }], clips: [clip('c4', 'g', 't1', 0, 2)] }, 0, 2, 320, 180, 10).why, /GIF/);
-  // a vertigo ramp on the way in (1.14): it reads the picture, so those frames are the editor's, drawn whole; the
-  // rest stays the core's
-  const g = videoJob(docOf([{ ...clip('c1', 'a', 't1', 0, 2), transIn: { type: 'vertigo', dur: 0.5 } }]), 0, 2, 320, 180, 10);
+  // an SVG picture for half a second (1.14): the core can't read it, so those frames are the editor's, drawn whole;
+  // the rest stays the core's
+  const svgDoc = d => ({ ...docOf([clip('c1', 'a', 't1', 0, 2), clip('s', 'v', 't2', 0, d, { scale: 0.3 })]), media: [...docOf([]).media, { id: 'v', kind: 'image', file: 'logo.svg', width: 100, height: 100 }] });
+  const g = videoJob(svgDoc(0.5), 0, 2, 320, 180, 10);
   assert.ok(!g.why, g.why);
-  assert.ok(g.whole.length >= 3 && g.whole.every(i => i < 5), `the half second of the ramp (${g.whole})`);
+  assert.deepEqual(g.whole, [0, 1, 2, 3, 4], 'the half second of the SVG');
   assert.deepEqual(g.overlays, g.whole);
-  assert.deepEqual(g.wholeWhy, ['a vertigo ramp']);
+  assert.deepEqual(g.wholeWhy, ['an SVG or GIF picture']);
   // mostly the editor's: the usual export instead
-  assert.match(videoJob(docOf([{ ...clip('c1', 'a', 't1', 0, 2), transIn: { type: 'vertigo', dur: 1.8 } }]), 0, 2, 320, 180, 10).why, /vertigo/);
+  assert.match(videoJob(svgDoc(1.8), 0, 2, 320, 180, 10).why, /SVG/);
   // a glitch, a light leak, a radial shutter (1.14): drawn by the core itself, as ink after the clip
-  for (const type of ['glitch', 'light-leak', 'film-burn', 'shutter', 'flare-sweep', 'letterbox', 'fast-wipe', 'film-burn-vintage']) {
+  for (const type of ['glitch', 'glitch-blocks', 'vertigo', 'light-leak', 'film-burn', 'shutter', 'flare-sweep', 'letterbox', 'fast-wipe', 'film-burn-vintage']) {
     // (a fast wipe rides on a crossfade between two clips)
     const j = videoJob(docOf([{ ...clip('c1', 'a', 't1', 0, 2), transIn: { type, dur: 0.5 }, ...(type === 'fast-wipe' ? { xfadeIn: 1 } : {}) }]), 0, 2, 320, 180, 10);
     assert.ok(!j.why && !j.whole.length, `${type}: ${j.why || j.whole}`);
@@ -228,7 +229,7 @@ f.on('close', c => process.exit(c));
   } finally { fs.rmSync(dir, { recursive: true, force: true }); }
 });
 
-test('frames the core can’t draw yet (a vertigo ramp) are the editor’s, whole, and the rest still the core’s (1.14)', { skip }, async () => {
+test('frames the core can’t draw yet (an SVG picture) are the editor’s, whole, and the rest still the core’s (1.14)', { skip }, async () => {
   const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'vexp-'));
   try {
     execFileSync(ffmpeg, ['-v', 'error', '-f', 'lavfi', '-i', 'testsrc2=s=640x360:r=25:d=3', '-pix_fmt', 'yuv420p', path.join(dir, 'a.mp4')]);
@@ -258,9 +259,9 @@ process.stdin.on('end', () => { raw.end(); f.stdin.end(); });
 f.on('close', c => process.exit(c));
 `, { mode: 0o755 });
     const W = 320, H = 180, fps = 10;
-    const doc = docOf([{ ...clip('c1', 'a', 't1', 0, 2), transIn: { type: 'vertigo', dur: 0.5 } }]);
+    const doc = { ...docOf([clip('c1', 'a', 't1', 0, 2), clip('s', 'v', 't2', 0, 0.5, { scale: 0.3 })]), media: [...docOf([]).media, { id: 'v', kind: 'image', file: 'logo.svg', width: 100, height: 100 }] };
     const job = videoJob(doc, 0, 2, W, H, fps);
-    assert.ok(job.whole.length >= 3, `${job.whole}`);
+    assert.deepEqual(job.whole, [0, 1, 2, 3, 4]);
     // what sendOverlays sends for an editor frame: the whole frame as one picture (here, one flat colour per frame)
     const editorFrame = k => { const b = Buffer.alloc(4 + 1 + 16 + W * H * 4); b.writeUInt32LE(1, 0); b[4] = 0; [0, 0, W, H].forEach((v, i) => b.writeUInt32LE(v, 5 + i * 4)); for (let i = 0; i < W * H; i++) b.set([10 + k * 40, 200 - k * 30, 77, 255], 21 + i * 4); return b; };
     const out = path.join(dir, 'out.mp4');

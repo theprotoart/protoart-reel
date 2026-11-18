@@ -344,6 +344,8 @@ export function encodeLayers(layers, srcOf, push, { luts = null, sent = new Map(
         else if (s.kind === 'except') { u8(7); if (s.pts) { u8(1); pts(s.pts); } else u8(0); }
         else if (s.kind === 'grain') { u8(8); [s.ox, s.oy, s.a].forEach(f64); }
         else if (s.kind === 'rim') { u8(9); pts(s.pts); f64(s.w); f64(s.sigma); col(s.c); }
+        else if (s.kind === 'shift') { u8(10); [s.x, s.y, s.w, s.h, s.dx].forEach(f64); }
+        else if (s.kind === 'vertigo') { u8(11); [s.cx, s.cy, s.r, s.s, s.a].forEach(f64); }
         else {
           u8(3); u32(s.pts.length); for (const [px, py] of s.pts) { f64(px); f64(py); } col(s.fill);
           if (s.stroke) { u8(1); f64(s.stroke[0]); col(s.stroke[1]); } else u8(0);

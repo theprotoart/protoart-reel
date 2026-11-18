@@ -36,6 +36,12 @@ pub enum Shape {
     Grain { ox: f64, oy: f64, a: f64 },
     /// A soft line just inside an outline (the shutter's rim): a stroke w wide along it, blurred (sigma), kept inside.
     Rim { pts: Vec<(f64, f64)>, w: f64, sigma: f64, c: [f64; 4] },
+    /// Part of the frame so far (x, y, w, h, canvas pixels) drawn again dx to the side (glitch blocks: the canvas's
+    /// drawImage of itself).
+    Shift { x: f64, y: f64, w: f64, h: f64, dx: f64 },
+    /// The vertigo ramp's hold: the frame so far, its middle 2·R·s across shrunk back into 2·R round (cx, cy),
+    /// feathered from 0.55·R to R, laid over at opacity a.
+    Vertigo { cx: f64, cy: f64, r: f64, s: f64, a: f64 },
 }
 
 pub struct Ink { pub m: [f64; 6], pub clip: Option<[f64; 4]>, pub cut: Option<Look>, pub shapes: Vec<Shape> }
@@ -237,6 +243,72 @@ pub fn draw(acc: &mut [[f64; 3]], w: usize, h: usize, ink: &Ink, alpha: f64) {
                         let mut kk = alpha;
                         if let Some(e) = ex { let (u, v) = local(x as f64 + 0.5, y as f64 + 0.5); kk *= (0.5 + poly_dist(e, u, v) * k).clamp(0.0, 1.0); }
                         blend(px, &[g, g, g, ga], kk, 3);
+                    }
+                });
+            }
+            Shape::Shift { x, y, w: bw, h: bh, dx } => {
+                let (x, y, bw, bh, dx) = (*x, *y, *bw, *bh, *dx);
+                if bw <= 0.0 || bh <= 0.0 { continue; }
+                let snap: Vec<[f64; 3]> = acc.to_vec();
+                // the source rectangle, read with smoothing (its edges clamped, as drawImage keeps to its source)
+                let sample = |u: f64, v: f64| -> [f64; 3] {
+                    let u = u.clamp(x + 0.5, x + bw - 0.5).clamp(0.5, w as f64 - 0.5) - 0.5;
+                    let v = v.clamp(y + 0.5, y + bh - 0.5).clamp(0.5, h as f64 - 0.5) - 0.5;
+                    let (u0, v0) = (u.floor(), v.floor());
+                    let (fu, fv) = (u - u0, v - v0);
+                    let (i0, j0) = (u0 as usize, v0 as usize);
+                    let (i1, j1) = ((i0 + 1).min(w - 1), (j0 + 1).min(h - 1));
+                    let mut o = [0.0; 3];
+                    for c in 0..3 { o[c] = (snap[j0 * w + i0][c] * (1.0 - fu) + snap[j0 * w + i1][c] * fu) * (1.0 - fv) + (snap[j1 * w + i0][c] * (1.0 - fu) + snap[j1 * w + i1][c] * fu) * fv; }
+                    o
+                };
+                let (x0, x1) = (((x + dx).floor().max(0.0)) as usize, ((x + dx + bw).ceil().min(w as f64)) as usize);
+                let (y0, y1) = ((y.floor().max(0.0)) as usize, ((y + bh).ceil().min(h as f64)) as usize);
+                if x1 <= x0 || y1 <= y0 { continue; }
+                par_rows(&mut acc[y0 * w..y1 * w], w, |j, row| {
+                    let py = (y0 + j) as f64;
+                    let cy = ((py + 1.0).min(y + bh) - py.max(y)).clamp(0.0, 1.0);
+                    for px in x0..x1 {
+                        let pxf = px as f64;
+                        let cx = ((pxf + 1.0).min(x + dx + bw) - pxf.max(x + dx)).clamp(0.0, 1.0);
+                        let cov = cx * cy * alpha;
+                        if cov <= 0.0 { continue; }
+                        let c = sample(pxf + 0.5 - dx, py + 0.5);
+                        blend(&mut row[px], &[c[0], c[1], c[2], 1.0], cov, 0);
+                    }
+                });
+            }
+            Shape::Vertigo { cx, cy, r, s: sc, a } => {
+                let (cx, cy, r, sc, a) = (*cx, *cy, *r, *sc, *a);
+                if sc <= 1.001 || r <= 0.0 { continue; }
+                let snap: Vec<[f64; 3]> = acc.to_vec();
+                // each pixel of the hold: the average of the frame under its sc × sc footprint (a smooth shrink)
+                let n = (sc.ceil() as usize).clamp(1, 8);
+                let at = |u: f64, v: f64| -> [f64; 3] {
+                    let (i, j) = ((u.max(0.0) as usize).min(w - 1), (v.max(0.0) as usize).min(h - 1));
+                    snap[j * w + i]
+                };
+                let (x0, x1) = (((cx - r).floor().max(0.0)) as usize, ((cx + r).ceil().min(w as f64)) as usize);
+                let (y0, y1) = (((cy - r).floor().max(0.0)) as usize, ((cy + r).ceil().min(h as f64)) as usize);
+                if x1 <= x0 || y1 <= y0 { continue; }
+                par_rows(&mut acc[y0 * w..y1 * w], w, |j, row| {
+                    let py = (y0 + j) as f64 + 0.5;
+                    for px in x0..x1 {
+                        let pxf = px as f64 + 0.5;
+                        let d = (pxf - cx).hypot(py - cy);
+                        let feather = if d <= r * 0.55 { 1.0 } else if d >= r { 0.0 } else { 1.0 - (d - r * 0.55) / (r * 0.45) };
+                        // the copy only reaches the square of the hold
+                        let inside = ((pxf - (cx - r)).min(cx + r - pxf).min(py - (cy - r)).min(cy + r - py) + 0.5).clamp(0.0, 1.0);
+                        let k = feather * inside * a * alpha;
+                        if k <= 0.0 { continue; }
+                        let (u, v) = (cx + (pxf - cx) * sc, cy + (py - cy) * sc);
+                        let mut c = [0.0; 3];
+                        for jj in 0..n { for ii in 0..n {
+                            let q = at(u + ((ii as f64 + 0.5) / n as f64 - 0.5) * sc, v + ((jj as f64 + 0.5) / n as f64 - 0.5) * sc);
+                            for ch in 0..3 { c[ch] += q[ch]; }
+                        } }
+                        let nn = (n * n) as f64;
+                        blend(&mut row[px], &[c[0] / nn, c[1] / nn, c[2] / nn, 1.0], k, 0);
                     }
                 });
             }

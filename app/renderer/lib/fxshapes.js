@@ -123,16 +123,37 @@ export function barShapes(W, H, ratio, on, close) {
   return [mode(0), fill(rect(0, 0, W, h), [0, 0, 0, 1]), fill(rect(0, H - h, W, h), [0, 0, 0, 1])];
 }
 
+/** compositor.js vertigoHold: the middle of the frame put back at its own size, feathered (the dolly zoom's hold). */
+export function vertigoShapes(v, W, H) {
+  const R = Math.min(W, H) * 0.36, s = v.s;
+  if (!(s > 1.001)) return [];
+  return [{ kind: 'vertigo', cx: W / 2, cy: H / 2, r: R, s, a: Math.min(1, v.amt * 3) }];
+}
+
+/** compositor.js glitchBlocks: blocks of the frame shifted sideways, some tinted, some blanked. */
+export function blockShapes(amt, W, H, t) {
+  const f = Math.floor(t * 18), n = 4 + Math.floor(amt * 14), out = [];
+  for (let i = 0; i < n; i++) {
+    const w = W * (0.08 + hash2(f, i) * 0.35 * amt), h = H * (0.03 + hash2(i, f + 1) * 0.14);
+    const x = hash2(f + 2, i) * (W - w), y = hash2(i + 3, f) * (H - h), dx = (hash2(f, i + 7) - 0.5) * W * 0.22 * amt;
+    out.push({ kind: 'shift', x, y, w, h, dx });
+    const c = hash2(i, f + 9);
+    if (c > 0.55) out.push(mode(1), fill(rect(x + dx, y, w, h), [...(c > 0.8 ? [255, 42, 109] : [5, 217, 232]), 0.35 * amt]), mode(0));
+    else if (c < 0.12 && amt > 0.5) out.push(mode(0), fill(rect(x + dx, y, w, h * 0.3), [...(c < 0.06 ? [0, 0, 0] : [255, 255, 255]), 0.85]));
+  }
+  return out;
+}
+
 /**
  * Everything compositor.js drawFrame paints over the frame after drawing clip c (its props p at time t), in its
  * order, as one list of shapes; or { why } for what still reads the picture (the text reveal, vertigo, glitch blocks).
  */
 export function effectShapes(c, p, t, W, H) {
   if (p.textMask) return { why: 'a text reveal' };
-  if (p.vertigo && p.vertigo.amt > 0.01) return { why: 'a vertigo ramp' };
-  if (p.blocks > 0.03) return { why: 'glitch blocks' };
   const out = [];
   if (p.shutter != null && p.shutter < 1) out.push(...shutterShapes(p.shutter, W, H));
+  if (p.vertigo && p.vertigo.amt > 0.01) out.push(...vertigoShapes(p.vertigo, W, H));
+  if (p.blocks > 0.03) out.push(...blockShapes(p.blocks, W, H, t));
   if (p.streak && p.streak.amt > 0.02) out.push(...streakShapes(p.streak, W, H));
   if (p.holes > 0.02) out.push(...holeShapes(p.holes, W, H, t));
   if (p.glitch > 0.05) out.push(...glitchShapes(p.glitch, W, H, t));
