@@ -109,7 +109,7 @@ export function fillerMenu(app, f, x, y) {
     try {
       const n = await teachFillers(app, [{ ...f, word }]);
       if (word !== 'not' && word !== f.word) setFillerWord(app, f.id, word);
-      toast(n ? (word === 'not' ? 'Reel won’t take that for an um again.' : `Learned that ${soundLabel(word)}. 💬 FILLER WORDS › LISTEN AGAIN uses it.`) : 'Nothing was learned (teach a few ums first for “not an um”).', 4500);
+      toast(n ? (word === 'not' ? 'Reel won’t take that for an um again.' : `Learned that ${soundLabel(word)}: how it sounds and how it looks on the waveform. 💬 FILLER WORDS › CLEAR & RESCAN uses it.`) : 'Nothing was learned (teach a few ums first for “not an um”).', 4500);
     } catch (e) { toast(e.message, 5000); }
   };
   popMenu(x, y, [

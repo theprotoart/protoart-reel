@@ -2,6 +2,8 @@
 
 ## 1.11.0 — 2026-11-16
 
+- Teaching fillers with 〰 FILLER now keeps how each one looks on the waveform too (its loudness from start to end: a steady ummm is a plateau, an uh a quick hump, speech a row of peaks), and a match has to look like one of your takes as well as sound like it. Takes taught before this have only their sound: re-mark a few with 〰 FILLER to give Reel their shape.
+
 - Fillers, a second check besides the sound: taught words and phrases ("you know", "but yeah") are found where speech recognition wrote them, not by ear; taught sounds (um, uh, breaths…) must also have the shape of what you taught — as steady as your takes — so a word said in passing isn't listed as an "ummm".
 
 - Fillers: a sound you taught is only listed when it's about as long as you said it when teaching, and not on top of an ordinary word the speech recogniser heard clearly. (Before, a few takes of "you know" made Reel list dozens of 0.2 s scraps of ordinary speech as "you know".)

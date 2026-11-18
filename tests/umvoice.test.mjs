@@ -1,6 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { RATE, to16k, fingerprint, dtw, bursts, train, findInSamples, findInSequence, packModel, unpackModel, addTake, addNot } from '../app/renderer/lib/umvoice.js';
+import { RATE, to16k, fingerprint, dtw, bursts, train, findInSamples, findInSequence, packModel, unpackModel, addTake, addNot, waveShape, shapeFits } from '../app/renderer/lib/umvoice.js';
 
 // A tiny voice: a glottal pulse train through formant resonators (source-filter), so vowels sound like vowels.
 let seed = 7; const rnd = () => ((seed = (seed * 16807) % 2147483647) / 2147483647);
@@ -180,4 +180,19 @@ test('teaching from the timeline makes it find more, not fewer: ordinary speech 
   const same = m.same;
   assert.ok(m.threshold >= same * 0.999, `still finds its own takes (${m.threshold} vs ${same})`);
   assert.equal(m.nears.length, 6);
+});
+
+test('a take keeps how it looks on the waveform, and a piece shaped otherwise is told apart', () => {
+  const env = (n, f) => Float32Array.from({ length: n }, (_, i) => Math.sin(i * 0.3) * f(i / n));
+  const plateau = env(RATE * 0.6, u => (u < 0.1 ? u * 10 : u > 0.9 ? (1 - u) * 10 : 1)); // a steady "ummm"
+  const peaks = env(RATE * 0.6, u => Math.abs(Math.sin(u * Math.PI * 4))); // four quick syllables
+  let m = null;
+  for (let i = 0; i < 3; i++) m = addTake(m, 'umm', plateau, null, { exact: true });
+  const w = m.words.find(x => x.word === 'umm');
+  assert.equal(w.shapes.length, 3);
+  assert.equal(waveShape(plateau).length, 24);
+  assert.ok(shapeFits(w, plateau), 'its own shape fits');
+  assert.ok(!shapeFits(w, peaks), 'a row of peaks isn\u2019t an ummm');
+  const back = unpackModel(packModel({ ...m, threshold: m.threshold || 1 }));
+  assert.equal(back.words[0].shapes.length, 3, 'kept when saved');
 });

@@ -3,7 +3,7 @@
 // including the ones speech recognition doesn't write down. Everything stays on this Mac (the model is kept in
 // Reel's own storage here, never uploaded).
 import { el, modal, drawer, toast, ask, popMenu } from './ui.js';
-import { train, findInSamples, findInSequence, packModel, unpackModel, to16k, RATE, addTake, addNot, dropTakes, fingerprint } from './lib/umvoice.js';
+import { train, findInSamples, findInSequence, packModel, unpackModel, to16k, RATE, addTake, addNot, dropTakes, fingerprint, shapeFits } from './lib/umvoice.js';
 import { openAudio } from './lib/sources.js';
 import { soundOf, speechClips } from './transcript.js';
 import { fmtTime as fmt } from './model.js';
@@ -373,6 +373,8 @@ export async function findYourUms(app, clips, onStatus) {
       // its shape: as steady as the takes you taught (a word said in passing changes much more than an "ummm")
       const a0 = Math.max(0, Math.floor(h.t * RATE)), a1 = Math.min(x.length, Math.ceil(h.end * RATE)), seg = x.subarray ? x.subarray(a0, a1) : x.slice(a0, a1);
       if (seg.length > 400 && flux(fingerprint(seg)) > (steady.get(h.word) ?? Infinity)) continue;
+      // and how it looks on the waveform, beside the takes you marked with 〰 FILLER (their shape is kept as you teach)
+      if (seg.length > 400 && !shapeFits(model.words.find(w => w.word === h.word), seg)) continue;
       out.push({ t: c.start + h.t / speed, end: c.start + h.end / speed, word: h.word, sure: h.sure, joined: !!h.joined, track: c.track });
     }
   }

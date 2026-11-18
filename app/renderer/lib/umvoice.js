@@ -181,15 +181,48 @@ function burstOf(x) {
  * 16 kHz samples, and optionally some of the same person's ordinary speech around it (sets how strict to be when
  * there's no sentence yet). Starts a model if there isn't one. Returns the model.
  */
+/**
+ * What a sound looks like on the waveform: its loudness from start to end, in n steps, the loudest 1 (so a long
+ * steady "ummm" is a plateau, an "uh" a quick hump, a breath a soft swell, speech a row of peaks).
+ */
+export function waveShape(x, n = 24) {
+  if (!x || x.length < n * 4) return null;
+  const out = [], step = x.length / n;
+  for (let i = 0; i < n; i++) { let s = 0; const a = Math.floor(i * step), b = Math.floor((i + 1) * step); for (let k = a; k < b; k++) s += x[k] * x[k]; out.push(Math.sqrt(s / Math.max(1, b - a))); }
+  const top = Math.max(...out) || 1;
+  return out.map(v => +(v / top).toFixed(3));
+}
+/** How unlike two waveform shapes are (0 the same … 1 nothing alike): the mean gap between them. */
+export function shapeDist(a, b) {
+  if (!a || !b || a.length !== b.length) return 0;
+  let s = 0; for (let i = 0; i < a.length; i++) s += Math.abs(a[i] - b[i]);
+  return s / a.length;
+}
+/** Whether a piece's waveform looks like one of the takes of a sound (when any were taken with their shape). */
+export function shapeFits(word, x) {
+  const shapes = (word?.shapes || []).filter(Boolean);
+  if (!shapes.length) return true;
+  const me = waveShape(trimQuiet(x));
+  if (!me) return true;
+  // how far apart your own takes are, with room; at least 0.16
+  let spread = 0;
+  for (let i = 0; i < shapes.length; i++) for (let j = i + 1; j < shapes.length; j++) spread = Math.max(spread, shapeDist(shapes[i], shapes[j]));
+  const bar = Math.max(0.16, spread * 1.25 + 0.04);
+  return shapes.some(s => shapeDist(s, me) <= bar);
+}
+
 export function addTake(model, word, samples, context, { exact = false } = {}) {
   // exact: the piece is just the sound (marked by hand on the timeline): only its quiet ends come off. Looking for a
   // "burst" in it would take a piece of the word next to it when there's no pause between them
-  const fp = fingerprint(exact ? trimQuiet(samples) : burstOf(samples));
+  const piece = exact ? trimQuiet(samples) : burstOf(samples);
+  const fp = fingerprint(piece);
   if (fp.length < 8) throw new Error('Too short to learn from: pick the whole um, with a little silence either side.');
   const m = model || { version: 1, words: [], nots: [], near: null };
   let w = m.words.find(x => x.word === word);
   if (!w) m.words.push(w = { word, prints: [] });
   w.prints.push(fp);
+  // and how it looks on the waveform (kept beside its sound: the same take, the same place in the list)
+  w.shapes = [...(w.shapes || Array(w.prints.length - 1).fill(null)), waveShape(piece)];
   // how close ordinary speech comes: the middle of what each teaching's surroundings said (it used to keep the
   // lowest ever, so every um taught made Reel stricter and it found fewer, not more)
   if (context?.length) {
@@ -225,7 +258,7 @@ export function dropTakes(model, word, n = 1) {
   if (word === 'not') m.nots.splice(Math.max(0, m.nots.length - n));
   else {
     const w = m.words.find(x => x.word === word);
-    if (w) { w.prints.splice(Math.max(0, w.prints.length - n)); if (!w.prints.length) m.words = m.words.filter(x => x !== w); }
+    if (w) { w.prints.splice(Math.max(0, w.prints.length - n)); if (w.shapes) w.shapes = w.shapes.slice(0, w.prints.length); if (!w.prints.length) m.words = m.words.filter(x => x !== w); }
   }
   if (!m.words.length) return null;
   return retune(m);
@@ -365,12 +398,16 @@ export function findInSequence(model, x, { strict = 0.9 } = {}) {
 /** A model made safe to store as JSON (fingerprints as plain arrays) and back. */
 const packPrint = p => p.map(f => Array.from(f, v => Math.round(v * 1000) / 1000));
 const readPrint = p => p.filter(Array.isArray).map(f => Float32Array.from(f.slice(0, COEFS).map(Number)));
-export const packModel = m => JSON.stringify({ ...m, nears: m.nears || undefined, words: m.words.map(w => ({ word: w.word, prints: w.prints.map(packPrint) })), nots: (m.nots || []).map(packPrint) });
+export const packModel = m => JSON.stringify({ ...m, nears: m.nears || undefined, words: m.words.map(w => ({ word: w.word, prints: w.prints.map(packPrint), ...(w.shapes?.some(Boolean) ? { shapes: w.shapes } : {}) })), nots: (m.nots || []).map(packPrint) });
 export function unpackModel(s) {
   try {
     const m = typeof s === 'string' ? JSON.parse(s) : s;
     if (!m || m.version !== 1 || !Array.isArray(m.words) || !(m.threshold > 0)) return null;
-    m.words = m.words.filter(w => typeof w.word === 'string' && Array.isArray(w.prints)).map(w => ({ word: w.word.slice(0, 20), prints: w.prints.filter(Array.isArray).map(readPrint) }));
+    m.words = m.words.filter(w => typeof w.word === 'string' && Array.isArray(w.prints)).map(w => {
+      const prints = w.prints.filter(Array.isArray).map(readPrint);
+      const shapes = Array.isArray(w.shapes) ? w.shapes.slice(0, prints.length).map(s => (Array.isArray(s) && s.every(Number.isFinite) ? s : null)) : null;
+      return { word: w.word.slice(0, 20), prints, ...(shapes?.some(Boolean) ? { shapes } : {}) };
+    });
     m.nots = Array.isArray(m.nots) ? m.nots.filter(Array.isArray).map(readPrint) : [];
     return m.words.length ? m : null;
   } catch { return null; }
