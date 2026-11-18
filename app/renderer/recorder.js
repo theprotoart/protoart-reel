@@ -261,8 +261,8 @@ async function record(app, st, part = 1) {
   await api.selectSource(st.source.id, st.system);
   const streams = [];
   let ids = null, going = false;
-  let sizeWatch = 0;
-  const stopAll = () => { clearInterval(sizeWatch); streams.forEach(s => s.getTracks().forEach(t => t.stop())); };
+  let sizeWatch = 0, diskWatch = 0;
+  const stopAll = () => { clearInterval(sizeWatch); clearInterval(diskWatch); streams.forEach(s => s.getTracks().forEach(t => t.stop())); };
   try {
     // ---- capture streams
     const screen = await navigator.mediaDevices.getDisplayMedia({ video: { frameRate: { ideal: st.fps, max: st.fps }, cursor: st.pointerSeparate ? 'never' : 'always' }, audio: st.system });
@@ -318,6 +318,32 @@ async function record(app, st, part = 1) {
     }, 1000);
     // the screen picture can end on its own (window closed, display unplugged): it ends whichever take is running
     let endTake = null, screenLost = false, paused = false, carryOn = false;
+    // the drive filling up (1.11): a recording that runs out of space is cut off mid-write and damaged. Reel watches
+    // the free space, says how long is left once it's low, and stops and saves by itself before it runs out
+    {
+      const LOW = 5e9, STOP = 1.5e9, gb = b => (b / 1e9).toFixed(1);
+      const seen = []; let told = false, stopped = false;
+      const say = (title, msg) => { try { new Notification(`ProtoArt Reel: ${title}`, { body: msg, silent: false }); } catch { /* no notices */ } toast(msg, 15000); };
+      const free0 = await app.api.recFree?.(app.token).catch(() => null);
+      if (free0 != null && free0 < LOW) say('little disk space', `Only ${gb(free0)} GB free on the drive Reel records to. Reel stops and saves by itself if it gets down to ${gb(STOP)} GB; free some space to record longer.`), told = true;
+      if (app.api.recFree) diskWatch = setInterval(async () => {
+        if (stopped || paused) return;
+        const free = await app.api.recFree(app.token).catch(() => null);
+        if (free == null) return;
+        const now = performance.now();
+        seen.push([now, free]); while (seen.length > 12) seen.shift();
+        const rate = seen.length > 2 ? (seen[0][1] - free) / ((now - seen[0][0]) / 60000) : 0; // bytes a minute
+        const mins = rate > 1e6 ? Math.max(0, (free - STOP) / rate) : null;
+        if (free < STOP) {
+          stopped = true;
+          say('recording stopped: the drive is full', `The drive Reel records to is nearly full (${gb(free)} GB left), so Reel stopped and saved the recording before it could be damaged. Free some space to record more.`);
+          endTake?.('stop');
+        } else if (free < LOW && !told) {
+          told = true;
+          say('the drive is filling up', `Only ${gb(free)} GB free on the drive Reel records to${mins != null ? `: about ${Math.max(1, Math.round(mins))} more minute${Math.round(mins) === 1 ? '' : 's'} of recording` : ''}. Reel stops and saves by itself before it runs out.`);
+        }
+      }, 10000);
+    }
     vtrack.addEventListener('ended', () => {
       screenLost = true;
       if (paused) { toast('The Mac stopped the screen capture during the pause (it may have locked or slept). Everything recorded so far is safe. RESUME carries on in a new part, right after this one; STOP saves it.', 12000); return; }

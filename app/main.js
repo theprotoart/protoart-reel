@@ -1317,6 +1317,11 @@ handle('core:umFind', async (model, samples) => {
   try { return await core.umFind(model, samples); } catch { return null; }
 });
 
+// free space on the drive a project records to (1.11: the recorder watches it, and warns and stops in time)
+handle('rec:free', async token => {
+  const p = projectOf(token);
+  try { const st = await fs.promises.statfs(mediaDir(p)); return st.bavail * st.bsize; } catch { return null; }
+});
 handle('rec:pause', async paused => {
   if (!recording.active) return false;
   paused = !!paused;

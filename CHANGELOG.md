@@ -2,6 +2,8 @@
 
 ## 1.11.0 — 2026-11-16
 
+- Recording watches the free space on the drive it records to: below 5 GB it says so (with about how many minutes are left at the rate it’s filling), and at 1.5 GB it stops and saves the recording by itself, before a full drive can cut it off and damage it.
+
 - Reel’s window no longer uses about half a processor core while it’s just sitting there: the FILLERS counter’s glow and the current step in the guide pulsed endlessly in a way that repainted the window 60 times a second. The counter now glows steadily and the guide’s step breathes a few times, then stays lit (0.3% instead of 55% in testing), leaving more of the Mac for exports and the speech model.
 
 - Rust core 1.14: light leak, film burn, vintage film burn, glitch, lens flare sweep, fast wipe, letterbox, radial shutter, glitch blocks and vertigo ramp transitions, and film grain, are drawn by the core itself (checked against the editor’s drawing). Only the text reveal is still drawn by the editor in a core export (with turned phone videos, SVG and GIF pictures, and transitions on titles).
