@@ -2,6 +2,8 @@
 
 ## 1.11.0 — 2026-11-16
 
+- Export on a nearly full drive: finishing an MP4 used to write a whole second copy of it (to put its index in front), so a drive with room for the export but not twice it failed at the very end (“ENOSPC: no space left on device”) after the whole export. Now, when space is short, the index goes in front of the export where it is, needing a couple of MB instead of the export’s size again; and Reel warns before it starts when the drive doesn’t have room for the export at all.
+
 - Labels move their section: drag a 🏷 label on the ruler and everything under it (picture, sound and titles, with their cuts and fades) goes with it, the rest closing up and making room, labels and markers and all. ⌥-drag moves just the label; drag either end to resize it; a click puts the playhead where you click, as on the ruler. In and Out are plain points again (no ◀ MOVE ▶ grip).
 - Click the playhead time to type one and jump there: as it shows (02:48:21 is 2 min 48 s, frame 21), or 2:48, or seconds; +5 / −5 moves from where it is.
 

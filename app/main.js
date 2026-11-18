@@ -536,6 +536,8 @@ async function checkVideoPlays(file, duration) {
 }
 
 /** Writes `head` then the contents of `bodyFile` into `dst`, then removes the body file. */
+const { prependInPlace } = require('./engine/prepend');
+const freeAt = async dir => { try { const st = await fs.promises.statfs(dir); return st.bavail * st.bsize; } catch { return Infinity; } };
 async function joinFiles(dst, head, bodyFile) {
   const out = await fs.promises.open(dst, 'wx', 0o644);
   try {
@@ -1472,7 +1474,7 @@ handle('export:begin', async (token, suggested, kind) => {
   const dst = r.filePath;
   const body = path.join(path.dirname(dst), `.${path.basename(dst)}.${process.pid}.part`);
   const id = await openHandle(body, 'export', { dst });
-  return { id, name: path.basename(dst) };
+  return { id, name: path.basename(dst), free: await freeAt(path.dirname(dst)) };
 });
 /** Batch export: pick a folder once, then each item is written there without asking again. */
 const batchFolders = new Map();
@@ -1500,7 +1502,7 @@ handle('export:beginIn', async (token, folderId, suggested, kind) => {
   for (let i = 2; fs.existsSync(dst) && i < 1000; i++) dst = path.join(dir, `${stem} ${i}.${ext}`);
   const body = path.join(dir, `.${path.basename(dst)}.${process.pid}.part`);
   const id = await openHandle(body, 'export', { dst });
-  return { id, name: path.basename(dst) };
+  return { id, name: path.basename(dst), free: await freeAt(dir) };
 });
 on('export:chunk', (id, data) => {
   try {
@@ -1514,8 +1516,24 @@ handle('export:finish', async (id, head) => {
   if (!(head instanceof Uint8Array) || head.length > 512 << 20) throw new Error('Bad header');
   // Replace an existing file only after the new one is complete.
   const tmp = `${h.dst}.${process.pid}.tmp`;
-  await joinFiles(tmp, head, h.file);
-  await fs.promises.rename(tmp, h.dst);
+  const bodySize = (await fs.promises.stat(h.file)).size;
+  if (await freeAt(path.dirname(h.dst)) < bodySize + head.length + (256 << 20)) {
+    // not room for a second copy of it (a nearly full drive): the header goes in front of the body where it is
+    await prependInPlace(h.file, head);
+    await fs.promises.rename(h.file, h.dst);
+  } else {
+    try { await joinFiles(tmp, head, h.file); }
+    catch (e) {
+      await fs.promises.rm(tmp, { force: true });
+      if (e.code !== 'ENOSPC') throw e;
+      // the drive filled up while copying (something else wrote to it): finish where it is instead
+      await prependInPlace(h.file, head);
+      await fs.promises.rename(h.file, h.dst);
+      exportedFiles.add(h.dst);
+      return { name: path.basename(h.dst) };
+    }
+    await fs.promises.rename(tmp, h.dst);
+  }
   exportedFiles.add(h.dst);
   return { name: path.basename(h.dst) };
 });

@@ -4,7 +4,7 @@
 import { renderPending } from './trackplugins.js';
 import { can } from './capability.js';
 import { pref } from './prefs.js';
-import { el, modal, toast, selectRow, promptText } from './ui.js';
+import { el, modal, toast, selectRow, promptText, ask } from './ui.js';
 import { duration, fmtTime, clipEnd, toSRT, mediaById } from './model.js';
 import { framePlan } from './lib/frameplan.js';
 import { parseCube } from './lib/glfx.js';
@@ -563,6 +563,13 @@ export function openExport(app) {
     const s = snapshot(), { from, to } = rangeOf(st.range);
     const h = await app.api.exportBegin(app.token, doc.name, kindOf(s));
     if (!h) return;
+    // the drive it's saved to has room for it? (a full one used to fail at the very end, after the whole export)
+    const need = estimate(s, canvasOf(s), to - from).mb * 1e6 * 1.1 + 300e6;
+    if (h.free != null && Number.isFinite(h.free) && h.free < need) {
+      const gb = b => (b / 1e9).toFixed(1);
+      const go = await ask('Not much space on that drive', `This export needs about ${gb(need)} GB, and the drive you’re saving to has ${gb(h.free)} GB free. Free some space (or export to another drive) first, or it may stop before it’s done.`, 'Export anyway', 'Cancel');
+      if (!go) { app.api.exportCancel(h.id); return; }
+    }
     running = true; btn.disabled = true;
     app.api.keepAwake?.(true);
     try { const r = await runOne(s, from, to, h); status.replaceChildren(`Saved “${r.name}” in ${fmtTime(r.secs)}${r.how ? ` (${r.how})` : ''}. `, el('button', { class: 'mini', text: 'Show in Finder', onclick: () => app.api.exportReveal(r.name) })); }
