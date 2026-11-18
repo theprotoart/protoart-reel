@@ -655,14 +655,21 @@ export class Overlay {
         el('button', { class: 'dz-done', text: 'CANCEL', title: 'Esc', onclick: () => done(null) }));
       const pad = el('div', { class: 'draw-pad punch-pad', title: `${hint} · Esc to cancel` }, box);
       for (const ev of ['pointerdown', 'click']) bar.addEventListener(ev, e => e.stopPropagation());
+      this._pickOff?.(); // one at a time: a box still waiting from before is cancelled
       this.root.replaceChildren(pad, bar); // just the box being drawn: no handles in the way
       this.dragging = true;
+      // once only: a missed pointerup (let go outside the window, or a second press) used to leave a finished drag
+      // waiting, which added the same callout again on the next click on the preview
+      let over = false;
       const done = r => {
+        if (over) return;
+        over = true; this._pickOff = null;
         pad.remove(); bar.remove(); this.dragging = false;
         window.removeEventListener('keydown', esc, true);
         if (!r || r.w * W < 12 || r.h * H < 12) { this.update(); return; }
         finish(r);
       };
+      this._pickOff = () => done(null);
       const esc = e => { if (e.key === 'Escape') { e.stopPropagation(); done(null); } };
       window.addEventListener('keydown', esc, true);
       pad.addEventListener('pointerdown', e => {
@@ -676,8 +683,11 @@ export class Overlay {
           r = { x0: Math.min(a[0], b[0]), y0: Math.min(a[1], b[1]), w: Math.abs(b[0] - a[0]), h: Math.abs(b[1] - a[1]) };
           Object.assign(box.style, { display: 'block', left: r.x0 * W + 'px', top: r.y0 * H + 'px', width: r.w * W + 'px', height: r.h * H + 'px' });
         };
-        const up = () => { pad.removeEventListener('pointermove', move); pad.removeEventListener('pointerup', up); done(r && { cx: r.x0 + r.w / 2, cy: r.y0 + r.h / 2, w: r.w, h: r.h }); };
-        pad.addEventListener('pointermove', move); pad.addEventListener('pointerup', up);
+        const up = () => {
+          pad.removeEventListener('pointermove', move); pad.removeEventListener('pointerup', up); pad.removeEventListener('pointercancel', up); pad.removeEventListener('lostpointercapture', up);
+          done(r && { cx: r.x0 + r.w / 2, cy: r.y0 + r.h / 2, w: r.w, h: r.h });
+        };
+        pad.addEventListener('pointermove', move); pad.addEventListener('pointerup', up); pad.addEventListener('pointercancel', up); pad.addEventListener('lostpointercapture', up);
       });
     });
   }

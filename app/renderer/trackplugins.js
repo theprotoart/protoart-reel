@@ -194,10 +194,10 @@ function drawBanner(app) {
     msg.innerHTML = `<b>LIVE</b> Waiting for ${esc(tn)}: there’s no sound on that track at the playhead.`;
     banner.append(lamp, msg);
   }
-  banner.append(btn('RENDER INTO TRACK', 'Apply the plug-in to this track’s sound for good: its clips are rendered through it, and it comes off the strip (⌘Z undoes it)', () => bakeTrack(app, trackId)));
+  banner.append(btn('RENDER INTO TRACK', 'Render this track through its plug-ins onto a new track below it (like Pro Tools): the original clips are muted and kept. A window shows the progress; ⌘Z undoes it', () => bakeTrack(app, trackId)));
   banner.append(btn('CLOSE PLUG-IN', 'Close the plug-in window (your settings are kept) and go back to normal playback', () => closeTrackWindows(app, trackId)));
   const help = document.createElement('small');
-  help.textContent = 'Only this track is live; the others play as usual. Leave it on the strip and it’s rendered at export, or RENDER INTO TRACK to apply it now.';
+  help.textContent = 'Only this track is live; the others play as usual. Leave it on the strip and it’s rendered at export, or RENDER INTO TRACK to make a rendered copy on a new track below (the original is muted).';
   banner.append(help);
 }
 const esc = s => String(s).replace(/[&<>"]/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' }[c]));
@@ -235,39 +235,19 @@ export async function closeTrackWindows(app, trackId) {
 }
 
 /**
- * RENDER INTO TRACK: the track's plug-ins are applied to its sound clips for good. Each clip is rendered through
- * its effects and the track's plug-ins, then plays the rendered sound as its own media; the plug-ins come off the
- * strip, so nothing renders again. The originals stay in the media list, and ⌘Z puts everything back.
- * (Clips with picture keep the plug-in on the strip, rendered at export: their picture and sound are one file.)
+ * RENDER INTO TRACK, the way Pro Tools commits a track: the track's sound is rendered through its plug-ins and effects
+ * onto a NEW track right below it ("… rendered"), and the original clips are muted and greyed out (kept, with the
+ * plug-in still on their strip, to go back to). A window shows how far it has got. ⌘Z, or right-click › Back to the
+ * original sound, undoes it.
  */
 export async function bakeTrack(app, trackId) {
   const doc = app.doc, tr = trOf(app, trackId);
   if (!doc || !tr) return;
   const plugs = (tr.fx || []).filter(isAu);
   if (!plugs.length) { toast('There’s no plug-in on this track to render.'); return; }
-  const names = plugs.map(f => f.name).join(' + ');
-  const clips = doc.clips.filter(c => c.track === trackId && hasSound(doc, c));
-  const soundOnly = clips.filter(c => c.audioOnly || mediaById(doc, c.media)?.kind === 'audio');
-  if (!soundOnly.length) { toast('This track’s clips have picture too, so the plug-in stays on the strip and is applied at export.', 6000); return; }
-  if (!(await ask('Render into the track?', `${names} will be applied to the sound of ${soundOnly.length} clip${soundOnly.length === 1 ? '' : 's'} on “${tr.name || 'this track'}” for good, and come off the strip. The original recordings stay in the media list, and ⌘Z undoes it.`, 'Render into track'))) return;
+  if (!doc.clips.some(c => c.track === trackId && hasSound(doc, c))) { toast('There’s no sound on this track to render.'); return; }
   await closeTrackWindows(app, trackId);
-  toast(`Rendering “${tr.name || 'the track'}” through ${names}…`, 4000);
-  await renderPending(app, { trackId });
-  const fresh = app.doc;
-  const ready = fresh.clips.filter(c => soundOnly.some(s => s.id === c.id) && c.fx?.file && !c.fx.dirty);
-  if (!ready.length) { toast('The plug-in couldn’t render, so nothing was changed.', 6000); return; }
-  app.commit(d => {
-    for (const c of d.clips) {
-      if (!ready.some(r => r.id === c.id)) continue;
-      const m = mediaById(d, c.media);
-      const nm = { id: uid('m'), file: c.fx.file, kind: 'audio', hasAudio: true, duration: m?.duration, name: `${m?.name || c.name || 'Sound'} (${names})`, role: m?.role, rendered: true };
-      d.media.push(nm);
-      c.media = nm.id; c.audioOnly = false;
-      delete c.fx;
-    }
-    const t = d.tracks.find(x => x.id === trackId);
-    if (t) t.fx = (t.fx || []).filter(f => !isAu(f));
-  });
+  const { bounceTrack } = await import('./bounce.js');
+  await bounceTrack(app, tr);
   lastSig = '';
-  toast(`${names} is now part of the sound of ${ready.length} clip${ready.length === 1 ? '' : 's'}. ⌘Z undoes it.`, 5000);
 }

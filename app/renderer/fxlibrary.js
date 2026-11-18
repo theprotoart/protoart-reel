@@ -401,12 +401,15 @@ export function tile(kind, id, name, onApply, extra) {
   const frame = t => { mini ||= miniDoc(kind, id); try { drawFrame(ctx, mini.doc, t % mini.len, mini.sources); } catch { /* preview only */ } };
   const still = () => frame(kind === 'cut' ? 1.15 : kind === 'trans' ? 0.45 : kind === 'element' ? 1.2 : kind === 'style' ? 1.5 : 1.0);
   const t = el('div', { class: 'pl-tile', role: 'button', tabindex: 0, 'aria-label': name, title: `${name} — click to apply${extra ? '' : ''}` }, cv, el('div', { class: 'pl-name', text: name }), extra || null);
-  t.addEventListener('keydown', e => { if ((e.key === 'Enter' || e.key === ' ') && e.target === t) { e.preventDefault(); onApply(e); } }); // the keyboard (and VoiceOver) can pick one too
+  // the keyboard (and VoiceOver) can pick one with Return. Not Space: that's play everywhere in the editor, and a tile
+  // still focused after a click or a drag added its graphic again on every press of Space
+  t.addEventListener('keydown', e => { if (e.key === 'Enter' && e.target === t) { e.preventDefault(); onApply(e); } });
+  t.addEventListener('dragend', () => t.blur());
   t.addEventListener('focus', () => t.dispatchEvent(new Event('pointerenter')));
   t.addEventListener('blur', () => t.dispatchEvent(new Event('pointerleave')));
   t.addEventListener('pointerenter', () => { cancelAnimationFrame(raf); t0 = performance.now(); const loop = n => { frame((n - t0) / 1000); raf = requestAnimationFrame(loop); }; raf = requestAnimationFrame(loop); });
   t.addEventListener('pointerleave', () => { cancelAnimationFrame(raf); still(); });
-  t.addEventListener('click', e => { if (!e.target.closest('.pl-side, .pl-star')) onApply(e); });
+  t.addEventListener('click', e => { if (!e.target.closest('.pl-side, .pl-star')) onApply(e); if (e.detail) t.blur(); }); // a mouse click: keys go back to the editor
   requestAnimationFrame(still);
   return t;
 }

@@ -2,6 +2,9 @@
 
 ## 1.11.0 — 2026-11-16
 
+- RENDER INTO TRACK works like Pro Tools: the track is rendered through its plug-ins onto a new “· rendered” track right below it, with a window showing how far it’s got, and the original clips are muted and greyed out (kept, plug-in and all; right-click › Back to the original sound, or ⌘Z, undoes it).
+- Fixed: after clicking or dragging a graphic or title preset, each press of Space (play) added another copy of it. Space plays again; Return still applies a focused preset. The box drawn for an Area or Magnify callout also can’t be added twice any more.
+
 - Word-for-word speech on an 8 or 16 GB Mac frees Reel’s other AI models from memory before it starts (as recording and export do), and says while it works whether it’s on the graphics chip or the processor; if it had to fall back to the processor (short of memory), Reel says so and suggests quitting other apps.
 
 - Word-for-word speech writes down only the selected clip’s part of the recording (inside the scanned range), not the whole recording: a 2-minute clip takes a couple of minutes, not the time for all 12. What’s written down is kept, and scanning more of the same recording only does the new parts.

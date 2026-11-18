@@ -88,7 +88,7 @@ export const TOPICS = [
     'Other options: dip the music while someone talks, even out the dialogue, and **Tidy tracks** (same-colour tracks share one track). **▶ HEAR AUTO MIX** plays the result; nothing is kept until **KEEP IT**. **REMOVE AUTO MIX** (open AUTO MIX again, or right-click a track) puts everything back.'], 'how'],
   ['Sound, mixer and plug-ins', 'sound audio mixer level volume pan eq plug-in plugin waves izotope fabfilter cedar live spectral denoise loudness auto level duck vst au audio unit', [
     '**MIXER** (`⇧⌘M`) has a strip for every track: level, pan, mute, solo, effects. Each track also has an **ƒx rack** (the fx button on its header): built-in effects (EQ, Compressor, De-esser, **De-click**, Noise gate, Reverb, Delay, Limiter, Auto Level, Gain) and **★ Your plug-ins** (Audio Units: Waves, iZotope, FabFilter, CEDAR…).',
-    '**Hear a plug-in live:** open its window, then press `Space`. The LISTEN LIVE bar can **RENDER INTO TRACK** (applied for good) or leave it to render at export.',
+    '**Hear a plug-in live:** open its window, then press `Space`. The LISTEN LIVE bar can **RENDER INTO TRACK** (a rendered copy on a new track below, the original muted, like Pro Tools) or leave it to render at export.',
     '**SPECTRAL** (`⌥⌘S`) repairs sound: de-noise, de-click, de-ess, de-bark. Music marked to dip under the voice gets quieter while you talk.'], 'how'],
   ['De-click (mouth clicks and pops)', 'declick de-click click clicks mouth lip smack pop pops crackle', [
     'On a track: **ƒx rack › + add effect › De-click**. Presets: *Mouth clicks (voice)*, *Pops & crackle*, *Gentle*. **Sensitivity** finds more clicks when higher; **Longest click** is how long a click can be.',
