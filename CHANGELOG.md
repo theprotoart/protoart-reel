@@ -2,6 +2,8 @@
 
 ## 1.11.0 — 2026-11-16
 
+- Teach Reel your ums: 🔁 SAY EACH ONE 15 TIMES — pick a sound (um, uh, or any word or sound you add, like “you know” or a breath), press RECORD and say it over and over with a pause between, soft, normal and loud, slow and quick; Reel splits the recording at the pauses and learns every one (sound and waveform shape). Each shows how many of its 15 it has, the ones still short first.
+
 - Teaching fillers with 〰 FILLER now keeps how each one looks on the waveform too (its loudness from start to end: a steady ummm is a plateau, an uh a quick hump, speech a row of peaks), and a match has to look like one of your takes as well as sound like it. Takes taught before this have only their sound: re-mark a few with 〰 FILLER to give Reel their shape.
 
 - Fillers, a second check besides the sound: taught words and phrases ("you know", "but yeah") are found where speech recognition wrote them, not by ear; taught sounds (um, uh, breaths…) must also have the shape of what you taught — as steady as your takes — so a word said in passing isn't listed as an "ummm".

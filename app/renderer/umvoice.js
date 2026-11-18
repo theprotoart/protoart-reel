@@ -3,14 +3,14 @@
 // including the ones speech recognition doesn't write down. Everything stays on this Mac (the model is kept in
 // Reel's own storage here, never uploaded).
 import { el, modal, drawer, toast, ask, popMenu } from './ui.js';
-import { train, findInSamples, findInSequence, packModel, unpackModel, to16k, RATE, addTake, addNot, dropTakes, fingerprint, shapeFits } from './lib/umvoice.js';
+import { train, findInSamples, findInSequence, packModel, unpackModel, to16k, RATE, addTake, addNot, dropTakes, fingerprint, shapeFits, bursts } from './lib/umvoice.js';
 import { openAudio } from './lib/sources.js';
 import { soundOf, speechClips } from './transcript.js';
 import { fmtTime as fmt } from './model.js';
 import { playRange, setFillerWord, teachFillers, soundWords, newSoundWord, cutFillers } from './fillers.js';
 
 /** Takes of each sound Reel needs to find it well (fewer: it's marked as needing more). */
-export const ENOUGH = 10;
+export const ENOUGH = 15;
 
 const KEY = 'reel.umvoice';
 let cached;
@@ -212,11 +212,74 @@ export function teachUms(app, { onDone } = {}) {
   const takesBox = el('details', { class: 'umt-takes', open: !model },
     el('summary', { text: model ? 'Record more takes (optional: Reel already knows your voice)' : 'Record your takes' }),
     list, el('div', { class: 'row kit-rec-row' }, recB, meter));
+  // 🔁 THE DRILL: each sound or phrase said ENOUGH (15) times in one go, with a pause between: Reel splits the
+  // recording at the pauses and learns every one (its sound and its waveform shape). The ones still short of 15 come
+  // first; a word or sound you add joins the list and needs its 15 too.
+  const drillBox = el('div', { class: 'umt-drill' });
+  let drillWord = null, dRec = null, dStream = null, dChunks = [], dTimer = 0;
+  const added = new Set();
+  const drillWords = () => {
+    const m = umModel(), have = new Map((m?.words || []).map(w => [w.word, w.prints.length]));
+    const names = [...new Set(['umm', 'uh', ...have.keys(), ...added])];
+    return names.map(w => ({ word: w, n: have.get(w) || 0 })).sort((a, b) => (a.n >= ENOUGH) - (b.n >= ENOUGH));
+  };
+  const label = w => (w === 'umm' ? 'um' : w);
+  const drawDrill = () => {
+    const ws = drillWords();
+    if (!drillWord || !ws.some(w => w.word === drillWord)) drillWord = (ws.find(w => w.n < ENOUGH) || ws[0]).word;
+    const cur = ws.find(w => w.word === drillWord);
+    const left = Math.max(0, ENOUGH - cur.n);
+    drillBox.replaceChildren(
+      el('div', { class: 'umt-drill-head' }, el('b', { text: `🔁 SAY EACH ONE ${ENOUGH} TIMES` }),
+        el('span', { class: 'note', text: 'Pick one, press RECORD, and say it over and over with a short pause (about a second) between each. Mix it up as you really talk: some soft, some normal, some loud; some slow, some quick. Reel splits them at the pauses and learns each one: how it sounds and how it looks on the waveform.' })),
+      el('div', { class: 'umt-drill-words' }, ...ws.map(w => el('button', { class: 'umt-dw' + (w.word === drillWord ? ' on' : '') + (w.n >= ENOUGH ? ' done' : ''), type: 'button', title: `${w.n} of ${ENOUGH} learned`, onclick: () => { if (!dRec) { drillWord = w.word; drawDrill(); } } },
+        el('span', { text: label(w.word) }), el('i', { style: { width: Math.min(100, (w.n / ENOUGH) * 100) + '%' } }), el('small', { text: `${Math.min(w.n, 999)}/${ENOUGH}` }))),
+        el('button', { class: 'umt-dw add', type: 'button', text: '＋ a word or sound', title: 'Another sound or phrase that keeps being missed (“you know”, “so”, a breath…): it gets its 15 too', onclick: async () => { const { newSoundWord } = await import('./fillers.js'); const w = await newSoundWord(); if (w) { added.add(w); drillWord = w; drawDrill(); } } })),
+      el('div', { class: 'row umt-drill-row' },
+        el('button', { class: 'hw kit-rec-btn' + (dRec ? ' lit' : ''), text: dRec ? '■ STOP' : left ? `● RECORD “${label(drillWord)}” ×${left}` : `● RECORD MORE “${label(drillWord)}”`, onclick: () => (dRec ? stopDrill() : startDrill()) }),
+        el('span', { class: 'note umt-drill-say', text: dRec ? `Say “${label(drillWord)}”… pause… “${label(drillWord)}”… ${left || ENOUGH} times (soft, normal and loud; slow and quick), then STOP.` : left ? `${left} more “${label(drillWord)}” to go.` : `“${label(drillWord)}” has its ${ENOUGH}. More never hurts.` })));
+  };
+  async function startDrill() {
+    try {
+      const mic = recMic();
+      dStream = await navigator.mediaDevices.getUserMedia({ audio: { ...(mic ? { deviceId: { exact: mic } } : {}), channelCount: 1, echoCancellation: false, noiseSuppression: false, autoGainControl: false } });
+    } catch { status.textContent = 'The microphone isn’t available. Allow Reel in System Settings › Privacy & Security › Microphone.'; return; }
+    dRec = new MediaRecorder(dStream); dChunks = [];
+    dRec.ondataavailable = e => { if (e.data.size) dChunks.push(e.data); };
+    dRec.onstop = finishDrill;
+    dRec.start(250);
+    dTimer = setTimeout(stopDrill, 90000); // a minute and a half at most
+    drawDrill();
+  }
+  function stopDrill() { clearTimeout(dTimer); if (dRec && dRec.state !== 'inactive') dRec.stop(); }
+  async function finishDrill() {
+    dStream?.getTracks().forEach(t => t.stop()); dStream = null; dRec = null;
+    try {
+      const blob = new Blob(dChunks, { type: dChunks[0]?.type || 'audio/webm' });
+      const ac = new AudioContext(), dec = await ac.decodeAudioData(await blob.arrayBuffer()); ac.close().catch(() => {});
+      const mono = new Float32Array(dec.length);
+      for (let c = 0; c < dec.numberOfChannels; c++) { const d = dec.getChannelData(c); for (let i = 0; i < d.length; i++) mono[i] += d[i] / dec.numberOfChannels; }
+      const x = to16k(mono, dec.sampleRate);
+      // split at the pauses: a phrase's own short gaps ("you … know") stay inside one
+      const phrase = /\s/.test(drillWord), pad = Math.round(RATE * 0.06);
+      const parts = bursts(x, { min: 0.12, max: phrase ? 2.5 : 1.8, gap: phrase ? 0.35 : 0.22, soft: /breath|sigh|sniff/.test(drillWord) });
+      let m = umModel(), got = 0;
+      for (const b of parts) {
+        try { m = addTake(m, drillWord, x.subarray(Math.max(0, b.a - pad), Math.min(x.length, b.b + pad)), null, { exact: true }); got++; } catch { /* too short: skipped */ }
+      }
+      if (got) saveModel(m);
+      const n = m?.words.find(w => w.word === drillWord)?.prints.length || 0;
+      status.textContent = got ? `Learned ${got} “${label(drillWord)}”${got === 1 ? '' : 's'} (${n} of ${ENOUGH}).${n < ENOUGH ? ` Record ${ENOUGH - n} more.` : ' That one’s done.'}` : 'No clear takes were heard: leave a pause of about a second between each, and speak up a little.';
+      drawKnown?.(true); onDone?.();
+    } catch (e) { status.textContent = `Couldn’t read the recording: ${e.message}`; }
+    drawDrill();
+  }
+  drawDrill();
   const body = el('div', { class: 'umt' },
     el('p', { text: model
       ? `Reel already knows how you say your ums. To teach it more (or other sounds, like breaths), mark them in your recording with 〰 FILLER and send them below, or record more takes. Give Reel at least ${ENOUGH} of each sound, new ones too: the more it hears, the better it finds them.`
       : `Say each one at least ${ENOUGH} times (slow, normal, quick, the way you really say it), in a quiet room with the microphone you record with. A new sound you add later needs ${ENOUGH} too. Reel learns how your ums and uhs sound, then finds them in your videos for 💬 FILLER WORDS and AUTO EDIT, even the ones speech recognition leaves out. Nothing leaves this Mac.` }),
-    takesBox, status, fillBox,
+    drillBox, status, takesBox, fillBox,
     el('p', { class: 'note umt-tip', text: 'Particular words (curse words, “basically”, “actually”…) are found by their spelling, not by ear: type them in Find a word in 💬 FILLER WORDS. Everything you add is added to what Reel knows; FORGET MY UMS starts over.' }));
   draw();
   let dlg = null;

@@ -2761,3 +2761,15 @@ html[data-theme="light"] .proxy-chip { background: linear-gradient(#fbfbfd, #dcd
 /* just changed (a file replaced, a copy made): a green glow that fades */
 @keyframes done-flash { 0% { box-shadow: 0 0 0 2px #6fe36a, 0 0 18px 4px rgba(111,227,106,.8); } 100% { box-shadow: 0 0 0 0 rgba(111,227,106,0), 0 0 0 0 rgba(111,227,106,0); } }
 .done-flash { animation: done-flash 1.6s ease-out 1; }
+/* 🔁 the drill in Teach Reel your ums: each sound 15 times */
+.umt-drill { border: 1px solid rgba(255,255,255,.1); border-radius: 8px; padding: 10px; margin: 8px 0; background: rgba(0,0,0,.18); }
+.umt-drill-head { display: flex; flex-direction: column; gap: 4px; margin-bottom: 8px; }
+.umt-drill-words { display: flex; flex-wrap: wrap; gap: 6px; margin-bottom: 8px; }
+.umt-dw { position: relative; overflow: hidden; display: inline-flex; align-items: center; gap: 6px; padding: 5px 10px; border-radius: 14px; border: 1px solid #000; cursor: pointer;
+  background: #2a2a2e; color: #ddd; font: 600 12px var(--font-ui, sans-serif); }
+.umt-dw i { position: absolute; left: 0; bottom: 0; height: 3px; background: #f0b23a; }
+.umt-dw small { opacity: .7; font-family: var(--font-mono, monospace); font-size: 10px; }
+.umt-dw.on { box-shadow: 0 0 0 2px #f0b23a; color: #fff; }
+.umt-dw.done i { background: #5fd35a; }
+.umt-dw.add { border-style: dashed; background: transparent; }
+.umt-drill-row { align-items: center; gap: 10px; }
