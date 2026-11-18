@@ -2,6 +2,8 @@
 
 ## 1.11.0 — 2026-11-16
 
+- 💬 FILLER WORDS is taller (down to near the bottom of the window, and its corner drags), and while it listens it shows a bar, how far it has got and about how long is left. Word-for-word speech reports every minute of talk ("4:12 of 11:20 of talk") instead of every five, with a moving bar while the model loads. The 🎙 scan button fills along its bottom edge as it goes.
+
 - Word-for-word speech: setup failed its test with "'EncoderDecoderCache' object has no attribute 'layers'" (the newest Transformers changed how Whisper keeps its cache). Its Python environment is now pinned to versions that work together (Transformers 4.49, PyTorch 2.5.1) and is made again once; the model already downloaded is kept. Download sizes corrected (Turbo about 3.3 GB).
 
 - ⭐ Word-for-word speech for FILLER WORDS: nyra's CrisperWhisper 2.0 (the most accurate model for writing down ums, uhs and other disfluencies) set up once on this Mac from the FILLER WORDS panel (⭐ GET WORD-FOR-WORD SPEECH: Large on 16 GB Macs and up, Turbo below; PyTorch on the graphics chip, then offline). With it, fillers are read off what was actually said ([um], [uh], "you know", and sounds like [breath] or [laughter] to keep or cut), timed to the word, instead of guessed by ear. Each recording is written down once and kept beside it.

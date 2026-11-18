@@ -2780,3 +2780,18 @@ html[data-theme="light"] .proxy-chip { background: linear-gradient(#fbfbfd, #dcd
 .ums-vb-get b { color: #f0b23a; letter-spacing: .08em; font-size: 12px; }
 .ums-vb-on { font-size: 12px; margin: 4px 0 8px; color: #9fe39a; }
 .ums-vb-on b { letter-spacing: .08em; }
+
+/* 💬 FILLER WORDS: tall (down to near the bottom of the window, so the list has room), and a bar with the time left while it listens */
+.ums-panel { top: 90px; height: calc(100vh - 130px); max-height: calc(100vh - 110px); min-height: 380px; resize: vertical; overflow: hidden; }
+.ums-panel .ums-list { min-height: 120px; }
+.ums-prog { margin: 2px 0 6px; }
+.ums-prog[hidden] { display: none; }
+.ums-prog-bar { position: relative; height: 8px; border-radius: 4px; overflow: hidden; background: rgba(255,255,255,.1); }
+html[data-theme="light"] .ums-prog-bar { background: rgba(0,0,0,.1); }
+.ums-prog-bar i { position: absolute; inset: 0 auto 0 0; width: 0; background: var(--amber, #f5b942); border-radius: 4px; transition: width .4s ease; }
+.ums-prog.busy .ums-prog-bar i { width: 30%; animation: ums-prog-slide 1.4s ease-in-out infinite; transition: none; }
+@keyframes ums-prog-slide { from { left: -30%; } to { left: 100%; } }
+@media (prefers-reduced-motion: reduce) { .ums-prog.busy .ums-prog-bar i { animation: none; width: 100%; opacity: .4; } }
+.ums-prog-text { display: block; margin-top: 3px; font-size: 12px; opacity: .8; font-variant-numeric: tabular-nums; }
+/* 🎙 scan button on the deck: how far it's got, along its bottom edge */
+#filler-scan.listening { background-image: linear-gradient(var(--amber, #f5b942), var(--amber, #f5b942)); background-size: calc(var(--p, 0) * 100%) 3px; background-position: left bottom; background-repeat: no-repeat; }

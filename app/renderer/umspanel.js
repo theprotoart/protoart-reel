@@ -72,13 +72,15 @@ async function listenVerbatim(app, { locale, track, ranges = null, clipIds = nul
   const bySource = new Map();
   // its progress while it writes a recording down (the first time: a minute or two for ten minutes of talk)
   if (!app._vbHooked) { app._vbHooked = true; app.api.onAi?.(ev => { if (ev?.type === 'verbatimRun') app._vbProgress?.(ev); }); }
-  app._vbProgress = ev => onStatus?.(`${ev.msg || 'Writing down every word…'}`, ev.f || 0);
+  let at = 0; // which clip, for the overall fraction
+  app._vbProgress = ev => onStatus?.(`${ev.msg || 'Writing down every word…'}${clips.length > 1 ? ` (clip ${at + 1} of ${clips.length})` : ''}`, (at + Math.min(1, ev.f || 0)) / Math.max(1, clips.length), ev.loading ? 'loading' : '');
   try {
   for (const [i, c] of clips.entries()) {
+    at = i;
     if (stop?.()) throw new Error('Stopped.');
     const m = mediaById(doc, c.media);
     if (!m) continue;
-    onStatus?.(`Writing down every word of “${c.name || m.name}” (${i + 1} of ${clips.length})… the first time takes a while; then it’s kept`, i / Math.max(1, clips.length));
+    onStatus?.(`Writing down every word of “${c.name || m.name}” (${i + 1} of ${clips.length})… the first time takes a while; then it’s kept`, i / Math.max(1, clips.length), 'loading');
     let src = m.kind === 'audio' && /\.wav$/i.test(m.file) ? m.file : null;
     if (!src) src = await ensureSource(app, m);
     let r = bySource.get(src);
@@ -109,6 +111,23 @@ async function listenVerbatim(app, { locale, track, ranges = null, clipIds = nul
   app.commit(d => { d.ums = [...found, ...(d.ums || []).filter(u => u.kind === 'find' || (ranges && !within(u)))].sort((p, q) => p.t - q.t); });
   app.deck?.tally(fillerCount(app), ranges ? 'filler words found in the scanned clips' : 'filler words found');
   return found;
+}
+
+/** "about 3 min left" from how far it's got: reset() at the start; null until it can tell (a few seconds of real progress). */
+export function etaClock() {
+  let t0 = 0, f0 = 0;
+  return {
+    reset() { t0 = 0; f0 = 0; },
+    left(f, loading) {
+      const now = performance.now();
+      if (loading || !(f > 0)) { t0 = 0; return null; } // loading the model: no way to tell yet
+      if (!t0) { t0 = now; f0 = f; return null; }
+      const done = f - f0, secs = (now - t0) / 1000;
+      if (done < 0.01 || secs < 4) return null;
+      const s = secs / done * (1 - f);
+      return s < 50 ? 'under a minute left' : s < 90 * 60 ? `about ${Math.round(s / 60)} min left` : `about ${(s / 3600).toFixed(1)} h left`;
+    },
+  };
 }
 
 async function listen(app, opts, onStatus) {
@@ -236,7 +255,11 @@ export async function scanFillers(app) {
   const btn = document.getElementById('filler-scan');
   btn?.classList.add('listening');
   try {
-    const found = await listen(app, { locale: p.locale, track, ranges, clipIds: picked.length ? picked.map(c => c.id) : null, stop: () => stopped }, t => { if (btn) btn.title = `${t} · click to stop`; });
+    const eta = etaClock();
+    const found = await listen(app, { locale: p.locale, track, ranges, clipIds: picked.length ? picked.map(c => c.id) : null, stop: () => stopped }, (t, f, how) => {
+      const left = eta.left(f, how === 'loading');
+      if (btn) { btn.title = `${t}${f > 0 ? ` · ${Math.round(f * 100)}%` : ''}${left ? ` · ${left}` : ''} · click to stop`; btn.style.setProperty('--p', f > 0 ? String(f) : '0'); }
+    });
     if (stopped) throw new Error('Stopped.');
     const n = found.filter(u => u.cut).length;
     toast(found.length ? `${found.length} filler${found.length === 1 ? '' : 's'} found${picked.length ? ` in the ${picked.length} selected clip${picked.length === 1 ? '' : 's'}` : ''}, ${n} marked CUT. FILLERS lists them; click the counter to open it.` : `No fillers found${picked.length ? ' in the selected clips' : ''}.`, 6000);
@@ -267,6 +290,19 @@ export function openUms(app) {
   track.title = 'Which track to listen to';
   const list = el('div', { class: 'takes-list ums-list' });
   const status = el('p', { class: 'note ums-status', text: '' });
+  // while it listens: a bar, how far, and about how long is left (a moving bar while the model loads)
+  const progFill = el('i'), progText = el('span', { class: 'ums-prog-text' });
+  const prog = el('div', { class: 'ums-prog', hidden: true }, el('div', { class: 'ums-prog-bar' }, progFill), progText);
+  const eta = etaClock();
+  const showProg = (f, how) => {
+    if (f == null) { prog.hidden = true; return; }
+    prog.hidden = false;
+    const loading = how === 'loading' || !(f > 0);
+    prog.classList.toggle('busy', loading);
+    progFill.style.width = loading ? '' : `${Math.max(2, Math.round(f * 100))}%`;
+    const left = eta.left(f, loading);
+    progText.textContent = loading ? 'Getting ready… (loading the model takes up to a minute)' : `${Math.round(f * 100)}%${left ? ` · ${left}` : ' · working out the time left…'}`;
+  };
   const listenBtn = el('button', { class: 'hw', text: '👂 LISTEN FOR FILLERS', title: 'Listen to the speech and list every um, uh and filler (the first time takes a little while; it runs on this Mac)' });
   const removeBtn = el('button', { class: 'hw amber', text: 'REMOVE' });
   const markBtn = el('button', { class: 'hw', text: '🏷 MARK', title: 'Put a marker on each one shown instead of cutting (to edit by hand). Click again to take the um markers off' });
@@ -326,7 +362,7 @@ export function openUms(app) {
     el('div', { class: 'row ums-find' }, findIn, findBtn),
     el('div', { class: 'row ums-teach-row' }, teachBtn),
     chips, selRow,
-    list, status,
+    list, status, prog,
     el('div', { class: 'takes-foot' }, listenBtn, markBtn, removeBtn));
   document.body.append(root);
   dragBy(root, root.querySelector('.vo-head'));
@@ -493,11 +529,12 @@ export function openUms(app) {
     if ((app.doc.ums || []).some(u => u.kind !== 'find' && inR(u))) app.commit(d => { d.ums = (d.ums || []).filter(u => u.kind === 'find' || !inR(u)); });
     refresh(true);
     try {
-      const found = await listen(app, { locale: lang.value, track: track.value, ranges, clipIds: sel.length ? sel.map(c => c.id) : null }, t => { status.textContent = t; });
+      eta.reset(); showProg(0, 'loading');
+      const found = await listen(app, { locale: lang.value, track: track.value, ranges, clipIds: sel.length ? sel.map(c => c.id) : null }, (t, f, how) => { status.textContent = t; showProg(f ?? 0, how); });
       const n = found.filter(u => u.cut).length;
       status.textContent = found.length ? `${found.length} found, ${n} marked CUT.${umModel() ? '' : ' 🎙 Teach Reel your ums to find the ones it can’t hear as words.'}` : '';
     } catch (e) { status.textContent = e.message; app.deck?.untally(); }
-    finally { busy = false; refresh(true); }
+    finally { busy = false; showProg(null); refresh(true); }
   });
   const timer = setInterval(() => refresh(), 700);
   const close = () => { clearInterval(timer); clearInterval(stopTimer); root.remove(); panel = null; };

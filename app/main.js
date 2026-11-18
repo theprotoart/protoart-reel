@@ -1909,7 +1909,7 @@ handle('verbatim:words', async (token, source, language) => {
   try { const c = JSON.parse(await fs.promises.readFile(cache, 'utf8')); if (Array.isArray(c.words)) return { words: c.words, model: st.use, cached: true }; } catch { /* not yet */ }
   const lang = typeof language === 'string' && /^[a-z]{2}(-[A-Z]{2})?$/.test(language) ? language.slice(0, 2) : 'en';
   const r = await verbatim.transcribe({ src: path.join(mediaDir(p), path.basename(source)), from: 0, to: 1e9, language: lang },
-    ev => kittenEvent({ type: 'verbatimRun', f: Number(ev.f) || 0, msg: typeof ev.msg === 'string' ? ev.msg.slice(0, 120) : '', source }));
+    ev => kittenEvent({ type: 'verbatimRun', f: Number(ev.f) || 0, loading: !!ev.loading, msg: typeof ev.msg === 'string' ? ev.msg.slice(0, 120) : '', source }));
   await writeAtomic(cache, JSON.stringify({ model: st.use, words: r.words, at: new Date().toISOString() }));
   return { words: r.words, model: st.use, cached: false };
 });

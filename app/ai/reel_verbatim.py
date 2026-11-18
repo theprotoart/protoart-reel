@@ -38,7 +38,7 @@ def device():
 def load(size):
     if size not in models:
         models.clear()  # one model in memory at a time
-        send({"type": "progress", "f": 0.02, "msg": "Loading the word-for-word speech model…"})
+        send({"type": "progress", "f": 0.0, "loading": True, "msg": "Loading the word-for-word speech model…"})
         from crisperwhisper import CrisperWhisperModel
         dev = device()
         try:
@@ -106,18 +106,23 @@ def to16k(x, rate):
         return np.interp(np.linspace(0, len(x) - 1, n), np.arange(len(x)), x).astype(np.float32)
 
 
+def clock(s):
+    s = int(s)
+    return f"{s // 3600}:{s // 60 % 60:02d}:{s % 60:02d}" if s >= 3600 else f"{s // 60}:{s % 60:02d}"
+
+
 def transcribe(size, x, language, t0=0.0, on_progress=None):
-    """Words [[start, end, word]] (seconds from t0) of 16 kHz samples, in pieces of about five minutes."""
+    """Words [[start, end, word]] (seconds from t0) of 16 kHz samples, a minute at a time (so the bar moves)."""
     model = load(size)
     out = []
-    piece = 16000 * 300
+    piece = 16000 * 60
     n = max(1, -(-len(x) // piece))
     for i in range(n):
         a = i * piece
         # each piece runs 2 s into the next, and the words there are left to it
         seg = x[a:a + piece + 32000]
         if on_progress:
-            on_progress(i / n)
+            on_progress(i / n, a / 16000, len(x) / 16000)
         r = model.transcribe(seg, language=language, mode="verbatim", sr=16000, word_timestamps=True)
         for w in (r.words or []):
             if w.start is None or w.end is None:
@@ -127,7 +132,7 @@ def transcribe(size, x, language, t0=0.0, on_progress=None):
                 continue
             out.append([round(t0 + s, 3), round(t0 + a / 16000 + float(w.end), 3), str(w.word)])
     if on_progress:
-        on_progress(1.0)
+        on_progress(1.0, len(x) / 16000, len(x) / 16000)
     return out
 
 
@@ -160,8 +165,8 @@ def main():
             x = to16k(x, rate)
             secs = len(x) / 16000
 
-            def prog(f):
-                send({"type": "progress", "f": 0.05 + 0.95 * f, "msg": f"Writing down every word… {int(f * 100)}%"})
+            def prog(f, done, total):
+                send({"type": "progress", "f": f, "msg": f"Writing down every word… {clock(done)} of {clock(total)} of talk"})
 
             words = transcribe(msg.get("model", "large"), x, msg.get("language", "en"), t0, prog)
             send({"type": "done", "words": words, "seconds": round(time.time() - started, 1), "audio": round(secs, 1)})
