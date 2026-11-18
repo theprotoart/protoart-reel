@@ -12,11 +12,15 @@ const kitten = require('./kitten');
 
 const RELEASE = '9b9679a19018bcb64119a6ed867818fd930c6e9c'; // nyrahealth/CrisperWhisper 2.x
 const PACKAGE = `crisperwhisper[transformers] @ https://github.com/nyrahealth/CrisperWhisper/archive/${RELEASE}.tar.gz`;
+// pinned to versions that work together: the newest Transformers changed how Whisper keeps its cache, and setup
+// failed with "'EncoderDecoderCache' object has no attribute 'layers'" (CrisperWhisper works with any 4.40 and up)
+const PINS = ['transformers==4.49.0', 'torch==2.5.1', 'accelerate==1.2.1'];
+const INSTALL = `${RELEASE}+${PINS.join(',')}`; // what an environment was made with: a change makes it again
 const SCRIPT = path.join(__dirname, '..', 'ai', 'reel_verbatim.py');
 // the best that fits: large on 16 GB and up, turbo (nearly as good, faster) below
 const MODELS = {
-  large: { repo: 'nyralabs/CrisperWhisper2.0_large', label: 'Large (most accurate)', gb: 3.2, minRamGb: 16 },
-  turbo: { repo: 'nyralabs/CrisperWhisper2.0_turbo', label: 'Turbo (fast, nearly as accurate)', gb: 1.7, minRamGb: 8 },
+  large: { repo: 'nyralabs/CrisperWhisper2.0_large', label: 'Large (most accurate)', gb: 6.2, minRamGb: 16 },
+  turbo: { repo: 'nyralabs/CrisperWhisper2.0_turbo', label: 'Turbo (fast, nearly as accurate)', gb: 3.3, minRamGb: 8 },
 };
 const HOME = os.homedir();
 const exists = p => { try { fs.accessSync(p); return true; } catch { return false; } };
@@ -37,7 +41,7 @@ function best() { const ram = ramGb(); return Object.keys(MODELS).find(k => ram 
 function status() {
   const ram = ramGb(), arm = process.arch === 'arm64';
   const i = root && info();
-  const installed = !!(i && i.release === RELEASE && exists(safeReal(py())));
+  const installed = !!(i && i.release === INSTALL && exists(safeReal(py())));
   const models = {};
   for (const [k, m] of Object.entries(MODELS)) {
     const fits = ram >= m.minRamGb;
@@ -69,7 +73,7 @@ async function setup(key, onEvent) {
     HF_HUB_DISABLE_XET: '1' };
   try {
     let i = info();
-    if (!(i && i.release === RELEASE && exists(safeReal(py())))) {
+    if (!(i && i.release === INSTALL && exists(safeReal(py())))) {
       const base = kitten.basePython();
       if (!base) throw new Error('Word-for-word speech needs Python 3.10 or newer, and none was found on this Mac. Install Python from python.org (3.12), then press GET again.');
       say(0.02, `Making a Python ${base.version} environment…`);
@@ -79,12 +83,12 @@ async function setup(key, onEvent) {
       say(0.05, 'Updating the installer…');
       await kitten.run(py(), ['-I', '-m', 'pip', 'install', '--upgrade', 'pip', 'setuptools', 'wheel'], { env, job });
       let n = 0;
-      await kitten.run(py(), ['-I', '-m', 'pip', 'install', '--prefer-binary', PACKAGE], { env, job, onLine: l => {
+      await kitten.run(py(), ['-I', '-m', 'pip', 'install', '--prefer-binary', PACKAGE, ...PINS], { env, job, onLine: l => {
         const r = /^(Collecting|Downloading|Installing collected packages)\s*(\S*)/.exec(l); if (!r) return;
         if (r[1] === 'Collecting') n++;
         say(0.06 + Math.min(0.34, n / 40 * 0.34), r[1].startsWith('Installing') ? 'Installing the packages (PyTorch is the big one)…' : `Getting ${r[2].replace(/[^\w.\-[\]]/g, '').slice(0, 40)}…`);
       } });
-      i = { release: RELEASE, python: base.version, models: {}, at: new Date().toISOString() };
+      i = { release: INSTALL, python: base.version, models: {}, at: new Date().toISOString() };
       await fs.promises.writeFile(marker(), JSON.stringify(i));
     }
     say(0.42, `Downloading the ${m.label.split(' (')[0].toLowerCase()} model…`);

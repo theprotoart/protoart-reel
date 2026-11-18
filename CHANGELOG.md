@@ -2,6 +2,8 @@
 
 ## 1.11.0 — 2026-11-16
 
+- Word-for-word speech: setup failed its test with "'EncoderDecoderCache' object has no attribute 'layers'" (the newest Transformers changed how Whisper keeps its cache). Its Python environment is now pinned to versions that work together (Transformers 4.49, PyTorch 2.5.1) and is made again once; the model already downloaded is kept. Download sizes corrected (Turbo about 3.3 GB).
+
 - ⭐ Word-for-word speech for FILLER WORDS: nyra's CrisperWhisper 2.0 (the most accurate model for writing down ums, uhs and other disfluencies) set up once on this Mac from the FILLER WORDS panel (⭐ GET WORD-FOR-WORD SPEECH: Large on 16 GB Macs and up, Turbo below; PyTorch on the graphics chip, then offline). With it, fillers are read off what was actually said ([um], [uh], "you know", and sounds like [breath] or [laughter] to keep or cut), timed to the word, instead of guessed by ear. Each recording is written down once and kept beside it.
 
 - Fillers: a taught sound that overlaps ordinary words (all of them together) for more than a quarter of its length is dropped (before, only one word covering half of it counted, so a 1.4 s "um" over "so this is the lighting source" got through); and it can't run longer than 1.4× your longest take of it.
