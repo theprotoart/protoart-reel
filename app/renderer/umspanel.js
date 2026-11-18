@@ -334,6 +334,10 @@ export function openUms(app) {
     teachBtn.title = m ? `Reel knows your ${m.words.map(w => w.word).join(' and ')}: LISTEN AGAIN finds them in your voice. Click to record them again or forget them.` : 'Record your um and uh a few times: Reel learns them in your voice and finds them (even the ones speech recognition leaves out), here and in AUTO EDIT';
   };
   teachBtn.addEventListener('click', () => teachUms(app, { onDone: () => { drawTeach(); refresh(true); } }));
+  // with word-for-word speech set up, fillers are read off what was said: teaching Reel your ums by ear isn't needed,
+  // so it's out of the way (shown again if word-for-word speech is removed)
+  const teachRow = el('div', { class: 'row ums-teach-row' }, teachBtn);
+  let vbReady = false;
   drawTeach();
   // ⭐ word-for-word speech (CrisperWhisper on this Mac): how fillers are found best. Offered here until it's set up
   const vbBox = el('div', { class: 'ums-vb' });
@@ -341,6 +345,7 @@ export function openUms(app) {
   const drawVb = async () => {
     const st = await app.api.verbatimStatus?.().catch(() => null);
     if (!st) { vbBox.replaceChildren(); return; }
+    vbReady = !!st.ready; teachRow.hidden = vbReady;
     if (st.ready) {
       vbBox.replaceChildren(el('div', { class: 'ums-vb-on', title: 'Every word said is written down, ums and uhs included, on this Mac; each recording once, then kept.' },
         el('b', { text: '✓ WORD-FOR-WORD SPEECH' }), el('span', { text: ` · CrisperWhisper ${st.use} finds them (not by ear)` })));
@@ -372,7 +377,7 @@ export function openUms(app) {
     vbBox,
     el('div', { class: 'row ums-opts' }, lang, track),
     el('div', { class: 'row ums-find' }, findIn, findBtn),
-    el('div', { class: 'row ums-teach-row' }, teachBtn),
+    teachRow,
     chips, selRow,
     list, status, prog,
     el('div', { class: 'takes-foot' }, listenBtn, markBtn, removeBtn));
@@ -433,7 +438,7 @@ export function openUms(app) {
     listenBtn.textContent = listed ? (selNow ? '🧹 CLEAR & RESCAN CLIP' : '🧹 CLEAR & RESCAN') : selNow ? '👂 LISTEN TO THE CLIP' : '👂 LISTEN FOR FILLERS';
     listenBtn.title = listed ? `Clear the fillers listed${selNow ? ' in the selected clip' : ''} and listen again, with everything you’ve taught Reel so far (⌘Z brings the old list back)` : 'Listen to the speech and list every um, uh and filler (it runs on this Mac)';
     allBtn.textContent = ums.length && ums.every(u => u.cut) ? 'ALL KEEP' : 'ALL CUT';
-    if (!app.doc.ums) { list.replaceChildren(el('p', { class: 'takes-empty', text: 'Press LISTEN FOR FILLERS. Reel listens to the speech on the track you choose and lists every um, uh and filler it hears. 🎙 TEACH REEL YOUR UMS first and it finds them in your voice too.' })); return; }
+    if (!app.doc.ums) { list.replaceChildren(el('p', { class: 'takes-empty', text: vbReady ? 'Press LISTEN FOR FILLERS. Reel writes down every word said on the track you choose (each recording once, then kept) and lists every um, uh and filler in it.' : 'Press LISTEN FOR FILLERS. Reel listens to the speech on the track you choose and lists every um, uh and filler it hears. 🎙 TEACH REEL YOUR UMS first and it finds them in your voice too.' })); return; }
     if (!ums.length) { list.replaceChildren(el('p', { class: 'takes-empty', text: all.length ? 'None here: pick another filter, track or clip.' : 'No ums found. Nice and clean.' })); return; }
     // the words around each one: fetched once (from the cached transcript), then the list is drawn again with them
     if (ctxWords && ctxSig !== layoutSig(app.doc)) ctxWords = null;
@@ -544,7 +549,7 @@ export function openUms(app) {
       eta.reset(); showProg(0, 'loading');
       const found = await listen(app, { locale: lang.value, track: track.value, ranges, clipIds: sel.length ? sel.map(c => c.id) : null }, (t, f, how) => { status.textContent = t; showProg(f ?? 0, how); });
       const n = found.filter(u => u.cut).length;
-      status.textContent = found.length ? `${found.length} found, ${n} marked CUT.${umModel() ? '' : ' 🎙 Teach Reel your ums to find the ones it can’t hear as words.'}` : '';
+      status.textContent = found.length ? `${found.length} found, ${n} marked CUT.${umModel() || vbReady ? '' : ' 🎙 Teach Reel your ums to find the ones it can’t hear as words.'}` : '';
     } catch (e) { status.textContent = e.message; app.deck?.untally(); }
     finally { busy = false; showProg(null); refresh(true); }
   });
