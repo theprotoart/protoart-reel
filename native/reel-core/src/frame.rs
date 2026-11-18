@@ -220,7 +220,7 @@ pub fn draw_then(w: usize, h: usize, bg: [u8; 3], pictures: &[Picture], layers: 
         let Some(p) = pictures.get(l.src) else { break 'one };
         // its filters first (1.7), at the size it's shown, as the editor's GPU pass does
         let graded;
-        let p = match &l.grade { Some(g) => { graded = crate::grade::grade(p, g); &graded } None => p };
+        let p = match &l.grade { Some(g) => { graded = crate::grade::grade(p, g, g.matte.and_then(|(s, _)| pictures.get(s))); &graded } None => p };
         if p.w == 0 || p.h == 0 || l.alpha <= 0.0 { break 'one; }
         let [a, b, c, d, e, f] = l.m;
         let det = a * d - b * c;

@@ -2,8 +2,8 @@
 //! colour match, levels, exposure, highlights and shadows, contrast, temperature and tint, the colour wheels,
 //! saturation and vibrance, black and white, vignette, sharpen, chromatic aberration and green-screen keying. Like
 //! the editor, the picture is first brought to the size it's shown at (`gw` × `gh`, sampled as the GPU samples a
-//! texture: bilinear, edges held), and each pixel kept to 8 bits at the end. (A LUT file or a background-removal
-//! matte isn't done here: those frames stay with the JavaScript.)
+//! texture: bilinear, edges held), and each pixel kept to 8 bits at the end. 1.13: a LUT file (its table as the editor
+//! uploads it) and a background-removal matte (its own video, decoded alongside) too.
 
 use crate::frame::Picture;
 
@@ -16,6 +16,42 @@ pub struct Grade {
     /// green screen: the key colour (0..1), tolerance, softness, spill
     pub key: Option<([f64; 3], f64, f64, f64)>,
     pub m_mul: [f64; 3], pub m_add: [f64; 3], pub lift: [f64; 3], pub gam: [f64; 3], pub gain: [f64; 3],
+    /// a LUT file and how much of it (1.13)
+    pub lut: Option<(std::sync::Arc<Lut>, f64)>,
+    /// background removal (1.13): the matte's source (a picture of the frame: white is kept) and its feather
+    pub matte: Option<(usize, f64)>,
+}
+
+/// A 3D LUT as the editor's GPU texture holds it: n slices of n × n side by side (x = b·n + r, y = g), 8 bits RGB.
+pub struct Lut { pub n: usize, pub data: Vec<u8> }
+
+impl Lut {
+    /// texture(lut, …) with linear filtering, at texel coordinates (x, y) (centres at .5), edges held.
+    fn tex(&self, x: f64, y: f64) -> [f64; 3] {
+        let (w, h) = (self.n * self.n, self.n);
+        let (x, y) = (x - 0.5, y - 0.5);
+        let (x0, y0) = (x.floor(), y.floor());
+        let (fx, fy) = (x - x0, y - y0);
+        let at = |xi: f64, yi: f64| -> [f64; 3] {
+            let (xi, yi) = ((xi as i64).clamp(0, w as i64 - 1) as usize, (yi as i64).clamp(0, h as i64 - 1) as usize);
+            let o = (yi * w + xi) * 3;
+            [self.data[o] as f64 / 255.0, self.data[o + 1] as f64 / 255.0, self.data[o + 2] as f64 / 255.0]
+        };
+        let (a, b, c, d) = (at(x0, y0), at(x0 + 1.0, y0), at(x0, y0 + 1.0), at(x0 + 1.0, y0 + 1.0));
+        let mut o = [0.0; 3];
+        for k in 0..3 { o[k] = (a[k] * (1.0 - fx) + b[k] * fx) * (1.0 - fy) + (c[k] * (1.0 - fx) + d[k] * fx) * fy; }
+        o
+    }
+    /// lutLookup in lib/glfx.js: blue picks two slices, red and green are looked up in each, blue blends them.
+    pub fn lookup(&self, c: [f64; 3]) -> [f64; 3] {
+        let n = self.n as f64;
+        let b = c[2].clamp(0.0, 1.0) * (n - 1.0);
+        let (b0, f) = (b.floor(), b - b.floor());
+        let b1 = (b0 + 1.0).min(n - 1.0);
+        let (rx, gy) = (c[0].clamp(0.0, 1.0) * (n - 1.0) + 0.5, c[1].clamp(0.0, 1.0) * (n - 1.0) + 0.5);
+        let (c0, c1) = (self.tex(b0 * n + rx, gy), self.tex(b1 * n + rx, gy));
+        [c0[0] + (c1[0] - c0[0]) * f, c0[1] + (c1[1] - c0[1]) * f, c0[2] + (c1[2] - c0[2]) * f]
+    }
 }
 
 fn smoothstep(e0: f64, e1: f64, x: f64) -> f64 { let t = ((x - e0) / (e1 - e0)).clamp(0.0, 1.0); t * t * (3.0 - 2.0 * t) }
@@ -40,8 +76,9 @@ fn ycbcr(c: [f64; 3]) -> [f64; 3] {
     [0.299 * c[0] + 0.587 * c[1] + 0.114 * c[2], -0.169 * c[0] - 0.331 * c[1] + 0.5 * c[2], 0.5 * c[0] - 0.419 * c[1] - 0.081 * c[2]]
 }
 
-/// The picture with its filters, at the size it's shown (RGBA, 8 bits, not premultiplied).
-pub fn grade(p: &Picture, g: &Grade) -> Picture {
+/// The picture with its filters, at the size it's shown (RGBA, 8 bits, not premultiplied). mask: the matte's
+/// picture for this frame, when it has one.
+pub fn grade(p: &Picture, g: &Grade, mask: Option<&Picture>) -> Picture {
     let (w, h) = (g.gw.max(1), g.gh.max(1));
     let (tx, ty) = (1.0 / w as f64, 1.0 / h as f64);
     let mut out = vec![0u8; w * h * 4];
@@ -95,11 +132,13 @@ pub fn grade(p: &Picture, g: &Grade) -> Picture {
             let k = 1.0 + g.saturation + g.vibrance * (1.0 - sat);
             for i in 0..3 { c[i] = gr + (c[i] - gr) * k; }
             if g.bw > 0.0 { let l = lum(c); for i in 0..3 { c[i] += (l - c[i]) * g.bw; } }
+            if let Some((lut, amt)) = &g.lut { if *amt > 0.0 { let q = lut.lookup(c); for i in 0..3 { c[i] += (q[i] - c[i]) * amt; } } }
             if g.vignette > 0.0 {
                 let d = ((u - 0.5).hypot(v - 0.5)) * 1.3;
                 let f = 1.0 - g.vignette * smoothstep(0.25, 0.85, d);
                 for i in 0..3 { c[i] *= f; }
             }
+            if let (Some((_, fe)), Some(mp)) = (&g.matte, mask) { if mp.w > 0 { a *= smoothstep(0.5 - fe, 0.5 + fe, tex(mp, u, v)[0]); } }
             let o = x * 4;
             for i in 0..3 { row[o + i] = (c[i].clamp(0.0, 1.0) * 255.0).round() as u8; }
             row[o + 3] = (a.clamp(0.0, 1.0) * 255.0).round() as u8;
@@ -114,29 +153,55 @@ mod tests {
     fn plain() -> Grade {
         Grade { gw: 2, gh: 2, exposure: 0.0, contrast: 0.0, saturation: 0.0, vibrance: 0.0, temperature: 0.0, tint: 0.0, highlights: 0.0, shadows: 0.0,
             in_black: 0.0, in_white: 1.0, gamma_v: 1.0, out_black: 0.0, out_white: 1.0, brightness: 0.0, sharpen: 0.0, vignette: 0.0, bw: 0.0, aberr: 0.0,
-            key: None, m_mul: [1.0; 3], m_add: [0.0; 3], lift: [0.0; 3], gam: [1.0; 3], gain: [1.0; 3] }
+            key: None, m_mul: [1.0; 3], m_add: [0.0; 3], lift: [0.0; 3], gam: [1.0; 3], gain: [1.0; 3], lut: None, matte: None }
     }
     fn solid(c: [u8; 4]) -> Picture { Picture { w: 2, h: 2, rgba: (0..4).flat_map(|_| c).collect() } }
     #[test]
     fn no_filter_changes_nothing() {
         let p = solid([200, 100, 50, 255]);
-        assert_eq!(grade(&p, &plain()).rgba[0..4], [200, 100, 50, 255]);
+        assert_eq!(grade(&p, &plain(), None).rgba[0..4], [200, 100, 50, 255]);
     }
     #[test]
     fn one_stop_up_doubles_and_black_and_white_is_luma() {
         let p = solid([100, 50, 20, 255]);
         let g = Grade { exposure: 1.0, ..plain() };
-        assert_eq!(grade(&p, &g).rgba[0..3], [200, 100, 40]);
+        assert_eq!(grade(&p, &g, None).rgba[0..3], [200, 100, 40]);
         let g = Grade { bw: 1.0, ..plain() };
         let l = ((100.0 * 0.2126 + 50.0 * 0.7152 + 20.0 * 0.0722) as f64).round() as u8;
-        assert_eq!(grade(&p, &g).rgba[0..3], [l, l, l]);
+        assert_eq!(grade(&p, &g, None).rgba[0..3], [l, l, l]);
     }
     #[test]
     fn green_is_keyed_out() {
         let p = solid([0, 208, 0, 255]);
         let g = Grade { key: Some(([0.0, 208.0 / 255.0, 0.0], 0.12, 0.08, 0.6)), ..plain() };
-        assert_eq!(grade(&p, &g).rgba[3], 0);
+        assert_eq!(grade(&p, &g, None).rgba[3], 0);
         let q = solid([200, 60, 60, 255]);
-        assert_eq!(grade(&q, &g).rgba[3], 255, "red stays");
+        assert_eq!(grade(&q, &g, None).rgba[3], 255, "red stays");
+    }
+    fn identity(n: usize) -> Lut {
+        let mut data = vec![0u8; n * n * n * 3];
+        for b in 0..n { for g in 0..n { for r in 0..n {
+            let d = (g * n * n + b * n + r) * 3;
+            let v = |x: usize| ((x as f64 / (n - 1) as f64) * 255.0).round() as u8;
+            data[d] = v(r); data[d + 1] = v(g); data[d + 2] = v(b);
+        } } }
+        Lut { n, data }
+    }
+    #[test]
+    fn a_lut_looks_up_and_blends() {
+        let id = std::sync::Arc::new(identity(17));
+        let q = id.lookup([0.3, 0.6, 0.9]);
+        for (a, b) in q.iter().zip([0.3, 0.6, 0.9]) { assert!((a - b).abs() < 0.01, "{q:?}"); }
+        // an inverting LUT at half: grey stays grey, white goes half way
+        let mut inv = identity(2); for v in inv.data.iter_mut() { *v = 255 - *v; }
+        let g = Grade { lut: Some((std::sync::Arc::new(inv), 0.5)), ..plain() };
+        assert_eq!(grade(&solid([255, 255, 255, 255]), &g, None).rgba[0..3], [128, 128, 128]);
+    }
+    #[test]
+    fn a_matte_cuts_the_picture_out() {
+        let g = Grade { matte: Some((1, 0.08)), ..plain() };
+        let p = solid([200, 100, 50, 255]);
+        assert_eq!(grade(&p, &g, Some(&solid([255, 255, 255, 255]))).rgba[3], 255, "white: kept");
+        assert_eq!(grade(&p, &g, Some(&solid([0, 0, 0, 255]))).rgba[3], 0, "black: gone");
     }
 }

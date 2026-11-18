@@ -2,6 +2,9 @@
 
 ## 1.11.0 — 2026-11-16
 
+- Rust core 1.13: LUT files and background removal are done by the core too (the LUT's table sent once with the job; the matte read alongside its clip), matching the editor's GPU pass to a level.
+- Fixed: a LUT of the usual odd sizes (17, 33, 65) could come out black in the preview and the editor's export (its table was uploaded as if its rows were padded).
+
 - Rust core 1.13: device frames (phone, laptop, browser, window) no longer send an export the slow way: the editor draws the frame into a slot just under its picture. (A framed clip that also has a shadow or a blur still goes the usual way.)
 
 - Replace file… (and a clean preview copy) now chimes when it's done, says what changed and in how many clips, and lights up the media item and its clips for a moment.

@@ -13,7 +13,7 @@ const even = v => Math.max(2, Math.round(v / 2) * 2);
  * (body: the vexport job after its first line, for reel-core, with each source's descriptor numbered 3, 4…), or
  * { why, at } (the first frame it can't do and why).
  */
-export function videoJob(doc, from, to, W, H, fps, { maxSources = 48, cursor = null, samples = 1 } = {}) {
+export function videoJob(doc, from, to, W, H, fps, { maxSources = 48, cursor = null, samples = 1, luts = null } = {}) {
   samples = Math.max(1, Math.min(8, samples | 0));
   const start = Math.max(0, from || 0), end = Math.min(docDuration(doc), to ?? Infinity);
   const frames = Math.max(1, Math.round((end - start) * fps));
@@ -25,7 +25,7 @@ export function videoJob(doc, from, to, W, H, fps, { maxSources = 48, cursor = n
   const times = [];
   for (let i = 0; i < frames; i++) for (let s = 0; s < samples; s++) times.push(samples === 1 ? start + i / fps : Math.max(start, start + i / fps + ((s / samples) - 0.5) * 0.5 / fps));
   for (const t of times) {
-    const p = framePlan(doc, t, W, H, undefined, cursor);
+    const p = framePlan(doc, t, W, H, undefined, cursor, { luts });
     if (p.why) return { why: p.why, at: t };
     for (const l of p.layers) {
       if (l.fill || l.ink || l.slot != null) continue;
@@ -53,9 +53,9 @@ export function videoJob(doc, from, to, W, H, fps, { maxSources = 48, cursor = n
   const u32 = v => { const b = new Uint8Array(4); new DataView(b.buffer).setUint32(0, v >>> 0, true); push(b); };
   const f64 = v => { const b = new Uint8Array(8); new DataView(b.buffer).setFloat64(0, +v, true); push(b); };
   let bg = null, ink = false, blur = false;
-  const overlays = [];
+  const overlays = [], sent = new Map();
   for (const [fi, t] of plans.entries()) {
-    const p = framePlan(doc, t, W, H, size, cursor);
+    const p = framePlan(doc, t, W, H, size, cursor, { luts });
     if (p.why) return { why: p.why, at: t };
     bg ||= p.bg;
     ink ||= p.layers.some(l => l.ink);
@@ -76,10 +76,24 @@ export function videoJob(doc, from, to, W, H, fps, { maxSources = 48, cursor = n
       if (l.st < src.to - 1e-6) return { why: 'a clip that plays backwards or repeats', at: t };
       src.to = l.st;
       uses.set(s, l.st);
+      // background removal (1.13): its matte video, read alongside at the size the picture's graded at
+      if (l.grade?.matte) {
+        const key = l.clip + '#matte';
+        let ms = srcOf.get(key);
+        if (ms == null) {
+          ms = sources.length;
+          if (ms >= maxSources) return { why: 'too many clips', at: t };
+          sources.push({ clip: key, file: l.grade.matte.file, from: l.st, to: l.st, w: even(l.grade.gw), h: even(l.grade.gh) });
+          srcOf.set(key, ms);
+        }
+        if (l.st < sources[ms].to - 1e-6) return { why: 'a clip that plays backwards or repeats', at: t };
+        sources[ms].to = l.st;
+        uses.set(ms, l.st);
+      }
     }
     u32(uses.size);
     for (const [s, st] of uses) { u32(s); f64(st); }
-    encodeLayers(p.layers, l => srcOf.get(l.clip), push);
+    encodeLayers(p.layers, l => srcOf.get(l.clip), push, { luts, sent, matteOf: l => srcOf.get(l.clip + '#matte') });
     // the editor's drawing over this frame (1.12): titles and the rest, sent on as the export runs
     push(Uint8Array.of(p.overlay ? 1 : 0));
     if (p.overlay) overlays.push(fi);
@@ -100,5 +114,5 @@ export function videoJob(doc, from, to, W, H, fps, { maxSources = 48, cursor = n
   for (const c of head) { out.set(c, o); o += c.length; }
   for (const c of chunks) { out.set(c, o); o += c.length; }
   // core: the oldest core that can draw it (a blurring call-out or a transition's shape: 1.13)
-  return { frames, sources, body: out, ink, overlays, times: plans, from: start, fps, core: blur || samples > 1 ? 13 : 12 };
+  return { frames, sources, body: out, ink, overlays, times: plans, from: start, fps, luts, core: blur || samples > 1 ? 13 : 12 };
 }

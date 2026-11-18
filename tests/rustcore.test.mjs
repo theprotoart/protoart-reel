@@ -805,6 +805,8 @@ test('a frame that needs more than pictures says why, for the JavaScript to draw
   assert.match(framePlan(fr, 1, 64, 36).why, /device frames/);
   const d = frameDoc([{ media: 'scr' }], media); d.clips[0].filters = [{ type: 'lut', file: 'look.cube' }];
   assert.match(framePlan(d, 1, 64, 36).why, /LUT/);
+  const lp = framePlan(d, 1, 64, 36, undefined, null, { luts: new Map([['look.cube', { size: 2, data2d: new Uint8Array(24) }]]) });
+  assert.ok(!lp.why && lp.needs13 && lp.layers[0].grade.lutFile === 'look.cube', 'with its table read: the core’s (1.13)');
   d.clips[0].filters = []; d.clips.push({ id: 't', type: 'text', track: 't0', start: 0, duration: 5, props: {} });
   const p = framePlan(d, 1, 64, 36);
   assert.ok(!p.why && p.overlay, 'a title: the editor draws it over the frame (1.12)');

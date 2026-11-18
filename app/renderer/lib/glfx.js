@@ -185,7 +185,11 @@ export class GlFx {
     if (this.lutKey === key) return;
     const gl = this.gl;
     gl.activeTexture(gl.TEXTURE2); gl.bindTexture(gl.TEXTURE_2D, this.tex[2]);
+    // rows of n × n × 3 bytes: odd for the usual odd sizes (17, 33, 65), so they mustn't be read as padded to 4 bytes
+    // (they were, and the upload failed: the LUT came out black)
+    gl.pixelStorei(gl.UNPACK_ALIGNMENT, 1);
     if (lut) gl.texImage2D(gl.TEXTURE_2D, 0, gl.RGB8, lut.size * lut.size, lut.size, 0, gl.RGB, gl.UNSIGNED_BYTE, lut.data2d);
+    gl.pixelStorei(gl.UNPACK_ALIGNMENT, 4);
     this.lutKey = key; this.lutSizeNow = lut ? lut.size : 0;
   }
   /**

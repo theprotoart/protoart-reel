@@ -46,7 +46,7 @@ use umvoice::{Model, Print, Word, COEFS};
 
 const MAX_INPUT: usize = 1 << 31; // 2 GB: about nine hours of 16 kHz sound
 
-struct Input<'a> { b: &'a [u8], at: usize }
+struct Input<'a> { b: &'a [u8], at: usize, luts: Vec<std::sync::Arc<grade::Lut>> }
 
 impl<'a> Input<'a> {
     fn take(&mut self, n: usize) -> Result<&'a [u8], String> {
@@ -254,6 +254,15 @@ fn read_layer(inp: &mut Input, npics: usize) -> Result<frame::Layer, String> {
     // each a kind u8 and its numbers: 0 gradient x, y, r0, r1, c0, c1 · 1 disc x, y, r, c · 2 ring x, y, r, w, c ·
     // 3 outline: how many points u32, the points, fill, u8 1 + outline width, colour or 0, u8 1 + shadow blur, dy,
     // colour or 0), a colour being r, g, b (0..255) and a (0..1) f64
+    // 1.13: a LUT file's table, sent once (the layers after use it by its number, in the order they came): its size n
+    // u32, then n × n × n × 3 bytes laid out as the editor's GPU texture (lib/glfx.js parseCube); then the next layer
+    if src == u32::MAX as usize - 4 {
+        let n = inp.u32()?;
+        if !(2..=128).contains(&n) || inp.luts.len() >= 64 { return Err("bad LUT".into()); }
+        let data = inp.take(n * n * n * 3)?.to_vec();
+        inp.luts.push(std::sync::Arc::new(grade::Lut { n, data }));
+        return read_layer(inp, npics);
+    }
     // 1.13: a place in the stack for the editor's own drawing (a background graphic): which slot u32 (< 64); what's
     // drawn there comes on the overlay stream after a mark for it (overlay.rs)
     if src == u32::MAX as usize - 3 {
@@ -318,13 +327,19 @@ fn read_layer(inp: &mut Input, npics: usize) -> Result<frame::Layer, String> {
         let (gw, gh) = (inp.u32()?, inp.u32()?);
         if gw == 0 || gh == 0 || gw > 16384 || gh > 16384 { return Err("bad grade size".into()); }
         let mut v = [0.0; 18]; for x in v.iter_mut() { *x = inp.f64()?; }
-        let key = if inp.u8()? == 1 { let mut k = [0.0; 6]; for x in k.iter_mut() { *x = inp.f64()?; } Some(([k[0], k[1], k[2]], k[3], k[4], k[5])) } else { None };
+        // the key byte: 1 a green-screen key follows; 1.13: + 2 a LUT, + 4 a background-removal matte, after the wheels
+        let kb = inp.u8()?;
+        if kb > 7 { return Err("bad grade".into()); }
+        let key = if kb & 1 == 1 { let mut k = [0.0; 6]; for x in k.iter_mut() { *x = inp.f64()?; } Some(([k[0], k[1], k[2]], k[3], k[4], k[5])) } else { None };
         let mut t = [0.0; 15]; for x in t.iter_mut() { *x = inp.f64()?; }
+        // a LUT: which (u32, as sent) · how much f64; a matte: its source u32 · feather f64
+        let lut = if kb & 2 != 0 { let (i, amt) = (inp.u32()?, inp.f64()?); let l = inp.luts.get(i).cloned().ok_or("bad LUT")?; if !(0.0..=1.0).contains(&amt) { return Err("bad LUT".into()); } Some((l, amt)) } else { None };
+        let matte = if kb & 4 != 0 { let (s, f) = (inp.u32()?, inp.f64()?); if s >= npics || !(0.0..=0.5).contains(&f) { return Err("bad matte".into()); } Some((s, f)) } else { None };
         if v.iter().chain(t.iter()).any(|x| !x.is_finite()) { return Err("bad grade".into()); }
         let three = |i: usize| [t[i], t[i + 1], t[i + 2]];
         Some(grade::Grade { gw, gh, exposure: v[0], contrast: v[1], saturation: v[2], vibrance: v[3], temperature: v[4], tint: v[5], highlights: v[6], shadows: v[7],
             in_black: v[8], in_white: v[9], gamma_v: v[10], out_black: v[11], out_white: v[12], brightness: v[13], sharpen: v[14], vignette: v[15], bw: v[16], aberr: v[17],
-            key, m_mul: three(0), m_add: three(3), lift: three(6), gam: three(9), gain: three(12) })
+            key, m_mul: three(0), m_add: three(3), lift: three(6), gam: three(9), gain: three(12), lut, matte })
     } else { None };
     Ok(frame::Layer { src, alpha, m, rect, look, fill: None, filter, grade, ink: None, mask: None })
 }
@@ -493,7 +508,7 @@ fn mix_job(inp: &mut Input, loudness: bool, mastered: bool) -> Result<String, St
 }
 
 fn run(b: &[u8]) -> Result<String, String> {
-    let mut inp = Input { b, at: 0 };
+    let mut inp = Input { b, at: 0, luts: Vec::new() };
     if inp.take(7)? != b"RCORE1\n" { return Err("not a reel-core job".into()); }
     match inp.line()? {
         "version" => Ok(format!("{{\"ok\":true,\"version\":{}}}", json_str(env!("CARGO_PKG_VERSION")))),
@@ -552,7 +567,7 @@ fn vwatch(r: &mut impl Read) -> Result<String, String> {
 /// vexport (1.10): see vexport.rs. Its stdout is the encoder's, so progress and the answer go to stderr.
 fn vexport_job(b: &[u8]) -> Result<String, String> {
     use std::os::fd::FromRawFd;
-    let mut inp = Input { b, at: 0 };
+    let mut inp = Input { b, at: 0, luts: Vec::new() };
     let (w, h) = (inp.u32()?, inp.u32()?);
     if w == 0 || h == 0 || w > 8192 || h > 8192 || w % 2 != 0 || h % 2 != 0 { return Err("bad frame size".into()); }
     let bg = [inp.u8()?, inp.u8()?, inp.u8()?];

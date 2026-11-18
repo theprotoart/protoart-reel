@@ -7,6 +7,7 @@ import { pref } from './prefs.js';
 import { el, modal, toast, selectRow, promptText } from './ui.js';
 import { duration, fmtTime, clipEnd, toSRT, mediaById } from './model.js';
 import { framePlan } from './lib/frameplan.js';
+import { parseCube } from './lib/glfx.js';
 import { masterOf, openMaster, LOUDNESS, mixToFile, addMasterPlugin } from './master-ui.js';
 import { LOUDNESS_TARGETS } from './lib/master.js';
 import { builtInPresets, GROUPS, QUALITY, SIZE_LIMITS, presetFps, videoBitrate, fromHandBrake } from './lib/exportpresets.js';
@@ -98,7 +99,7 @@ export async function sendOverlays(app, doc, job, W, H, cursor, send) {
     };
     // background graphics (1.13): each into its slot, numbered as lib/frameplan.js numbers them
     // (and device frames: 'frame:' + the clip's id) — numbered as the frame's plan numbers its slots
-    const keys = framePlan(doc, t, W, H, undefined, cursor).layers?.filter(l => l.slot != null).map(l => l.key) || [];
+    const keys = framePlan(doc, t, W, H, undefined, cursor, { luts: job.luts }).layers?.filter(l => l.slot != null).map(l => l.key) || [];
     const slot = id => { flush(); const k = id == null ? -1 : keys.indexOf(id); parts.push({ mark: id == null ? 0xffffffff : k < 0 ? 63 : k }); size += 5; }; // (63: a slot no frame has, so drawing the plan doesn't expect is never shown)
     drawFrame(ctx, doc, t, sources, { overlayOnly: true, slot, lens: L => { flush(); if (L.blurOut) { parts.push({ blur: L }); size += 1 + 16 + 4 + L.pts.length * 16; } else { parts.push({ lens: L }); size += 1 + 40 + 4 + L.pts.length * 16; } } });
     flush();
@@ -403,7 +404,12 @@ export function openExport(app) {
       }
       const cursor = (c, st) => { const cm = mediaById(doc, c.media), data = cm && tracks.get(cm.id); return data ? cursorAt(data, cm.cursorOffset || 0, st, c.cursor?.smooth || 0) : null; };
       cursor.input = c => { const cm = mediaById(doc, c.media); return (cm && tracks.get(cm.id)) || null; };
-      const job = videoJob(doc, from, to, w, hh, fps0, { cursor, samples: st.motionBlur ? 4 : 1 });
+      // LUT files the clips use (1.13): read now, their tables go to the core with the job
+      const luts = new Map();
+      for (const f of new Set(doc.clips.flatMap(c => (c.filters || []).filter(x => x.type === 'lut' && x.file && !x.off).map(x => x.file)))) {
+        try { luts.set(f, parseCube(await (await fetch(`app://reel/m/${app.token}/${encodeURIComponent(f)}`)).text())); } catch { /* that clip goes the usual way */ }
+      }
+      const job = videoJob(doc, from, to, w, hh, fps0, { cursor, samples: st.motionBlur ? 4 : 1, luts });
       if (job.why) usual = `drawn the usual way: ${job.why}`;
       else {
         let sound = masterFile;

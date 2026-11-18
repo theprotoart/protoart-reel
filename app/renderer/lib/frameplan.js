@@ -31,7 +31,7 @@ export function hexRGB(s) {
  * y1] }] } (bottom first), or { why } when it needs more than pictures. size(m) gives a media's picture size as
  * decoded ({ w, h }; its rotation is the media's own), st is the moment of the source shown.
  */
-export function framePlan(doc, t, W, H, size = m => ({ w: m.width || 0, h: m.height || 0 }), cursor = null) {
+export function framePlan(doc, t, W, H, size = m => ({ w: m.width || 0, h: m.height || 0 }), cursor = null, { luts = null } = {}) {
   const bg = hexRGB(doc.canvas.background || '#000');
   if (!bg) return { why: 'a background colour that isn’t a plain colour' };
   const cs = doc.captionStyle || {};
@@ -80,7 +80,8 @@ export function framePlan(doc, t, W, H, size = m => ({ w: m.width || 0, h: m.hei
       if (p.split > 0.02) u.aberr += p.split * 1.6;
       fblur = u.blur;
       if (!needsGl(u, matteOn)) u = null;
-      else if (matteOn || u.lut) return { why: 'background removal and LUT filters' };
+      // a LUT file (1.13): its table, read before the export (luts: file → parseCube's), goes to the core with it
+      else if (u.lut && !luts?.get(u.lut)) return { why: 'a LUT file that couldn’t be read' };
     }
     // blur, exposure and colour moves (1.6): drawn as the canvas filter; with a rounded or shadowed box the filter
     // softens those too, which isn't done here yet
@@ -109,6 +110,9 @@ export function framePlan(doc, t, W, H, size = m => ({ w: m.width || 0, h: m.hei
       const show = Math.min(1, ((W * Math.max(0.05, p.scale)) / Math.max(1, srcW0)) * 1.25);
       const gw = Math.max(1, Math.round(srcW0 * show)), gh = Math.max(1, Math.round(srcH0 * show));
       grade = { ...u, gw, gh };
+      if (u.lut) { grade.lutFile = u.lut; grade.lutAmount = clamp(u.lutAmount ?? 1, 0, 1); blur = true; }
+      // background removal (1.13): the matte's video, read alongside, cuts the picture out
+      if (matteOn) { grade.matte = { file: c.matte.file, feather: clamp(c.matte.feather ?? 0.08, 0, 0.5) }; blur = true; }
       gk = show; srcW = gw / show; srcH = gh / show;
     }
     // compositor.js drawMedia, as matrices
@@ -272,7 +276,7 @@ export function encodeFrame(plan, W, H, ids, pictures, out, overlay = null) {
   u32(W); u32(H); push(Uint8Array.from(plan.bg));
   u32(pictures.length);
   for (const p of pictures) { u32(p.w); u32(p.h); push(p.rgba instanceof Uint8Array ? p.rgba : new Uint8Array(p.rgba)); }
-  encodeLayers(plan.layers, l => ids.indexOf(l.media), push);
+  encodeLayers(plan.layers, l => ids.indexOf(l.media), push, { luts: plan.luts, matteOf: l => ids.indexOf(l.grade.matte.file) });
   const ob = new TextEncoder().encode(out);
   u32(ob.length); push(ob);
   if (overlay) push(overlay); // the editor's drawing over it (1.12; overlay.rs)
@@ -285,13 +289,25 @@ export function encodeFrame(plan, W, H, ids, pictures, out, overlay = null) {
  * A plan's layers as the frame job writes them (main.rs read_layer; vexport's frames share it): how many, then each.
  * srcOf(layer) is the index of the picture a layer shows; push takes the bytes.
  */
-export function encodeLayers(layers, srcOf, push) {
+/**
+ * opts (1.13): luts (file → parseCube's table) and sent (file → its number, the ones the core has already: a Map kept
+ * across the frames of one job, so each table goes once), matteOf(layer) the source its matte is read from.
+ */
+export function encodeLayers(layers, srcOf, push, { luts = null, sent = new Map(), matteOf = null } = {}) {
   const u8 = v => push(Uint8Array.of(v));
   const u32 = v => { const b = new Uint8Array(4); new DataView(b.buffer).setUint32(0, v >>> 0, true); push(b); };
   const f64 = v => { const b = new Uint8Array(8); new DataView(b.buffer).setFloat64(0, +v, true); push(b); };
   const rgb01 = h => { const x = hexRGB(h) || [0, 0, 0]; return x.map(v => v / 255); };
   u32(layers.length);
   for (const l of layers) {
+    // 1.13: a LUT's table the first time it's used (main.rs read_layer, src 0xfffffffb), then the layer
+    const lf = l.grade?.lutFile;
+    if (lf && !sent.has(lf)) {
+      const t = luts?.get(lf);
+      if (!t) throw new Error('a LUT file that couldn’t be read');
+      u32(0xfffffffb); f64(1); u32(t.size); push(t.data2d);
+      sent.set(lf, sent.size);
+    }
     // 1.13: seen through a transition's shape (main.rs read_layer, src 0xfffffffd), then the layer itself
     if (l.mask) {
       u32(0xfffffffd); f64(1); u32(l.mask.length);
@@ -333,8 +349,12 @@ export function encodeLayers(layers, srcOf, push) {
       for (const n of ['exposure', 'contrast', 'saturation', 'vibrance', 'temperature', 'tint', 'highlights', 'shadows']) f64(g[n] || 0);
       [g.inBlack ?? 0, g.inWhite ?? 1, g.gammaV ?? 1, g.outBlack ?? 0, g.outWhite ?? 1, g.brightness || 0].forEach(f64);
       for (const n of ['sharpen', 'vignette', 'bw', 'aberr']) f64(g[n] || 0);
-      if (g.key) { u8(1); [...rgb01(g.key.color), g.key.tol, g.key.soft, g.key.spill].forEach(f64); } else u8(0);
+      // the key byte: 1 a key; 1.13: + 2 a LUT, + 4 a matte (their numbers after the wheels)
+      u8((g.key ? 1 : 0) | (g.lutFile ? 2 : 0) | (g.matte ? 4 : 0));
+      if (g.key) [...rgb01(g.key.color), g.key.tol, g.key.soft, g.key.spill].forEach(f64);
       [...(g.mMul || [1, 1, 1]), ...(g.mAdd || [0, 0, 0]), ...(g.lift || [0, 0, 0]), ...(g.gam || [1, 1, 1]), ...(g.gain || [1, 1, 1])].forEach(f64);
+      if (g.lutFile) { u32(sent.get(g.lutFile)); f64(g.lutAmount); }
+      if (g.matte) { u32(matteOf(l)); f64(g.matte.feather); }
     }
   }
 }
