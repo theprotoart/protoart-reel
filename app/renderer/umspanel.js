@@ -8,7 +8,7 @@ import { mergeRanges } from './lib/words.js';
 import { findUms, levelOnTimeline } from './lib/ums.js';
 import { timelineWords, speechClips, speechPrefs, saveSpeechPrefs, trackSelect, LANGS, stopListening } from './transcript.js';
 import { peaksFor } from './peaks.js';
-import { umModel, reloadModel, teachUms, findYourUms, teachFromTimeline, notAnUm } from './umvoice.js';
+import { umModel, reloadModel, teachUms, findYourUms, teachFromTimeline, notAnUm, isSoundWord } from './umvoice.js';
 
 // the words on the timeline as last heard (the transcript is cached, so getting them again is quick): each um is
 // shown in its sentence, the words either side, so you can tell what was picked up without playing it
@@ -101,6 +101,17 @@ async function listen(app, { locale, track, ranges = null, clipIds = null, stop 
     // what your voice didn't match is still listed from the pauses (kept until you choose CUT): a taught voice can
     // miss an um said into the next word, or on another mic, and it used to mean those weren't listed at all
     for (const g of guessed) if (g.kind === 'sound' && !found.some(f => f.t < g.end && f.end > g.t)) found.push(g);
+    // words and phrases you taught ("you know", "but yeah"): found where the speech recogniser wrote them, not by ear
+    for (const w of model?.words || []) {
+      if (isSoundWord(w.word)) continue;
+      const q = String(w.word).toLowerCase().split(/\s+/).map(norm).filter(Boolean);
+      if (!q.length) continue;
+      for (let i = 0; i + q.length <= words.length; i++) {
+        if (!q.every((k, j) => norm(words[i + j].text) === k)) continue;
+        const a = words[i], b = words[i + q.length - 1];
+        if (!found.some(f => f.t < b.end && f.end > a.t)) found.push({ t: a.t, end: b.end, text: w.word, kind: 'voice', cut: false });
+      }
+    }
   } else found = guessed;
   const trackAt = t => clips.find(c => t >= c.start - 0.01 && t < c.start + c.duration)?.track;
   // just some clips (the selected ones): what's found in them replaces what was listed there, the rest stays

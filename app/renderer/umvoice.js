@@ -3,7 +3,7 @@
 // including the ones speech recognition doesn't write down. Everything stays on this Mac (the model is kept in
 // Reel's own storage here, never uploaded).
 import { el, modal, drawer, toast, ask, popMenu } from './ui.js';
-import { train, findInSamples, findInSequence, packModel, unpackModel, to16k, RATE, addTake, addNot, dropTakes } from './lib/umvoice.js';
+import { train, findInSamples, findInSequence, packModel, unpackModel, to16k, RATE, addTake, addNot, dropTakes, fingerprint } from './lib/umvoice.js';
 import { openAudio } from './lib/sources.js';
 import { soundOf, speechClips } from './transcript.js';
 import { fmtTime as fmt } from './model.js';
@@ -333,9 +333,27 @@ export async function notAnUm(app, t0, t1, track = '') {
 }
 
 /** Your ums on the timeline, from the given clips: [{ t, end, word, sure }] in timeline seconds. */
+/**
+ * Sounds (um, uh, breath, cough…), found by ear; words and phrases you taught ("you know", "but yeah") are found by
+ * what the speech recogniser wrote instead (umspanel.js), as by ear they look like any other speech.
+ */
+const SOUND_WORDS = /^(u+m+|u+h+m*|e+r+m*|a+h+|h+m+|m+h*m+|mhm|breath\w*|sigh\w*|lip ?smack|smack|click\w*|cough\w*|sneeze\w*|sniff\w*|laugh\w*|throat|swallow\w*|tsk|tut)$/i;
+export const isSoundWord = w => SOUND_WORDS.test(String(w).trim());
+/** How much a fingerprint changes from one frame to the next, on average: an um is steady, speech isn't. */
+function flux(print) {
+  if (!print || print.length < 2) return 0;
+  let s = 0;
+  for (let i = 1; i < print.length; i++) { let d = 0; for (let k = 0; k < print[i].length; k++) { const v = print[i][k] - print[i - 1][k]; d += v * v; } s += Math.sqrt(d); }
+  return s / (print.length - 1);
+}
 export async function findYourUms(app, clips, onStatus) {
-  const model = umModel();
-  if (!model) return [];
+  const full = umModel();
+  if (!full) return [];
+  // by ear: only the sounds (words and phrases go by the transcript)
+  const model = { ...full, words: full.words.filter(w => isSoundWord(w.word)) };
+  if (!model.words.length) return [];
+  // how steady each taught sound is (the most changeable of its takes, with room): a match that changes more is speech
+  const steady = new Map(model.words.map(w => [w.word, Math.max(...w.prints.map(flux)) * 1.35 + 0.05]));
   const out = [];
   for (const [i, c] of clips.entries()) {
     onStatus?.(`Listening for your ums in “${c.name || 'clip'}” (${i + 1} of ${clips.length})…`, i / clips.length);
@@ -351,7 +369,12 @@ export async function findYourUms(app, clips, onStatus) {
     onStatus?.(`Matching what you taught in “${c.name || 'clip'}” (${i + 1} of ${clips.length})…`, (i + 0.5) / clips.length);
     await new Promise(r => setTimeout(r, 0));
     for (const h of findInSequence(model, x)) if (!found.some(f => f.t < h.end && f.end > h.t)) found.push(h);
-    for (const h of found) out.push({ t: c.start + h.t / speed, end: c.start + h.end / speed, word: h.word, sure: h.sure, joined: !!h.joined, track: c.track });
+    for (const h of found) {
+      // its shape: as steady as the takes you taught (a word said in passing changes much more than an "ummm")
+      const a0 = Math.max(0, Math.floor(h.t * RATE)), a1 = Math.min(x.length, Math.ceil(h.end * RATE)), seg = x.subarray ? x.subarray(a0, a1) : x.slice(a0, a1);
+      if (seg.length > 400 && flux(fingerprint(seg)) > (steady.get(h.word) ?? Infinity)) continue;
+      out.push({ t: c.start + h.t / speed, end: c.start + h.end / speed, word: h.word, sure: h.sure, joined: !!h.joined, track: c.track });
+    }
   }
   return out.sort((a, b) => a.t - b.t);
 }

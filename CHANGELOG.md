@@ -2,6 +2,8 @@
 
 ## 1.11.0 — 2026-11-16
 
+- Fillers, a second check besides the sound: taught words and phrases ("you know", "but yeah") are found where speech recognition wrote them, not by ear; taught sounds (um, uh, breaths…) must also have the shape of what you taught — as steady as your takes — so a word said in passing isn't listed as an "ummm".
+
 - Fillers: a sound you taught is only listed when it's about as long as you said it when teaching, and not on top of an ordinary word the speech recogniser heard clearly. (Before, a few takes of "you know" made Reel list dozens of 0.2 s scraps of ordinary speech as "you know".)
 
 - Recording: if the window being recorded changes size during a take (which can damage the screen picture), a notification says so straight away, so it can be stopped and recorded again.
