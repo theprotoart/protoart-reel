@@ -303,7 +303,7 @@ export class Library {
       const old = m.file;
       this.app.commit(() => {
         Object.assign(m, { file: r.file, name: r.name, duration: r.duration, width: r.width, height: r.height, hasAudio: r.hasAudio, fps: r.fps });
-        delete m.peaks; delete m.poster;
+        delete m.peaks; delete m.poster; delete m.proxy; delete m.proxyFailed; // a new file: its own proxy (if it needs one)
       });
       this.app.player.prune?.();
       toast(`Replaced. Clips that used “${old}” now use “${r.name}”. Trims longer than the new file are kept short.`);
