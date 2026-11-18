@@ -1720,10 +1720,10 @@ export class Timeline {
 
   // ---------------------------------------------------------------- labels on the ruler
   /**
-   * 🏷 Labels: named, coloured stretches along the top of the ruler, for the parts you'll come back to. Click one to
-   * go there. Drag it and that whole section of the edit goes with it (picture, sound and titles inside it, with their
-   * cuts and fades; the rest closes up and makes room). ⌥-drag moves just the label; drag its right edge to make it
-   * longer; double-click to rename; right-click to recolour or delete it.
+   * 🏷 Labels: named, coloured stretches along the top of the ruler, for the parts you'll come back to. A click puts
+   * the playhead where you click (as on the ruler). Drag it and that whole section of the edit goes with it (picture, sound and titles inside it, with their
+   * cuts and fades; the rest closes up and makes room). ⌥-drag moves just the label; drag either end to resize it;
+   * double-click to rename; right-click to recolour or delete it.
    */
   _drawLabels() {
     const host = document.getElementById('tl-ruler');
@@ -1732,11 +1732,12 @@ export class Timeline {
     const box = el('div', { class: 'tl-labels' });
     for (const l of this.doc.labels || []) {
       const w = Math.max(14, this.x(l.t1 - l.t0));
-      const tag = el('div', { class: 'tl-label', title: `${l.text} · ${fmtTime(l.t0)}–${fmtTime(l.t1)} · click to go there · drag to move this section of the edit (everything in it) · ⌥-drag to move just the label · drag the end to resize · double-click to rename · right-click for more`,
+      const tag = el('div', { class: 'tl-label', title: `${l.text} · ${fmtTime(l.t0)}–${fmtTime(l.t1)} · click to put the playhead there · drag to move this section of the edit (everything in it) · ⌥-drag to move just the label · drag either end to resize · double-click to rename · right-click for more`,
         style: { left: this.x(l.t0) + 'px', width: w + 'px', background: l.color || LABEL_COLORS[0][1] } },
-        el('span', { text: l.text }), el('i', { class: 'tl-label-end' }));
+        el('i', { class: 'tl-label-end tl-label-start', title: 'Drag to move where the label starts' }), el('span', { text: l.text }), el('i', { class: 'tl-label-end', title: 'Drag to move where the label ends' }));
       tag.addEventListener('pointerdown', e => {
-        if (e.target.classList.contains('tl-label-end')) this._labelDrag(e, l.id, 'end');
+        if (e.target.classList.contains('tl-label-start')) this._labelDrag(e, l.id, 'start');
+        else if (e.target.classList.contains('tl-label-end')) this._labelDrag(e, l.id, 'end');
         else if (e.altKey) this._labelDrag(e, l.id, 'move');
         else { e.stopPropagation(); this._dragSection(e, l.t0, l.t1, l.id); }
       });
@@ -1782,7 +1783,7 @@ export class Timeline {
       window.removeEventListener('pointerup', up);
       from.remove(); ghost.remove(); line.remove();
       document.getElementById('timeline')?.classList.remove('moving-section');
-      if (!dragged) { if (labelId) app.seek(a); return; } // a click on the label: go there
+      if (!dragged) { if (labelId) app.seek(Math.max(0, t0)); return; } // a click on the label: the playhead to that spot, as on the ruler
       if (to == null) return; // let go where it started
       let dest = null;
       app.commit(d => {
@@ -1834,12 +1835,13 @@ export class Timeline {
       if (!moved && Math.abs(ev.clientX - x0) < 3) return;
       moved = true;
       if (how === 'end') { n1 = Math.max(t0 + 0.5, this.snapOn ? this._snap(this.doc, t1 + dt, this._tol()) : t1 + dt); n0 = t0; }
+      else if (how === 'start') { n0 = Math.min(t1 - 0.5, Math.max(0, this.snapOn ? this._snap(this.doc, t0 + dt, this._tol()) : t0 + dt)); n1 = t1; }
       else { n0 = Math.max(0, this.snapOn ? this._snap(this.doc, t0 + dt, this._tol()) : t0 + dt); n1 = n0 + (t1 - t0); }
       tag.style.left = this.x(n0) + 'px'; tag.style.width = Math.max(14, this.x(n1 - n0)) + 'px';
     };
     const up = () => {
       window.removeEventListener('pointermove', move); window.removeEventListener('pointerup', up);
-      if (!moved) { app.seek(t0); return; }
+      if (!moved) { app.seek(Math.max(0, this._timeAt(x0))); return; }
       app.commit(d => { const k = d.labels.find(x => x.id === id); if (k) { k.t0 = n0; k.t1 = n1; } d.labels.sort((a, b) => a.t0 - b.t0); });
     };
     window.addEventListener('pointermove', move); window.addEventListener('pointerup', up);

@@ -2705,7 +2705,10 @@ input[type=search] { padding: 6px 10px; }
 #tl-ruler .tl-labels { position: absolute; left: 0; top: 0; height: 0; z-index: 7; }
 #tl-ruler .tl-label { position: absolute; top: 1px; height: 15px; border-radius: 3px; box-shadow: 0 0 0 1px rgba(0,0,0,.55), inset 0 1px 0 rgba(255,255,255,.25); color: #fff; font: 600 10px/15px var(--font-ui, -apple-system, sans-serif); padding: 0 6px; overflow: hidden; white-space: nowrap; text-overflow: ellipsis; cursor: grab; box-sizing: border-box; }
 #tl-ruler .tl-label span { pointer-events: none; text-shadow: 0 1px 1px rgba(0,0,0,.5); }
-#tl-ruler .tl-label .tl-label-end { position: absolute; right: 0; top: 0; width: 6px; height: 100%; cursor: ew-resize; background: rgba(255,255,255,.18); }
+#tl-ruler .tl-label .tl-label-end { position: absolute; right: 0; top: 0; width: 7px; height: 100%; cursor: ew-resize; background: rgba(255,255,255,.22); }
+#tl-ruler .tl-label .tl-label-start { left: 0; right: auto; }
+#tl-ruler .tl-label { padding-left: 10px; }
+#tl-ruler .tl-label .tl-label-end:hover { background: rgba(255,255,255,.55); }
 #tl-ruler .tl-label:hover { filter: brightness(1.15); }
 /* ↔ moving a section: where it is now, and where it'll go */
 .move-from { position: absolute; top: 0; background: repeating-linear-gradient(135deg, rgba(127,208,255,.16) 0 8px, rgba(127,208,255,.06) 8px 16px); border: 1px dashed #7fd0ff; pointer-events: none; z-index: 8; box-sizing: border-box; }
