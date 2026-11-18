@@ -241,7 +241,8 @@ export const TOPICS = [
     'If an AAC export stops with “The AAC sound encoder stopped responding”, choose **Sound only · WAV** instead. **Cancel** always stops an export.',
     'Very long edits with plug-ins on tracks take longer the first time; each recording is rendered once per plug-in setting and reused after that.'], 'fix'],
   ['Export failed: “Video decoding failed”', 'video decoding failed decoding error export failed decoder', [
-    'Fixed in 1.5.3: clips now release their video decoder as soon as they’re off screen. If it still happens, close other apps that play or edit video, turn on **⚙ ▾ › Proxy** while editing, and export again.'], 'fix'],
+    'Fixed in 1.5.3: clips now release their video decoder as soon as they’re off screen. If it still happens, close other apps that play or edit video, turn on **⚙ ▾ › Proxy** while editing, and export again.',
+    'Since 1.11: a recording damaged in places no longer stops the export. Its picture holds still over the damaged moment, the rest exports normally, and a message says which recording and where. To fix the picture itself: right-click the clip › 🩹 Picture black…, or replace it with a repaired copy.'], 'fix'],
   ['I rendered a plug-in but it sounds the same', 'no difference same nothing happened render plug-in plugin cedar effect not working not applied audiosuite', [
     'Look at the clip: a green **FX ✓** means it now plays the processed file; amber **FX !** means it isn’t rendered yet (press **RENDER EFFECTS**); grey **FX ○** means it’s bypassed: press **A: ORIGINAL** to switch back to **B: EFFECTS**.',
     'Before 1.5.5 a plug-in’s settings were only saved when its window closed, so rendering with the window open used its default settings. Now the open window’s settings are used. Use **A / B** to compare, and check the plug-in itself is set to do something (some start at zero).',

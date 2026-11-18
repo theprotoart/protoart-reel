@@ -83,7 +83,20 @@ async function run({ doc, token, opts }) {
   for (const c of used) {
     const m = mediaById(doc, c.media);
     if (!m) continue;
-    if (withVideo && m.kind === 'video' && !c.audioOnly) video.set(c.id, await openVideo(urlFor(token, m.file)));
+    if (withVideo && m.kind === 'video' && !c.audioOnly) {
+      const v = await openVideo(urlFor(token, m.file));
+      // a damaged part of the recording: it holds its last good frame there instead of stopping the export; say where
+      if (v) {
+        let told = -1e9;
+        v.onBad = st => {
+          const at = c.start + (st - (c.in || 0)) / (c.speed || 1);
+          if (at - told < 5) return; told = at;
+          const mm = Math.floor(at / 60), ss = Math.floor(at % 60);
+          self.postMessage({ type: 'warn', message: `“${m.name}” is damaged at ${mm}:${String(ss).padStart(2, '0')} in the edit: its picture holds still there for a moment. The rest exports normally.` });
+        };
+      }
+      video.set(c.id, v);
+    }
     if (withVideo && m.kind === 'image' && !images.has(m.id)) images.set(m.id, await createImageBitmap(await (await fetch(urlFor(token, m.file))).blob()));
     if (!anim && (m.hasAudio || m.kind === 'audio') && !(c.audio && c.audio.mute) && !opts.masterFile) {
       // rendered effects (voice tools, plug-ins) replace the clip's original sound

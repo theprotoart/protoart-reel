@@ -2,6 +2,8 @@
 
 ## 1.11.0 — 2026-11-16
 
+- Export no longer stops with “Video decoding failed: Decoding error” at a damaged part of a recording: the decoder tries again in software, and if that part still won’t decode, the picture holds its last good frame until the recording is readable again. A message says which recording and where in the edit.
+
 - A track plug-in rendering on its own (after you add or change one) shows a clear strip over the timeline: the plug-in and track, clip n of N, a bar, about how long is left, and STOP (what’s left then renders at export). Before, the only sign was a small “RENDERING 49%” on one clip.
 
 - RENDER INTO TRACK works like Pro Tools: the track is rendered through its plug-ins onto a new “· rendered” track right below it, with a window showing how far it’s got, and the original clips are muted and greyed out (kept, plug-in and all; right-click › Back to the original sound, or ⌘Z, undoes it).

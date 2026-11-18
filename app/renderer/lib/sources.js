@@ -50,6 +50,8 @@ export class VideoSource {
   constructor(reader, track) {
     this.reader = reader; this.track = track; this.frames = []; this.next = 0; this.ended = true;
     this.decoder = null; this.wake = null; this.error = null; this.lastT = null;
+    // a damaged stretch of the file: the last good frame is held until the next keyframe (see frameAt)
+    this.hold = null; this.skipTo = -1; this.soft = false; this.bad = 0; this.onBad = null;
   }
   static async supported(track) {
     if (!track.codec) return false;
@@ -64,7 +66,7 @@ export class VideoSource {
       output: f => { this.frames.push(f); this._poke(); },
       error: e => { this.error = e; this._poke(); },
     });
-    this.decoder.configure({ codec: this.track.codec, description: this.track.description, codedWidth: this.track.width, codedHeight: this.track.height, hardwareAcceleration: 'prefer-hardware' });
+    this.decoder.configure({ codec: this.track.codec, description: this.track.description, codedWidth: this.track.width, codedHeight: this.track.height, hardwareAcceleration: this.soft ? 'prefer-software' : 'prefer-hardware' });
   }
   _poke() { const w = this.wake; this.wake = null; if (w) w(); }
   _wait() { return new Promise(r => { this.wake = r; setTimeout(r, 2000); }); }
@@ -75,8 +77,39 @@ export class VideoSource {
     this.next = keyframeBefore(this.track, t);
     this.ended = false; this.flushed = false;
   }
-  /** VideoFrame showing at file time t (seconds). Valid until the next call. */
+  /**
+   * VideoFrame showing at file time t (seconds). Valid until the next call. A recording damaged in places (missing
+   * or broken slices) used to stop the whole export with "Video decoding failed": now the decoder is tried again in
+   * software, and if that part still won't decode, the last good frame is held until the next keyframe that does
+   * (onBad(t) says where, for the warning at the end). A file that won't decode at all still fails.
+   */
   async frameAt(t) {
+    if (this.skipTo >= 0 && t < this.skipTo - 1e-3 && t >= (this.lastT ?? 0) - 1e-3) { this.lastT = t; return this.hold; }
+    this.skipTo = -1;
+    for (let attempt = 0; ; attempt++) {
+      try {
+        return await this._frameAt(t);
+      } catch (e) {
+        if (!/^Video decoding failed/.test(e.message) || ++this.bad > 400) throw e;
+        this.onBad?.(t);
+        this.error = null;
+        // the frame shown last (still open: it's the first one kept) is held; no copies of every frame, so the
+        // hardware decoder's small pool isn't used up
+        if (this.frames.length) { if (this.hold) this.hold.close?.(); this.hold = this.frames.shift(); }
+        if (!this.soft && attempt === 0) { this.soft = true; this.lastT = null; continue; } // once: the software decoder
+        // past the broken part: on from the next keyframe after t, holding the last good frame till then
+        const s = this.track.samples, k0 = keyframeBefore(this.track, t);
+        let k = k0 + 1;
+        while (k < s.length && !s[k].sync) k++;
+        if (k >= s.length) { this.lastT = t; this.ended = true; this._clear(); return this.hold; }
+        this._clear(); this._make();
+        this.next = k; this.ended = false; this.flushed = false; this.lastT = t;
+        this.skipTo = sampleTime(this.track, s[k]);
+        return this.hold;
+      }
+    }
+  }
+  async _frameAt(t) {
     const eps = 0.5 / 120;
     if (this.lastT === null || t < this.lastT - eps || (this.frames.length && t > this.frames[this.frames.length - 1].timestamp / 1e6 + 2.5 && this._keyBetween(t))) await this._seek(t);
     this.lastT = t;
@@ -114,9 +147,9 @@ export class VideoSource {
     if (!this.decoder) return;
     this._clear();
     if (this.decoder.state !== 'closed') try { this.decoder.close(); } catch { /* closed */ }
-    this.decoder = null; this.lastT = null; this.error = null;
+    this.decoder = null; this.lastT = null; this.error = null; this.skipTo = -1;
   }
-  close() { this._clear(); if (this.decoder && this.decoder.state !== 'closed') try { this.decoder.close(); } catch { /* closed */ } }
+  close() { if (this.hold) { this.hold.close(); this.hold = null; } this._clear(); if (this.decoder && this.decoder.state !== 'closed') try { this.decoder.close(); } catch { /* closed */ } }
 }
 
 // ------------------------------------------------------------------ audio
