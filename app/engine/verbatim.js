@@ -63,7 +63,10 @@ async function setup(key, onEvent) {
   job = { cancelled: false, proc: null };
   const say = (f, msg) => onEvent({ type: 'verbatimSetup', f, msg });
   const env = { HOME, PATH: '/usr/bin:/bin:/usr/sbin:/sbin', LANG: 'en_US.UTF-8', PYTHONUNBUFFERED: '1', PYTHONNOUSERSITE: '1',
-    PIP_DISABLE_PIP_VERSION_CHECK: '1', PIP_NO_INPUT: '1', HF_HUB_CACHE: ai.hubCache(), HF_HUB_DISABLE_TELEMETRY: '1', PYTORCH_ENABLE_MPS_FALLBACK: '1' };
+    PIP_DISABLE_PIP_VERSION_CHECK: '1', PIP_NO_INPUT: '1', HF_HUB_CACHE: ai.hubCache(), HF_HUB_DISABLE_TELEMETRY: '1', PYTORCH_ENABLE_MPS_FALLBACK: '1',
+    // a plain download into the model's own folder (Hugging Face's newer "Xet" one fills a cache elsewhere first, so
+    // the bar sat at 0.0 GB until the very end, looking frozen)
+    HF_HUB_DISABLE_XET: '1' };
   try {
     let i = info();
     if (!(i && i.release === RELEASE && exists(safeReal(py())))) {
@@ -86,9 +89,13 @@ async function setup(key, onEvent) {
     }
     say(0.42, `Downloading the ${m.label.split(' (')[0].toLowerCase()} model…`);
     const dir = path.join(ai.hubCache(), 'models--' + m.repo.replace('/', '--'));
+    let last = -1, still = Date.now();
     const timer = setInterval(async () => {
       const b = await ai.folderBytes(dir);
-      say(0.42 + Math.min(0.5, b / (m.gb * 1e9) * 0.5), `Downloading the model… ${(b / 1e9).toFixed(1)} of about ${m.gb} GB`);
+      if (b !== last) { last = b; still = Date.now(); }
+      // nothing new for three minutes: say so (it carries on where it left off when started again)
+      const stuck = Date.now() - still > 180000;
+      say(0.42 + Math.min(0.5, b / (m.gb * 1e9) * 0.5), stuck ? `The download hasn’t moved for a few minutes (${(b / 1e9).toFixed(1)} GB so far). Check the internet; STOP and GET again carries on from there.` : `Downloading the model… ${(b / 1e9).toFixed(1)} of about ${m.gb} GB`);
     }, 1500);
     let out;
     try { out = await kitten.run(py(), ['-I', SCRIPT, '--setup', key], { env, job }); }
