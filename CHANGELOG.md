@@ -2,6 +2,8 @@
 
 ## 1.11.0 — 2026-11-16
 
+- Rust core 1.13: device frames (phone, laptop, browser, window) no longer send an export the slow way: the editor draws the frame into a slot just under its picture. (A framed clip that also has a shadow or a blur still goes the usual way.)
+
 - Replace file… (and a clean preview copy) now chimes when it's done, says what changed and in how many clips, and lights up the media item and its clips for a moment.
 
 - Moving a section, easier: set In and Out (I, O) and a ◀ MOVE ▶ grip appears on the ruler between them: drag it left or right (the timeline scrolls on at its edges, so the end can go to the start in one drag); a yellow line shows where it goes in. Also PARTS ▾ › ↔ Move In–Out section…

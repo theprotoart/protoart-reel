@@ -5,8 +5,8 @@ import { renderPending } from './trackplugins.js';
 import { can } from './capability.js';
 import { pref } from './prefs.js';
 import { el, modal, toast, selectRow, promptText } from './ui.js';
-import { duration, fmtTime, clipEnd, toSRT, mediaById, activeClips } from './model.js';
-import { isBackgroundElement } from './lib/elements.js';
+import { duration, fmtTime, clipEnd, toSRT, mediaById } from './model.js';
+import { framePlan } from './lib/frameplan.js';
 import { masterOf, openMaster, LOUDNESS, mixToFile, addMasterPlugin } from './master-ui.js';
 import { LOUDNESS_TARGETS } from './lib/master.js';
 import { builtInPresets, GROUPS, QUALITY, SIZE_LIMITS, presetFps, videoBitrate, fromHandBrake } from './lib/exportpresets.js';
@@ -97,8 +97,9 @@ export async function sendOverlays(app, doc, job, W, H, cursor, send) {
       parts.push({ x: x0, y: y0, w, h, px }); size += 17 + px.length;
     };
     // background graphics (1.13): each into its slot, numbered as lib/frameplan.js numbers them
-    const bgIds = activeClips(doc, t).filter(k => k.type === 'element' && isBackgroundElement(k.element)).map(k => k.id);
-    const slot = id => { flush(); const k = id == null ? -1 : bgIds.indexOf(id); parts.push({ mark: k < 0 ? 0xffffffff : k }); size += 5; };
+    // (and device frames: 'frame:' + the clip's id) — numbered as the frame's plan numbers its slots
+    const keys = framePlan(doc, t, W, H, undefined, cursor).layers?.filter(l => l.slot != null).map(l => l.key) || [];
+    const slot = id => { flush(); const k = id == null ? -1 : keys.indexOf(id); parts.push({ mark: id == null ? 0xffffffff : k < 0 ? 63 : k }); size += 5; }; // (63: a slot no frame has, so drawing the plan doesn't expect is never shown)
     drawFrame(ctx, doc, t, sources, { overlayOnly: true, slot, lens: L => { flush(); if (L.blurOut) { parts.push({ blur: L }); size += 1 + 16 + 4 + L.pts.length * 16; } else { parts.push({ lens: L }); size += 1 + 40 + 4 + L.pts.length * 16; } } });
     flush();
     // overlay.rs's format

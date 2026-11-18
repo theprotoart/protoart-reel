@@ -799,6 +799,9 @@ test('a background graphic gets its own place in the core\u2019s stack, for the 
 test('a frame that needs more than pictures says why, for the JavaScript to draw', () => {
   const media = [{ id: 'scr', kind: 'video', width: 128, height: 72 }];
   const fr = frameDoc([{ media: 'scr' }], media); fr.clips[0].frame = { type: 'phone' };
+  const fp = framePlan(fr, 1, 64, 36);
+  assert.ok(!fp.why && fp.overlay && fp.layers[0].slot === 0 && fp.layers[0].key === 'frame:' + fr.clips[0].id, 'a device frame: a slot under the picture (1.13)');
+  fr.clips[0].props.shadow = 20;
   assert.match(framePlan(fr, 1, 64, 36).why, /device frames/);
   const d = frameDoc([{ media: 'scr' }], media); d.clips[0].filters = [{ type: 'lut', file: 'look.cube' }];
   assert.match(framePlan(d, 1, 64, 36).why, /LUT/);

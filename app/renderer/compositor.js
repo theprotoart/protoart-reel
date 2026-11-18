@@ -46,8 +46,15 @@ export function drawFrame(ctx, doc, t, sources, opts = {}) {
   // opts.slot(null) before what goes over everything: each goes into its own place in the core's stack
   const bgs = opts.overlayOnly && opts.slot ? here.filter(k => !overlay(k) && k.type === 'element') : [];
   let inSlot = false;
+  // and the device frames round pictures (each into its slot, under its picture): opts.slot('frame:' + clip id)
+  if (opts.overlayOnly && opts.slot) {
+    for (const k of here.filter(k => k.type === 'media' && k.frame && k.frame.type && k.frame.type !== 'none')) {
+      opts.slot('frame:' + k.id); inSlot = true;
+      try { drawFrameOnly(ctx, doc, k, t, W, H, sx); } catch (e) { if (opts.onError) opts.onError(k, e); }
+    }
+  }
   for (const k of opts.overlayOnly ? [...bgs, ...here.filter(overlay)] : [...here.filter(k => !overlay(k)), ...here.filter(overlay)]) {
-    if (bgs.length) {
+    if (opts.overlayOnly && opts.slot) {
       const bg = bgs.includes(k);
       if (bg) { opts.slot(k.id); inSlot = true; } else if (inSlot) { opts.slot(null); inSlot = false; }
     }
@@ -361,6 +368,19 @@ function drawDeviceFrame(ctx, f, w, h, sx) {
     ctx.beginPath(); ctx.moveTo(-w * 0.62, h / 2 + b * 1.4); ctx.lineTo(w * 0.62, h / 2 + b * 1.4); ctx.lineTo(w * 0.58, h / 2 + b * 1.4 + base); ctx.lineTo(-w * 0.58, h / 2 + b * 1.4 + base); ctx.closePath(); ctx.fill();
     ctx.fillStyle = 'rgba(0,0,0,0.25)'; ctx.fillRect(-w * 0.08, h / 2 + b * 1.4, w * 0.16, base * 0.25);
   }
+  ctx.restore();
+}
+/** Just a clip's device frame, where drawMedia draws it (an export the core draws: the picture is the core's). */
+function drawFrameOnly(ctx, doc, k, t, W, H, sx) {
+  const local = t - k.start, c = animated(k, local), p = propsAt(c, local), m = mediaById(doc, c.media);
+  if (!m || p.opacity <= 0.001) return;
+  const rot = ((m.rotation || 0) % 360 + 360) % 360, swap = rot === 90 || rot === 270;
+  const r = mediaRect(doc, m, p, W, H, swap ? m.height || 1 : m.width || 1, swap ? m.width || 1 : m.height || 1);
+  ctx.save();
+  ctx.globalAlpha = clamp(p.opacity, 0, 1);
+  ctx.translate(r.cx, r.cy);
+  if (p.rotation) ctx.rotate((p.rotation * Math.PI) / 180);
+  drawDeviceFrame(ctx, c.frame, r.w, r.h, sx);
   ctx.restore();
 }
 /** Film grain: a cached noise tile, shifted every frame. */

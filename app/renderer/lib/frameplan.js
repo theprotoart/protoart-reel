@@ -47,8 +47,8 @@ export function framePlan(doc, t, W, H, size = m => ({ w: m.width || 0, h: m.hei
       if (k.type === 'element' && isBackgroundElement(k.element)) {
         if (q.vertigo || q.blocks > 0.03 || q.streak || q.holes > 0.02 || q.glitch > 0.05 || q.leak > 0.01 || q.grain > 0.02 || q.flare || (q.bars || 0) > 0.001 || (q.shutter != null && q.shutter < 1))
           return { why: 'transition effects on a background graphic' };
-        if (slots >= 64) return { why: 'too many background graphics' };
-        layers.push({ slot: slots++ }); overlay = true; blur = true; // (needs the 1.13 core)
+        if (slots >= 63) return { why: 'too many background graphics' };
+        layers.push({ slot: slots++, key: k.id }); overlay = true; blur = true; // (needs the 1.13 core)
         continue;
       }
       // transitions that read the picture under them, and a blurring call-out, still go the editor's way
@@ -86,7 +86,10 @@ export function framePlan(doc, t, W, H, size = m => ({ w: m.width || 0, h: m.hei
     // softens those too, which isn't done here yet
     const filtered = !!(p.blur || fblur) || (p.bright != null && Math.abs(p.bright - 1) > 0.005) || (p.sat != null && Math.abs(p.sat - 1) > 0.005);
     if (filtered && (p.radius || p.shadow > 0 || p.border > 0 || (c.stab && m.kind === 'video'))) return { why: 'blur and exposure moves on a rounded, bordered or stabilized picture' };
-    if (c.frame && c.frame.type && c.frame.type !== 'none') return { why: 'device frames' };
+    // a device frame (a phone, laptop, browser or window round the picture, 1.13): the editor draws it, into a slot just
+    // under the picture; with a shadow or a blur on the clip too it's still the editor's whole
+    const framed = !!(c.frame && c.frame.type && c.frame.type !== 'none');
+    if (framed && (p.shadow > 0 || filtered)) return { why: 'device frames on a shadowed or blurred clip' };
     // the keys pressed (1.12): words the editor draws over the frame, from the recording's pointer file
     if (c.keystrokes && c.keystrokes.show) { if (!cursor) return { why: 'keystroke display' }; overlay = true; }
     // pointer effects (1.11): drawn by the core as ink layers, from the recorded pointer (cursor(c, st), as the
@@ -145,6 +148,10 @@ export function framePlan(doc, t, W, H, size = m => ({ w: m.width || 0, h: m.hei
     // a wipe, iris, clock, barn doors, blinds… (1.13): the clip seen through the transition's shape
     const mask = p.mask && p.mask.k < 1 ? maskShapes(p.mask, W, H) : null;
     const n0 = layers.length;
+    if (framed) {
+      if (slots >= 63) return { why: 'too many device frames' };
+      layers.push({ slot: slots++, key: 'frame:' + c.id }); overlay = true; blur = true;
+    }
     layers.push({ media: m.id, clip: c.id, st, alpha: clamp(p.opacity, 0, 1), m: M, rect, look, filter, grade });
     if (fxOn) {
       const cur = cursor(c, st);
