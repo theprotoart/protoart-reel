@@ -16,7 +16,7 @@ function warnDamaged(app, bad) {
   const body = el('div', { class: 'rec-damaged' },
     el('p', { text: 'The take you just made came out damaged: its screen picture can’t be played (the Mac’s own player can’t read it), so it would show as black or smeared colours. The sound is fine.' }),
     el('p', { class: 'note', text: bad.map(r => `${r.file}: ${r.damaged}`).join(' · ') }),
-    el('p', { text: 'Best now, while it’s fresh: record it again. The damaged take stays on the timeline until you delete it (its sound can still be used).' }));
+    el('p', { text: 'Best now, while it’s fresh: record it again (and try not to resize the window being recorded while it records). The damaged take stays on the timeline until you delete it (its sound can still be used).' }));
   modal('⚠ This recording came out damaged', body, [
     { label: 'KEEP IT ANYWAY', onClick: c => c() },
     { label: '● RECORD AGAIN', cls: 'hw amber', onClick: c => { c(); app.cmd('record'); } },
@@ -261,7 +261,8 @@ async function record(app, st, part = 1) {
   await api.selectSource(st.source.id, st.system);
   const streams = [];
   let ids = null, going = false;
-  const stopAll = () => streams.forEach(s => s.getTracks().forEach(t => t.stop()));
+  let sizeWatch = 0;
+  const stopAll = () => { clearInterval(sizeWatch); streams.forEach(s => s.getTracks().forEach(t => t.stop())); };
   try {
     // ---- capture streams
     const screen = await navigator.mediaDevices.getDisplayMedia({ video: { frameRate: { ideal: st.fps, max: st.fps }, cursor: st.pointerSeparate ? 'never' : 'always' }, audio: st.system });
@@ -304,6 +305,17 @@ async function record(app, st, part = 1) {
     const apps = st.sysMode === 'apps' ? st.apps.map(k => ({ key: k, name: (st.appNames || {})[k] || k })) : [];
     const type = pickType();
     const vs = vtrack.getSettings();
+    // the captured window changing size mid-take can damage the screen picture (the take of 16 Nov at 4:41 PM came
+    // out smeared): say so at once, while stopping and starting again costs only a moment
+    let sizeWarned = false;
+    sizeWatch = setInterval(() => {
+      const now = vtrack.readyState === 'live' ? vtrack.getSettings() : null;
+      if (!now || sizeWarned || (Math.abs((now.width || 0) - (vs.width || 0)) < 2 && Math.abs((now.height || 0) - (vs.height || 0)) < 2)) return;
+      sizeWarned = true;
+      const msg = `The recorded window changed size (${vs.width}×${vs.height} → ${now.width}×${now.height}). That can damage the screen picture: if it was by accident, stop and record again.`;
+      try { new Notification('ProtoArt Reel: window size changed while recording', { body: msg, silent: false }); } catch { /* no notices */ }
+      toast(msg, 12000);
+    }, 1000);
     // the screen picture can end on its own (window closed, display unplugged): it ends whichever take is running
     let endTake = null, screenLost = false, paused = false, carryOn = false;
     vtrack.addEventListener('ended', () => {
