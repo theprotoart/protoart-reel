@@ -2,6 +2,8 @@
 
 ## 1.11.0 — 2026-11-16
 
+- Fillers: a taught sound that overlaps ordinary words (all of them together) for more than a quarter of its length is dropped (before, only one word covering half of it counted, so a 1.4 s "um" over "so this is the lighting source" got through); and it can't run longer than 1.4× your longest take of it.
+
 - The 15-times drill counts each one as you say it (a big counter beside RECORD), stops by itself at the count, and after a 3-second countdown goes straight on to the next word still short of 15. ■ STOP ends the run. A word that has its 15 shows "47 ✓" instead of "47/15"; the old one-take-at-a-time list is folded away.
 
 - Teach Reel your ums: 🔁 SAY EACH ONE 15 TIMES — pick a sound (um, uh, or any word or sound you add, like “you know” or a breath), press RECORD and say it over and over with a pause between, soft, normal and loud, slow and quick; Reel splits the recording at the pauses and learns every one (sound and waveform shape). Each shows how many of its 15 it has, the ones still short first.

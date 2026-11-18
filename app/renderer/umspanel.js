@@ -92,10 +92,17 @@ async function listen(app, { locale, track, ranges = null, clipIds = null, stop 
     for (const w of model?.words || []) { const ls = w.prints.map(pr => (pr.length * 160 + 400) / 16000).sort((a, b) => a - b); if (ls.length) took.set(w.word, ls[Math.floor(ls.length / 2)]); }
     const norm = x => String(x).toLowerCase().replace(/[^\p{L}']+/gu, '');
     const FILL = new Set(['um', 'umm', 'uh', 'uhh', 'uhm', 'er', 'erm', 'ah', 'hmm', 'mm', 'mhm']);
-    const longEnough = y => !took.has(y.word) || (y.end - y.t) >= took.get(y.word) * 0.6;
+    // about as long as you said it when teaching: not a scrap, and not a stretch of speech either
+    const longest = new Map();
+    for (const w of model?.words || []) { const ls = w.prints.map(pr => (pr.length * 160 + 400) / 16000); if (ls.length) longest.set(w.word, Math.max(...ls)); }
+    const longEnough = y => !took.has(y.word) || ((y.end - y.t) >= took.get(y.word) * 0.6 && (y.end - y.t) <= Math.max(0.5, longest.get(y.word) * 1.4));
+    // ums sit between the words the recogniser wrote: one that overlaps ordinary words (all of them together) for more
+    // than a quarter of its length is speech, not an um ("so this is the lighting source that it" isn't an "um")
     const onSpeech = y => {
       const own = new Set(String(y.word).toLowerCase().split(/\s+/).map(norm));
-      return words.some(w => { const n = norm(w.text); return n && !FILL.has(n) && !own.has(n) && Math.min(w.end, y.end) - Math.max(w.t, y.t) > (y.end - y.t) * 0.5; });
+      let over = 0;
+      for (const w of words) { const n = norm(w.text); if (!n || FILL.has(n) || own.has(n)) continue; over += Math.max(0, Math.min(w.end, y.end) - Math.max(w.t, y.t)); }
+      return over > (y.end - y.t) * 0.25;
     };
     found = [...heard, ...yours.filter(y => !heard.some(h => h.t < y.end && h.end > y.t) && !inWord(y) && longEnough(y) && !onSpeech(y)).map(y => ({ t: y.t, end: y.end, text: y.word === 'umm' ? 'um' : y.word, kind: 'voice', cut: y.sure }))]; // every sound you taught (ums, breaths, sneezes…) is marked CUT when Reel is sure
     // what your voice didn't match is still listed from the pauses (kept until you choose CUT): a taught voice can
