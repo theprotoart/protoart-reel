@@ -511,6 +511,29 @@ async function remuxRecording(src, dst) {
   } finally { await r.fh.close(); }
 }
 
+/**
+ * Whether the Mac's own decoder (reel-frames, AVFoundation) can play a video's picture: a moment at its start, in
+ * the middle and near its end. null when it can (or there's no decoder to ask), else what went wrong.
+ */
+async function checkVideoPlays(file, duration) {
+  try { await fs.promises.access(FRAMES_BIN, fs.constants.X_OK); } catch { return null; }
+  const d = Number(duration) || 0;
+  const at = [0, d / 2, Math.max(0, d - 2)].filter((t, i, a) => d > 0.5 && a.indexOf(t) === i);
+  for (const t of at) {
+    const r = await new Promise(resolve => {
+      const dec = spawn(FRAMES_BIN, ['--rgba', file, String(t), String(t + 1), '16', '10'], { stdio: ['ignore', 'pipe', 'pipe'] });
+      let frames = 0, bytes = 0, err = '';
+      const kill = setTimeout(() => { dec.kill(); resolve(frames ? null : 'it took too long to read'); }, 30000);
+      dec.stdout.on('data', b => { bytes += b.length; frames = Math.floor(bytes / (8 + 16 * 10 * 4)); });
+      dec.stderr.on('data', b => { err += b; });
+      dec.on('error', () => { clearTimeout(kill); resolve(null); });
+      dec.on('close', code => { clearTimeout(kill); resolve(code === 0 && frames > 0 ? null : (err.trim() || 'no picture came out').slice(0, 200)); });
+    });
+    if (r) return `${r} (at ${Math.floor(t / 60)}:${String(Math.floor(t % 60)).padStart(2, '0')})`;
+  }
+  return null;
+}
+
 /** Writes `head` then the contents of `bodyFile` into `dst`, then removes the body file. */
 async function joinFiles(dst, head, bodyFile) {
   const out = await fs.promises.open(dst, 'wx', 0o644);
@@ -1336,7 +1359,10 @@ handle('rec:end', async (ids, meta, stayHidden) => {
         const final = await freeMediaName(p, h.name.replace('-raw.mp4', '.mp4'));
         const info = await remuxRecording(h.file, path.join(mediaDir(p), final));
         await fs.promises.rm(h.file, { force: true });
-        results.push({ role: h.role, file: final, kind: 'video', ...info });
+        // straight away: can the Mac actually play its picture? (a take that came out damaged is said at once, while
+        // it's easy to record again, not found an hour into editing)
+        const damaged = await checkVideoPlays(path.join(mediaDir(p), final), info.duration).catch(() => null);
+        results.push({ role: h.role, file: final, kind: 'video', ...info, ...(damaged ? { damaged } : {}) });
       }
     } catch (e) {
       results.push({ role: h.role, file: h.name, error: e.message });

@@ -5,6 +5,24 @@ import { audioDevices, fillSelect, permissionNote } from './devices.js';
 import { can, gate } from './capability.js';
 
 const MP4_TYPES = ['video/mp4;codecs=avc1.640033,mp4a.40.2', 'video/mp4;codecs=avc1.640033', 'video/mp4;codecs=avc1.64002a', 'video/mp4;codecs=avc1', 'video/mp4'];
+/** The take that just finished can't be played: a warning that can't be missed, with RECORD AGAIN. */
+function warnDamaged(app, bad) {
+  try { new Notification('ProtoArt Reel: recording damaged', { body: 'The screen picture of the take you just made can’t be played. Record it again now; the sound is fine.', silent: false }); } catch { /* no notices */ }
+  try {
+    const ac = new AudioContext(), t = ac.currentTime + 0.02;
+    [[660, 0], [440, 0.18], [660, 0.36], [440, 0.54]].forEach(([f, d]) => { const o = ac.createOscillator(), g = ac.createGain(); o.type = 'triangle'; o.frequency.value = f; g.gain.setValueAtTime(0.0001, t + d); g.gain.linearRampToValueAtTime(0.18, t + d + 0.02); g.gain.exponentialRampToValueAtTime(0.0008, t + d + 0.17); o.connect(g).connect(ac.destination); o.start(t + d); o.stop(t + d + 0.2); });
+    setTimeout(() => ac.close().catch(() => {}), 1500);
+  } catch { /* no sound */ }
+  const body = el('div', { class: 'rec-damaged' },
+    el('p', { text: 'The take you just made came out damaged: its screen picture can’t be played (the Mac’s own player can’t read it), so it would show as black or smeared colours. The sound is fine.' }),
+    el('p', { class: 'note', text: bad.map(r => `${r.file}: ${r.damaged}`).join(' · ') }),
+    el('p', { text: 'Best now, while it’s fresh: record it again. The damaged take stays on the timeline until you delete it (its sound can still be used).' }));
+  modal('⚠ This recording came out damaged', body, [
+    { label: 'KEEP IT ANYWAY', onClick: c => c() },
+    { label: '● RECORD AGAIN', cls: 'hw amber', onClick: c => { c(); app.cmd('record'); } },
+  ]);
+}
+
 const pickType = () => MP4_TYPES.find(t => MediaRecorder.isTypeSupported(t)) || '';
 const MAX = { native: [7680, 4320], '4k': [3840, 2160], '1440': [2560, 1440], '1080': [1920, 1080] };
 
@@ -415,6 +433,9 @@ async function record(app, st, part = 1) {
     // pointer track starts when the files are opened; the screen picture a moment later
     const cursorOffset = ((starts.screen ?? first) - tBegin) / 1000;
     app.addRecording(res, { cursorOffset, appLead: (first - tBegin) / 1000, source: st.source, pointerSeparate, keys: !!st.keys, marks: res.marks || [] });
+    // a take whose picture came out damaged: said at once, loudly, while it's easy to record again
+    const bad = (res.media || []).filter(r => r.damaged);
+    if (bad.length) warnDamaged(app, bad);
     return carryOn ? 'resume' : 'done';
   } catch (e) {
     stopAll();

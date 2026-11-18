@@ -2,6 +2,8 @@
 
 ## 1.11.0 — 2026-11-16
 
+- Recording: as soon as a take is saved, Reel checks the Mac can actually play its screen picture (a moment at its start, middle and end). A damaged take is said at once — an alarm, a notification and a ⚠ window with ● RECORD AGAIN — instead of turning up black or smeared later in the edit.
+
 - Rust core 1.13: LUT files and background removal are done by the core too (the LUT's table sent once with the job; the matte read alongside its clip), matching the editor's GPU pass to a level.
 - Fixed: a LUT of the usual odd sizes (17, 33, 65) could come out black in the preview and the editor's export (its table was uploaded as if its rows were padded).
 
