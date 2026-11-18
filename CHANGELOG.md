@@ -2,6 +2,8 @@
 
 ## 1.11.0 — 2026-11-16
 
+- Reel’s window no longer uses about half a processor core while it’s just sitting there: the FILLERS counter’s glow and the current step in the guide pulsed endlessly in a way that repainted the window 60 times a second. The counter now glows steadily and the guide’s step breathes a few times, then stays lit (0.3% instead of 55% in testing), leaving more of the Mac for exports and the speech model.
+
 - Rust core 1.14: light leak, film burn, vintage film burn, glitch, lens flare sweep, fast wipe, letterbox, radial shutter, glitch blocks and vertigo ramp transitions, and film grain, are drawn by the core itself (checked against the editor’s drawing). Only the text reveal is still drawn by the editor in a core export (with turned phone videos, SVG and GIF pictures, and transitions on titles).
 
 - Rust core export (Settings › Processing, experimental): an edit with a text reveal, a glitch, film burn, light leak, vertigo or radial-shutter transition, a turned phone video, an SVG or GIF, or a clip played backwards no longer sends the whole export the usual way. Just those moments are drawn by the editor and handed to the core; the rest is the core’s. The finished export says how many frames the editor drew.

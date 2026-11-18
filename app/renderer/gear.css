@@ -657,8 +657,8 @@ input.switch:focus-visible, .row > input[type=checkbox]:focus-visible { outline:
   letter-spacing: .16em; color: #2a2620; background: linear-gradient(#e9e5dc, #b9b3a8 60%, #8e887e);
   box-shadow: inset 0 1px 0 rgba(255,255,255,.7), 0 2px 0 #000; transform: translateY(-1px); }
 /* the fillers counter: the window lit amber from behind, the units drum the same ivory as the rest */
-.deck-index.tally .drum-window { cursor: pointer; box-shadow: inset 0 2px 3px rgba(0,0,0,.95), 0 0 0 1px #8a6a1c, 0 0 10px 1px rgba(255,180,60,.55);
-  animation: tally-glow 2.4s ease-in-out infinite; }
+/* (a steady glow: an endless glowing pulse here repainted the deck 60 times a second, half a processor core while idle) */
+.deck-index.tally .drum-window { cursor: pointer; box-shadow: inset 0 2px 3px rgba(0,0,0,.95), 0 0 0 1px #8a6a1c, 0 0 8px 1px rgba(255,180,60,.45); }
 .deck-index.tally .drum.units { background: linear-gradient(#8f897e, #efe9dc 30%, #fbf7ee 50%, #efe9dc 70%, #8f897e); }
 .deck-index.tally .drum.units .drum-strip span { color: #1d1a16; }
 .deck-index.tally .deck-zero { color: #3a2a06; background: linear-gradient(#ffe7a8, #e8b84c 60%, #a8781e); cursor: pointer; }
@@ -1309,9 +1309,14 @@ body.simple #toolstrip .more-tools { border-style: dashed; }
 #guide .g-step i { display: grid; place-items: center; width: 24px; height: 24px; border-radius: 50%; font-style: normal; background: rgba(255,255,255,0.12); color: var(--text); }
 #guide .g-step.done { color: #7fd17a; } #guide .g-step.done i { background: #3f9a3a; color: #fff; }
 #guide .g-step.done i::before { content: '✓'; } #guide .g-step.done i { font-size: 0; } #guide .g-step.done i::before { font-size: 13px; }
-#guide .g-step.now { background: linear-gradient(#ffe39a, #f0a51e); color: var(--lit-ink); box-shadow: 0 0 12px rgba(var(--glow-a),0.5); animation: g-pulse 2.4s ease-in-out infinite; }
+#guide .g-step.now { background: linear-gradient(#ffe39a, #f0a51e); color: var(--lit-ink); box-shadow: 0 0 4px rgba(var(--glow-a),0.3); position: relative; }
+/* its glow breathes a few times, then stays: a fade of a layer of its own (an endless box-shadow pulse here kept the
+   window repainting, about half a processor core while idle) */
+#guide .g-step.now::after { content: ""; position: absolute; inset: 0; border-radius: inherit; pointer-events: none; box-shadow: 0 0 12px rgba(var(--glow-a),0.55);
+  will-change: opacity; animation: g-pulse 2.4s ease-in-out 4; }
 #guide .g-step.now i { background: var(--lit-ink); color: #ffd36b; }
-@keyframes g-pulse { 50% { box-shadow: 0 0 2px rgba(var(--glow-a),0.2); } }
+@keyframes g-pulse { 50% { opacity: 0.15; } }
+@media (prefers-reduced-motion: reduce) { #guide .g-step.now::after { animation: none; } }
 #guide .g-arrow { color: var(--text-faint); font-size: 16px; }
 #guide .g-hint { flex: 1; min-width: 0; margin-left: 10px; font-size: 13px; line-height: 1.35; color: var(--text); }
 #guide .g-x { flex: none; border: 0; background: transparent; color: var(--text-faint); font: 700 10px var(--font-engrave, sans-serif); letter-spacing: .12em; cursor: pointer; }
