@@ -60,8 +60,10 @@ JavaScript runs, as before). When little JavaScript is left, the window itself c
      about (glitch blocks, the vertigo ramp's hold): written down by lib/fxshapes.js from
      the editor's own drawing code (shared with it) and drawn by ink.rs with the canvas's blend modes. Each checked
      against the editor's drawing in Chrome (mostly within 1 level in 255; 40–55 dB).
+   - **Done (1.14):** turned phone videos (the decoder's frames as stored, turned by the plan: the same to the pixel)
+     and SVG and GIF pictures (a PNG of what the editor shows, made for the export and removed after).
    - Still the editor's (drawn whole and handed to the core): the text reveal (the picture cut to the shape of
-     words); a turned phone video; SVG and GIF pictures; transition effects on a title or graphic.
+     words), transition effects on a title or graphic, filters or pointer effects on a turned phone video.
    - Next: those, then the setting comes on by default.
 6. **Recording:** screen, window and camera through ScreenCaptureKit.
 7. **The window:** a plain Rust interface (egui or Slint), once the pieces above no longer need the browser.

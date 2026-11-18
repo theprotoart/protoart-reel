@@ -34,7 +34,8 @@ export function videoJob(doc, from, to, W, H, fps, { maxSources = 48, cursor = n
       const m = mediaById(doc, l.media);
       if (!m || (m.kind !== 'video' && m.kind !== 'image')) return 'a clip that’s neither a video nor a picture';
       if (m.kind === 'image' && /\.(svg|gif)$/i.test(m.file || '')) return 'an SVG or GIF picture';
-      if ((((m.rotation || 0) % 360) + 360) % 360) return 'a turned phone video';
+      // a turned phone video (1.14): the Mac's decoder gives its frames as they're stored, as the editor's does, and
+      // the plan turns them (checked against the editor's drawing: the same to the pixel)
     }
     return null;
   };

@@ -75,6 +75,7 @@ contextBridge.exposeInMainWorld('reel', {
   recBegin: (token, tracks, apps, input) => invoke('rec:begin', token, tracks, apps, input),
   recChunk: (id, data) => ipcRenderer.send('rec:chunk', id, data),
   recFree: token => invoke('rec:free', token),
+  stillPng: (token, file, bytes) => invoke('media:stillPng', token, file, bytes),
   recEnd: (ids, meta, stayHidden) => invoke('rec:end', ids, meta, stayHidden === true),
   recCancel: ids => invoke('rec:cancel', ids),
   recPause: paused => invoke('rec:pause', paused),

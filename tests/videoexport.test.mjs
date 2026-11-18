@@ -62,6 +62,10 @@ test('a video export plan: each clip read once at the size it needs, or why not'
   assert.deepEqual(g.wholeWhy, ['an SVG or GIF picture']);
   // mostly the editor's: the usual export instead
   assert.match(videoJob(svgDoc(1.8), 0, 2, 320, 180, 10).why, /SVG/);
+  // a turned phone video (1.14): the core's, read as stored and turned by the plan
+  const ph = videoJob({ ...docOf([clip('p', 'ph', 't1', 0, 2)]), media: [{ id: 'ph', kind: 'video', file: 'phone.mov', width: 360, height: 640, rotation: 90 }] }, 0, 2, 320, 180, 10);
+  assert.ok(!ph.why && !ph.whole.length, ph.why || String(ph.whole));
+  assert.equal(ph.sources[0].file, 'phone.mov');
   // a glitch, a light leak, a radial shutter (1.14): drawn by the core itself, as ink after the clip
   for (const type of ['glitch', 'glitch-blocks', 'vertigo', 'light-leak', 'film-burn', 'shutter', 'flare-sweep', 'letterbox', 'fast-wipe', 'film-burn-vintage']) {
     // (a fast wipe rides on a crossfade between two clips)

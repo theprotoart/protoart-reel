@@ -2,6 +2,8 @@
 
 ## 1.11.0 — 2026-11-16
 
+- Rust core export: turned phone videos (checked against the editor’s drawing, the same to the pixel) and SVG and GIF pictures (handed to the core as a PNG of what the editor shows, removed after the export) are now the core’s too. Only the text reveal and transitions on titles are still drawn by the editor.
+
 - With word-for-word speech set up, a new recording’s microphone is written down in the background while you’re not working (after 15 s without a click, never while playing), so 💬 FILLER WORDS on it is instant. Settings › Processing turns it off.
 
 - GET WORD-FOR-WORD SPEECH still finishes if Hugging Face starts asking for a login or licence agreement before the CrisperWhisper 2.0 download: it gets the first CrisperWhisper instead (open to download, same licence), and says so.

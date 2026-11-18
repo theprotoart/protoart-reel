@@ -2045,6 +2045,16 @@ handle('fx:source', async (token, mediaFile) => {
   return fxSourceFor(p, mediaFile);
 });
 /** The editor decodes media to 48 kHz float and streams it here (begin / chunks / end). */
+// an SVG or GIF picture as a plain PNG (1.14), for an export the Rust core draws: the editor draws the picture as it
+// shows it (a GIF's first frame, an SVG at its own size) and the core reads that, beside the original
+handle('media:stillPng', async (token, mediaFile, bytes) => {
+  const p = projectOf(token);
+  if (!validate.mediaName(mediaFile) || !(bytes instanceof Uint8Array) || bytes.length > 64 << 20 || bytes[1] !== 0x50 || bytes[2] !== 0x4e || bytes[3] !== 0x47) throw new Error('Bad picture');
+  // a name of its own (never one of yours: an existing file is never written over)
+  const name = await freeMediaName(p, `${validate.fileStem(path.basename(mediaFile, path.extname(mediaFile))).replace(/\s+/g, '-').slice(0, 60)}-reelstill.png`);
+  await writeAtomic(path.join(mediaDir(p), name), Buffer.from(bytes));
+  return name;
+});
 handle('fx:upBegin', async (token, purpose, mediaFile, channels) => {
   const p = projectOf(token);
   const ch = channels === 2 ? 2 : 1;
@@ -2124,7 +2134,7 @@ handle('fx:renderFile', async (token, source, chain) => {
 });
 handle('fx:removeTemp', async (token, name) => {
   const p = projectOf(token);
-  if (validate.mediaName(name) && /^(master-mix|master-mastered|fxprev-)/.test(name)) await fs.promises.rm(path.join(mediaDir(p), name), { force: true });
+  if (validate.mediaName(name) && (/^(master-mix|master-mastered|fxprev-)/.test(name) || /-reelstill(-\d+)?\.png$/.test(name))) await fs.promises.rm(path.join(mediaDir(p), name), { force: true });
 });
 
 on('dirty', d => { if (win) win.setDocumentEdited(!!d); });

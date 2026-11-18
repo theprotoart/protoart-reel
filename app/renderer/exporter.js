@@ -440,7 +440,24 @@ export function openExport(app) {
       for (const f of new Set(doc.clips.flatMap(c => (c.filters || []).filter(x => x.type === 'lut' && x.file && !x.off).map(x => x.file)))) {
         try { luts.set(f, parseCube(await (await fetch(`app://reel/m/${app.token}/${encodeURIComponent(f)}`)).text())); } catch { /* that clip goes the usual way */ }
       }
-      const job = videoJob(doc, from, to, w, hh, fps0, { cursor, samples: st.motionBlur ? 4 : 1, luts });
+      // SVG and GIF pictures (1.14): as PNGs of what the editor draws (its first frame, its own size), for the core
+      let coreDoc = doc;
+      const stills = doc.media.filter(m => m.kind === 'image' && /\.(svg|gif)$/i.test(m.file || '') && doc.clips.some(c => c.media === m.id && c.start < to && c.start + c.duration > from));
+      if (stills.length && app.api.stillPng) {
+        coreDoc = structuredClone(doc);
+        for (const m of stills) {
+          try {
+            const bmp = await createImageBitmap(await (await fetch(`app://reel/m/${app.token}/${encodeURIComponent(m.file)}`)).blob());
+            const cv = new OffscreenCanvas(bmp.width, bmp.height); cv.getContext('2d').drawImage(bmp, 0, 0);
+            const png = new Uint8Array(await (await cv.convertToBlob({ type: 'image/png' })).arrayBuffer());
+            const file = await app.api.stillPng(app.token, m.file, png);
+            const cm = coreDoc.media.find(x => x.id === m.id);
+            Object.assign(cm, { file, width: bmp.width, height: bmp.height });
+            temps.push(file);
+          } catch { /* that one's frames stay the editor's */ }
+        }
+      }
+      const job = videoJob(coreDoc, from, to, w, hh, fps0, { cursor, samples: st.motionBlur ? 4 : 1, luts });
       if (job.why) usual = `drawn the usual way: ${job.why}`;
       else {
         let sound = masterFile;
