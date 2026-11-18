@@ -1,5 +1,6 @@
 // Recording: pick a screen or window, camera, microphone and computer audio; count down;
 // record each source to its own file (like ScreenFlow), then lay them out on the timeline.
+import { transcribeLater } from './vbbackground.js';
 import { el, $, modal, toast } from './ui.js';
 import { audioDevices, fillSelect, permissionNote } from './devices.js';
 import { can, gate } from './capability.js';
@@ -471,6 +472,8 @@ async function record(app, st, part = 1) {
     // pointer track starts when the files are opened; the screen picture a moment later
     const cursorOffset = ((starts.screen ?? first) - tBegin) / 1000;
     app.addRecording(res, { cursorOffset, appLead: (first - tBegin) / 1000, source: st.source, pointerSeparate, keys: !!st.keys, marks: res.marks || [] });
+    // its microphone written down word for word while you're not working, so FILLER WORDS on it is instant (1.11)
+    { const files = new Set((res.media || []).filter(r => !r.error && r.role === 'mic').map(r => r.file)); if (files.size) transcribeLater(app, app.doc.media.filter(m => files.has(m.file)).map(m => m.id)); }
     // a take whose picture came out damaged: said at once, loudly, while it's easy to record again
     const bad = (res.media || []).filter(r => r.damaged);
     if (bad.length) warnDamaged(app, bad);

@@ -2,6 +2,8 @@
 
 ## 1.11.0 — 2026-11-16
 
+- With word-for-word speech set up, a new recording’s microphone is written down in the background while you’re not working (after 15 s without a click, never while playing), so 💬 FILLER WORDS on it is instant. Settings › Processing turns it off.
+
 - GET WORD-FOR-WORD SPEECH still finishes if Hugging Face starts asking for a login or licence agreement before the CrisperWhisper 2.0 download: it gets the first CrisperWhisper instead (open to download, same licence), and says so.
 
 - Recording watches the free space on the drive it records to: below 5 GB it says so (with about how many minutes are left at the rate it’s filling), and at 1.5 GB it stops and saves the recording by itself, before a full drive can cut it off and damage it.
