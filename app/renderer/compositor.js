@@ -9,6 +9,7 @@ import { filterParams, needsGl } from './lib/glfx.js';
 import { stabilizeAt } from './lib/stabilize.js';
 import { drawElement, isBackgroundElement } from './lib/elements.js';
 import { polyPoints } from './lib/sketch.js';
+import { hash2, shutterGeom, SHUTTER_N } from './lib/fxshapes.js';
 
 /**
  * ctx: CanvasRenderingContext2D or OffscreenCanvasRenderingContext2D sized to the output.
@@ -180,15 +181,7 @@ export function mediaRect(doc, m, p, W, H, srcW, srcH) {
  * Radial shutter (a camera's iris): seven blades turning around the middle. k is how open it is (0 shut, 1 gone).
  * shutterPoly traces the opening; shutterBlades draws the metal blades everywhere outside it.
  */
-const SHUTTER_N = 7;
-function shutterGeom(k, W, H) {
-  const e = Math.max(0, Math.min(1, k)), s = e * e * (3 - 2 * e);
-  const cx = W / 2, cy = H / 2, full = Math.hypot(W, H) / 2 / Math.cos(Math.PI / SHUTTER_N) * 1.04;
-  const r = full * s, rot = -Math.PI / 2 + (1 - s) * (2 * Math.PI / SHUTTER_N) * 1.6; // the blades turn as they open
-  const v = [];
-  for (let i = 0; i < SHUTTER_N; i++) { const a = rot + i * 2 * Math.PI / SHUTTER_N; v.push([cx + r * Math.cos(a), cy + r * Math.sin(a)]); }
-  return { v, r, cx, cy, far: Math.hypot(W, H) * 1.5, rot };
-}
+// (shutterGeom and SHUTTER_N: lib/fxshapes.js, shared with the Rust core's plan)
 export function shutterPoly(ctx, k, W, H) {
   const { v } = shutterGeom(k, W, H);
   v.forEach(([x, y], i) => (i ? ctx.lineTo(x, y) : ctx.moveTo(x, y))); ctx.closePath();
@@ -259,7 +252,6 @@ function maskPath(ctx, m, W, H) {
     default: ctx.rect(0, 0, W, H);
   }
 }
-const hash2 = (a, b) => { const r = Math.sin(a * 12.9898 + b * 78.233) * 43758.5453; return r - Math.floor(r); };
 let scratch = null;
 function scratchCanvas(W, H) {
   if (!scratch) scratch = typeof OffscreenCanvas !== 'undefined' ? new OffscreenCanvas(W, H) : document.createElement('canvas');

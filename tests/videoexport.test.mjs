@@ -52,14 +52,22 @@ test('a video export plan: each clip read once at the size it needs, or why not'
   assert.ok(!pic.why, pic.why);
   assert.ok(pic.sources.some(s => s.file === 'logo.png' && s.w <= 400));
   assert.match(videoJob({ ...doc, media: [...doc.media, { id: 'g', kind: 'image', file: 'a.gif', width: 40, height: 40 }], clips: [clip('c4', 'g', 't1', 0, 2)] }, 0, 2, 320, 180, 10).why, /GIF/);
-  // a glitch on the way in (1.14): those frames are the editor's, drawn whole; the rest stays the core's
-  const g = videoJob(docOf([{ ...clip('c1', 'a', 't1', 0, 2), transIn: { type: 'glitch', dur: 0.5 } }]), 0, 2, 320, 180, 10);
+  // a vertigo ramp on the way in (1.14): it reads the picture, so those frames are the editor's, drawn whole; the
+  // rest stays the core's
+  const g = videoJob(docOf([{ ...clip('c1', 'a', 't1', 0, 2), transIn: { type: 'vertigo', dur: 0.5 } }]), 0, 2, 320, 180, 10);
   assert.ok(!g.why, g.why);
-  assert.deepEqual(g.whole, [0, 1, 2, 3, 4], 'the half second of the glitch');
+  assert.ok(g.whole.length >= 3 && g.whole.every(i => i < 5), `the half second of the ramp (${g.whole})`);
   assert.deepEqual(g.overlays, g.whole);
-  assert.deepEqual(g.wholeWhy, ['transition effects']);
+  assert.deepEqual(g.wholeWhy, ['a vertigo ramp']);
   // mostly the editor's: the usual export instead
-  assert.match(videoJob(docOf([{ ...clip('c1', 'a', 't1', 0, 2), transIn: { type: 'glitch', dur: 1.8 } }]), 0, 2, 320, 180, 10).why, /transition/);
+  assert.match(videoJob(docOf([{ ...clip('c1', 'a', 't1', 0, 2), transIn: { type: 'vertigo', dur: 1.8 } }]), 0, 2, 320, 180, 10).why, /vertigo/);
+  // a glitch, a light leak, a radial shutter (1.14): drawn by the core itself, as ink after the clip
+  for (const type of ['glitch', 'light-leak', 'film-burn', 'shutter', 'flare-sweep', 'letterbox', 'fast-wipe', 'film-burn-vintage']) {
+    // (a fast wipe rides on a crossfade between two clips)
+    const j = videoJob(docOf([{ ...clip('c1', 'a', 't1', 0, 2), transIn: { type, dur: 0.5 }, ...(type === 'fast-wipe' ? { xfadeIn: 1 } : {}) }]), 0, 2, 320, 180, 10);
+    assert.ok(!j.why && !j.whole.length, `${type}: ${j.why || j.whole}`);
+    assert.equal(j.core, 14, `${type} needs the 1.14 core`);
+  }
   // played backwards: a decoder reads forwards only
   const back = videoJob(docOf([clip('c1', 'a', 't1', 0, 2, {}, { retime: [{ t: 0, s: 2 }, { t: 2, s: 0 }] })]), 0, 2, 320, 180, 10);
   assert.ok(back.why == null || /backwards/.test(back.why));
@@ -220,7 +228,7 @@ f.on('close', c => process.exit(c));
   } finally { fs.rmSync(dir, { recursive: true, force: true }); }
 });
 
-test('frames the core can’t draw yet are the editor’s, whole, and the rest still the core’s (1.14)', { skip }, async () => {
+test('frames the core can’t draw yet (a vertigo ramp) are the editor’s, whole, and the rest still the core’s (1.14)', { skip }, async () => {
   const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'vexp-'));
   try {
     execFileSync(ffmpeg, ['-v', 'error', '-f', 'lavfi', '-i', 'testsrc2=s=640x360:r=25:d=3', '-pix_fmt', 'yuv420p', path.join(dir, 'a.mp4')]);
@@ -250,9 +258,9 @@ process.stdin.on('end', () => { raw.end(); f.stdin.end(); });
 f.on('close', c => process.exit(c));
 `, { mode: 0o755 });
     const W = 320, H = 180, fps = 10;
-    const doc = docOf([{ ...clip('c1', 'a', 't1', 0, 2), transIn: { type: 'glitch', dur: 0.5 } }]);
+    const doc = docOf([{ ...clip('c1', 'a', 't1', 0, 2), transIn: { type: 'vertigo', dur: 0.5 } }]);
     const job = videoJob(doc, 0, 2, W, H, fps);
-    assert.deepEqual(job.whole, [0, 1, 2, 3, 4]);
+    assert.ok(job.whole.length >= 3, `${job.whole}`);
     // what sendOverlays sends for an editor frame: the whole frame as one picture (here, one flat colour per frame)
     const editorFrame = k => { const b = Buffer.alloc(4 + 1 + 16 + W * H * 4); b.writeUInt32LE(1, 0); b[4] = 0; [0, 0, W, H].forEach((v, i) => b.writeUInt32LE(v, 5 + i * 4)); for (let i = 0; i < W * H; i++) b.set([10 + k * 40, 200 - k * 30, 77, 255], 21 + i * 4); return b; };
     const out = path.join(dir, 'out.mp4');
@@ -261,11 +269,11 @@ f.on('close', c => process.exit(c));
       overlay: true, onOverlay: w => { (async () => { for (const [k] of job.overlays.entries()) { if (!w.write(editorFrame(k))) await new Promise(r => w.once('drain', r)); } w.end(); })(); } });
     assert.equal(r.frames, 20);
     const raw = fs.readFileSync(out + '.raw');
-    for (const k of [0, 2, 4]) {
-      const f = raw.subarray(k * W * H * 4, (k + 1) * W * H * 4);
+    for (const [k, fi] of job.whole.entries()) {
+      const f = raw.subarray(fi * W * H * 4, (fi + 1) * W * H * 4);
       let diff = 0;
       for (let p = 0; p < f.length; p += 4) if (f[p] !== 77 || f[p + 1] !== 200 - k * 30 || f[p + 2] !== 10 + k * 40) diff++; // BGRA
-      assert.equal(diff, 0, `editor frame ${k}: ${diff} pixels differ`);
+      assert.equal(diff, 0, `editor frame ${fi}: ${diff} pixels differ`);
     }
     // after the glitch: the core's own drawing (the video, not a flat colour)
     const f10 = raw.subarray(10 * W * H * 4, 11 * W * H * 4), seen = new Set();

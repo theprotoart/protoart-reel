@@ -20,6 +20,22 @@ pub enum Shape {
     /// A closed outline, filled; with a soft shadow under it (blur as the canvas's shadowBlur and dy, canvas
     /// pixels: the canvas doesn't scale shadows) and an outline over it (w wide, round corners).
     Poly { pts: Vec<(f64, f64)>, fill: [f64; 4], stroke: Option<(f64, [f64; 4])>, shadow: Option<(f64, f64, [f64; 4])> },
+    // 1.14: the transitions that paint over the picture (light leak, film burn, glitch bars, lens flare, a fast wipe's
+    // streak, letterbox bars, the radial shutter's blades, film grain), as compositor.js draws them
+    /// How the shapes after it are laid down: 0 over, 1 screen, 2 lighter (added), 3 overlay — the canvas's
+    /// globalCompositeOperation.
+    Mode(u8),
+    /// A gradient with any number of stops (t 0..1, colour), as the canvas's createRadialGradient (two circles round
+    /// one middle: a = [x, y, r0, r1]) or createLinearGradient (lin: a = [x0, y0, x1, y1]); each end colour kept
+    /// beyond it. Fills the outline `area`.
+    Stops { lin: bool, a: [f64; 4], stops: Vec<(f64, [f64; 4])>, area: Vec<(f64, f64)> },
+    /// The shapes after it only outside this outline (the canvas's even-odd clip of the frame minus it); None: anywhere.
+    Except(Option<Vec<(f64, f64)>>),
+    /// Film grain (compositor.js filmGrain): its 256 × 256 noise tile, shifted (ox, oy), laid over in overlay mode at
+    /// opacity a.
+    Grain { ox: f64, oy: f64, a: f64 },
+    /// A soft line just inside an outline (the shutter's rim): a stroke w wide along it, blurred (sigma), kept inside.
+    Rim { pts: Vec<(f64, f64)>, w: f64, sigma: f64, c: [f64; 4] },
 }
 
 pub struct Ink { pub m: [f64; 6], pub clip: Option<[f64; 4]>, pub cut: Option<Look>, pub shapes: Vec<Shape> }
@@ -66,10 +82,50 @@ fn bounds(m: &[f64; 6], r: [f64; 4], pad: f64, w: usize, h: usize) -> (usize, us
 
 /// Lays colour c over a pixel, covering k of it.
 #[inline]
-fn over(o: &mut [f64; 3], c: &[f64; 4], k: f64) {
+fn over(o: &mut [f64; 3], c: &[f64; 4], k: f64) { blend(o, c, k, 0) }
+/// Colour c onto a pixel, covering k of it, by the canvas's mode (Mode above; the frame under is opaque).
+#[inline]
+fn blend(o: &mut [f64; 3], c: &[f64; 4], k: f64, mode: u8) {
     let a = (c[3] * k).clamp(0.0, 1.0);
     if a <= 0.0 { return; }
-    for ch in 0..3 { o[ch] = c[ch] * a + o[ch] * (1.0 - a); }
+    for ch in 0..3 {
+        let (b, s) = (o[ch], c[ch]);
+        o[ch] = match mode {
+            1 => b + a * (s - s * b / 255.0),
+            2 => (b + a * s).min(255.0),
+            3 => { let (bb, ss) = (b / 255.0, s / 255.0); let m = if bb <= 0.5 { 2.0 * bb * ss } else { 1.0 - 2.0 * (1.0 - bb) * (1.0 - ss) }; b + a * (m * 255.0 - b) }
+            _ => s * a + b * (1.0 - a),
+        };
+    }
+}
+/// The colour of a gradient at t (its stops sorted), mixed with opacity (premultiplied), as Grad.
+fn stop_at(stops: &[(f64, [f64; 4])], t: f64) -> [f64; 4] {
+    let n = stops.len();
+    if t <= stops[0].0 { return stops[0].1; }
+    if t >= stops[n - 1].0 { return stops[n - 1].1; }
+    let mut i = 0;
+    while i + 1 < n && stops[i + 1].0 < t { i += 1; }
+    let ((t0, c0), (t1, c1)) = (stops[i], stops[i + 1]);
+    let u = if t1 > t0 { (t - t0) / (t1 - t0) } else { 1.0 };
+    let a = c0[3] * (1.0 - u) + c1[3] * u;
+    if a <= 0.0 { return [0.0, 0.0, 0.0, 0.0]; }
+    let mut c = [0.0, 0.0, 0.0, a];
+    for ch in 0..3 { c[ch] = c0[ch] * (1.0 - u) + c1[ch] * u; }
+    c
+}
+/// compositor.js filmGrain's tile: 256 × 256 greys from its seeded generator, as the canvas's ImageData keeps them.
+fn grain_tile() -> &'static [u8] {
+    static TILE: std::sync::OnceLock<Vec<u8>> = std::sync::OnceLock::new();
+    TILE.get_or_init(|| {
+        let mut seed: u64 = 7;
+        (0..256 * 256).map(|_| { seed = (seed * 16807) % 2147483647; let v = 128.0 + (seed as f64 / 2147483647.0 - 0.5) * 255.0; v.clamp(0.0, 255.0).round_ties_even() as u8 }).collect()
+    })
+}
+/// erf, to within 1.5e-7 (Abramowitz and Stegun 7.1.26): a blurred edge's cover.
+fn erf(x: f64) -> f64 {
+    let t = 1.0 / (1.0 + 0.3275911 * x.abs());
+    let y = 1.0 - (((((1.061405429 * t - 1.453152027) * t) + 1.421413741) * t - 0.284496736) * t + 0.254829592) * t * (-x * x).exp();
+    if x < 0.0 { -y } else { y }
 }
 
 /// Draws an ink layer onto acc (w × h, opaque RGB 0..255) at opacity alpha.
@@ -89,8 +145,11 @@ pub fn draw(acc: &mut [[f64; 3]], w: usize, h: usize, ink: &Ink, alpha: f64) {
         }
         c
     };
+    // what the shapes are laid down with (Mode), and where they can't go (Except)
+    let mut mode = 0u8;
+    let mut except: Option<&Vec<(f64, f64)>> = None;
     // runs f(local u, v, canvas x, y) → (colour, cover) over the canvas pixels a part of the clip's space covers
-    let paint = |acc: &mut [[f64; 3]], area: [f64; 4], f: &(dyn Fn(f64, f64) -> Option<([f64; 4], f64)> + Sync)| {
+    let paint = |acc: &mut [[f64; 3]], area: [f64; 4], mode: u8, except: Option<&Vec<(f64, f64)>>, f: &(dyn Fn(f64, f64) -> Option<([f64; 4], f64)> + Sync)| {
         let area = match ink.clip { Some(r) => [area[0].max(r[0]), area[1].max(r[1]), area[2].min(r[2]), area[3].min(r[3])], None => area };
         if area[2] <= area[0] || area[3] <= area[1] { return; }
         let (x0, x1, y0, y1) = bounds(&ink.m, area, 1.0, w, h);
@@ -102,8 +161,9 @@ pub fn draw(acc: &mut [[f64; 3]], w: usize, h: usize, ink: &Ink, alpha: f64) {
                 let (u, v) = local(cx, cy);
                 let Some((c, cov)) = f(u, v) else { continue };
                 if cov <= 0.0 { continue; }
-                let kk = cov * keep(cx, cy, u, v) * alpha;
-                over(&mut row[x], &c, kk);
+                let mut kk = cov * keep(cx, cy, u, v) * alpha;
+                if let Some(ex) = except { kk *= (0.5 + poly_dist(ex, u, v) * k).clamp(0.0, 1.0); }
+                blend(&mut row[x], &c, kk, mode);
             }
         });
     };
@@ -123,16 +183,16 @@ pub fn draw(acc: &mut [[f64; 3]], w: usize, h: usize, ink: &Ink, alpha: f64) {
                     for ch in 0..3 { c[ch] = (c0[ch] * c0[3] * (1.0 - t) + c1[ch] * c1[3] * t) / a; }
                     Some((c, 1.0))
                 };
-                paint(acc, area, &f);
+                paint(acc, area, mode, except, &f);
             }
             Shape::Disc { x, y, r, c } => {
                 let (x, y, r, c) = (*x, *y, *r, *c);
-                paint(acc, [x - r, y - r, x + r, y + r], &move |u, v| Some((c, (0.5 - ((u - x).hypot(v - y) - r) * k).clamp(0.0, 1.0))));
+                paint(acc, [x - r, y - r, x + r, y + r], mode, except, &move |u, v| Some((c, (0.5 - ((u - x).hypot(v - y) - r) * k).clamp(0.0, 1.0))));
             }
             Shape::Ring { x, y, r, w: lw, c } => {
                 let (x, y, r, lw, c) = (*x, *y, *r, *lw, *c);
                 let o = r + lw / 2.0;
-                paint(acc, [x - o, y - o, x + o, y + o], &move |u, v| Some((c, (0.5 - (((u - x).hypot(v - y) - r).abs() - lw / 2.0) * k).clamp(0.0, 1.0))));
+                paint(acc, [x - o, y - o, x + o, y + o], mode, except, &move |u, v| Some((c, (0.5 - (((u - x).hypot(v - y) - r).abs() - lw / 2.0) * k).clamp(0.0, 1.0))));
             }
             Shape::Poly { pts, fill, stroke, shadow } => {
                 if pts.len() < 3 { continue; }
@@ -142,14 +202,99 @@ pub fn draw(acc: &mut [[f64; 3]], w: usize, h: usize, ink: &Ink, alpha: f64) {
                 let area = [a0 - sw, b0 - sw, a1 + sw, b1 + sw];
                 if let Some((blur, dy, sc)) = shadow { soft_shadow(acc, w, h, ink, &im, k, pts, area, *blur, *dy, sc, alpha, &keep); }
                 let fill = *fill;
-                paint(acc, area, &|u, v| Some((fill, (0.5 - poly_dist(pts, u, v) * k).clamp(0.0, 1.0))));
+                paint(acc, area, mode, except, &|u, v| Some((fill, (0.5 - poly_dist(pts, u, v) * k).clamp(0.0, 1.0))));
                 if let Some((lw, sc)) = stroke {
                     let (lw, sc) = (*lw, *sc);
-                    paint(acc, area, &|u, v| Some((sc, (0.5 - (poly_dist(pts, u, v).abs() - lw / 2.0) * k).clamp(0.0, 1.0))));
+                    paint(acc, area, mode, except, &|u, v| Some((sc, (0.5 - (poly_dist(pts, u, v).abs() - lw / 2.0) * k).clamp(0.0, 1.0))));
                 }
+            }
+            Shape::Mode(m) => mode = *m,
+            Shape::Except(e) => except = e.as_ref(),
+            Shape::Stops { lin, a, stops, area } => {
+                if stops.is_empty() || area.len() < 3 { continue; }
+                let (mut a0, mut a1, mut b0, mut b1) = (f64::MAX, f64::MIN, f64::MAX, f64::MIN);
+                for &(u, v) in area { a0 = a0.min(u); a1 = a1.max(u); b0 = b0.min(v); b1 = b1.max(v); }
+                let (lin, g) = (*lin, *a);
+                let (dx, dy) = (g[2] - g[0], g[3] - g[1]);
+                let l2 = dx * dx + dy * dy;
+                paint(acc, [a0, b0, a1, b1], mode, except, &|u, v| {
+                    let t = if lin { if l2 > 0.0 { ((u - g[0]) * dx + (v - g[1]) * dy) / l2 } else { 0.0 } }
+                        else { let d = (u - g[0]).hypot(v - g[1]); if g[3] > g[2] { (d - g[2]) / (g[3] - g[2]) } else if d < g[2] { 0.0 } else { 1.0 } };
+                    let c = stop_at(stops, t.clamp(0.0, 1.0));
+                    if c[3] <= 0.0 { return None; }
+                    Some((c, (0.5 - poly_dist(area, u, v) * k).clamp(0.0, 1.0)))
+                });
+            }
+            Shape::Grain { ox, oy, a } => {
+                let tile = grain_tile();
+                let (ox, oy, ga) = (*ox as i64, *oy as i64, *a);
+                let ex = except;
+                par_rows(acc, w, |y, row| {
+                    let ty = (((y as i64 + oy) % 256 + 256) % 256) as usize;
+                    for (x, px) in row.iter_mut().enumerate() {
+                        let tx = (((x as i64 + ox) % 256 + 256) % 256) as usize;
+                        let g = tile[ty * 256 + tx] as f64;
+                        let mut kk = alpha;
+                        if let Some(e) = ex { let (u, v) = local(x as f64 + 0.5, y as f64 + 0.5); kk *= (0.5 + poly_dist(e, u, v) * k).clamp(0.0, 1.0); }
+                        blend(px, &[g, g, g, ga], kk, 3);
+                    }
+                });
+            }
+            Shape::Rim { pts, w: lw, sigma, c } => {
+                if pts.len() < 3 { continue; }
+                let (mut a0, mut a1, mut b0, mut b1) = (f64::MAX, f64::MIN, f64::MAX, f64::MIN);
+                for &(u, v) in pts { a0 = a0.min(u); a1 = a1.max(u); b0 = b0.min(v); b1 = b1.max(v); }
+                // a small opening (the shutter nearly shut): the blur reaches across it, so it's blurred for real
+                if (a1 - a0).max(b1 - b0) * k < 12.0 * sigma * k + lw * k && ink.m == [1.0, 0.0, 0.0, 1.0, 0.0, 0.0] {
+                    rim_small(acc, w, h, pts, *lw, *sigma, c, alpha, mode, except.map(|v| v.as_slice()));
+                    continue;
+                }
+                let (hw, sg, c) = (lw / 2.0, sigma.max(0.01) * std::f64::consts::SQRT_2, *c);
+                // a band hw either side of the edge, blurred: the gaussian's share of it at distance d
+                paint(acc, [a0, b0, a1, b1], mode, except, &|u, v| {
+                    let d = poly_dist(pts, u, v) * k;
+                    if d > 0.5 { return None; }
+                    let cov = 0.5 * (erf((hw - d) / sg) - erf((-hw - d) / sg));
+                    Some((c, cov * (0.5 - d).clamp(0.0, 1.0)))
+                });
             }
         }
     }
+}
+
+/// Rim (above) for a small outline, in canvas pixels: the stroke's cover blurred by a true Gaussian, kept inside.
+#[allow(clippy::too_many_arguments)]
+fn rim_small(acc: &mut [[f64; 3]], w: usize, h: usize, pts: &[(f64, f64)], lw: f64, sigma: f64, c: &[f64; 4], alpha: f64, mode: u8, except: Option<&[(f64, f64)]>) {
+    let sigma = sigma.max(0.01);
+    let pad = (sigma * 3.0).ceil() + lw;
+    let (mut a0, mut a1, mut b0, mut b1) = (f64::MAX, f64::MIN, f64::MAX, f64::MIN);
+    for &(u, v) in pts { a0 = a0.min(u); a1 = a1.max(u); b0 = b0.min(v); b1 = b1.max(v); }
+    let cl = |v: f64, n: usize| v.max(0.0).min(n as f64) as usize;
+    let (x0, x1, y0, y1) = (cl((a0 - pad).floor(), w), cl((a1 + pad).ceil(), w), cl((b0 - pad).floor(), h), cl((b1 + pad).ceil(), h));
+    if x1 <= x0 || y1 <= y0 { return; }
+    let (bw, bh) = (x1 - x0, y1 - y0);
+    let mut m = vec![0f64; bw * bh];
+    for y in 0..bh { for x in 0..bw {
+        let d = poly_dist(pts, (x0 + x) as f64 + 0.5, (y0 + y) as f64 + 0.5);
+        m[y * bw + x] = (0.5 - (d.abs() - lw / 2.0)).clamp(0.0, 1.0);
+    } }
+    let r = (sigma * 3.0).ceil() as i64;
+    let kern: Vec<f64> = (-r..=r).map(|i| (-(i * i) as f64 / (2.0 * sigma * sigma)).exp()).collect();
+    let ks: f64 = kern.iter().sum();
+    let mut t = vec![0f64; bw * bh];
+    for y in 0..bh { for x in 0..bw {
+        let mut s = 0.0;
+        for (j, kv) in kern.iter().enumerate() { let xx = x as i64 + j as i64 - r; if xx >= 0 && (xx as usize) < bw { s += m[y * bw + xx as usize] * kv; } }
+        t[y * bw + x] = s / ks;
+    } }
+    for y in 0..bh { for x in 0..bw {
+        let mut s = 0.0;
+        for (j, kv) in kern.iter().enumerate() { let yy = y as i64 + j as i64 - r; if yy >= 0 && (yy as usize) < bh { s += t[yy as usize * bw + x] * kv; } }
+        let (cx, cy) = ((x0 + x) as f64 + 0.5, (y0 + y) as f64 + 0.5);
+        let mut k = s / ks * (0.5 - poly_dist(pts, cx, cy)).clamp(0.0, 1.0) * alpha;
+        if let Some(e) = except { k *= (0.5 + poly_dist(e, cx, cy)).clamp(0.0, 1.0); }
+        blend(&mut acc[(y0 + y) * w + x0 + x], c, k, mode);
+    } }
 }
 
 /// A shape's shadow: its cover, softened (a Gaussian, sigma = blur / 2, as the canvas's shadowBlur), moved down dy
@@ -209,6 +354,39 @@ mod tests {
         assert_eq!(a[10 * 60 + 30], [100.0; 3], "the pointer's circle stays clear");
         assert!((a[10 * 60 + 45][0] - 50.0).abs() < 1e-6, "dimmed by half further out");
         assert_eq!(a[10 * 60 + 5], [100.0; 3], "outside the picture: untouched");
+    }
+    #[test]
+    fn grain_tile_is_the_editors() {
+        // the first greys compositor.js filmGrain's tile gets (its generator, kept as ImageData keeps them)
+        assert_eq!(&grain_tile()[..8], &[1, 235, 74, 54, 186, 136, 84, 192]);
+    }
+    #[test]
+    fn blend_modes() {
+        let mut o = [100.0, 200.0, 0.0];
+        blend(&mut o, &[255.0, 0.0, 255.0, 1.0], 1.0, 1);
+        assert_eq!(o, [255.0, 200.0, 255.0], "screen: white stays white, black changes nothing");
+        let mut o = [200.0, 10.0, 0.0];
+        blend(&mut o, &[100.0, 100.0, 100.0, 0.5], 1.0, 2);
+        assert_eq!(o, [250.0, 60.0, 50.0], "lighter adds (and stops at white)");
+        let mut o = [255.0, 0.0, 0.0];
+        blend(&mut o, &[255.0, 255.0, 255.0, 1.0], 1.0, 2);
+        assert_eq!(o, [255.0, 255.0, 255.0]);
+        let mut o = [64.0, 191.25, 127.5];
+        blend(&mut o, &[127.5, 127.5, 127.5, 1.0], 1.0, 3);
+        assert!((o[0] - 64.0).abs() < 1e-9 && (o[1] - 191.25).abs() < 1e-9 && (o[2] - 127.5).abs() < 1e-9, "overlay with mid grey changes nothing");
+    }
+    #[test]
+    fn stops_and_outside_only() {
+        // a white-to-clear linear gradient, kept outside a square in the middle, screened over grey
+        let mut a = canvas(40, 10);
+        let full = vec![(0.0, 0.0), (40.0, 0.0), (40.0, 10.0), (0.0, 10.0)];
+        let hole = vec![(15.0, 0.0), (25.0, 0.0), (25.0, 10.0), (15.0, 10.0)];
+        let ink = Ink { m: ID, clip: None, cut: None, shapes: vec![Shape::Mode(1), Shape::Except(Some(hole)),
+            Shape::Stops { lin: true, a: [0.0, 0.0, 40.0, 0.0], stops: vec![(0.0, [255.0, 255.0, 255.0, 1.0]), (1.0, [255.0, 255.0, 255.0, 0.0])], area: full }] };
+        draw(&mut a, 40, 10, &ink, 1.0);
+        assert!(a[5 * 40][0] > 250.0, "white at the start");
+        assert_eq!(a[5 * 40 + 20], [100.0; 3], "nothing inside the hole");
+        assert!(a[5 * 40 + 35][0] > 100.0 && a[5 * 40 + 35][0] < 140.0, "fading out towards the end");
     }
     #[test]
     fn arrow_with_shadow_and_outline() {

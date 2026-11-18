@@ -219,8 +219,16 @@ fn read_ink(inp: &mut Input) -> Result<ink::Ink, String> {
     let n = inp.u32()?;
     if n > 64 { return Err(bad()); }
     let mut shapes = Vec::with_capacity(n);
+    let read_pts = |inp: &mut Input| -> Result<Vec<(f64, f64)>, String> {
+        let np = inp.u32()?;
+        if !(3..=256).contains(&np) { return Err("bad pointer effects".into()); }
+        let mut pts = Vec::with_capacity(np);
+        for _ in 0..np { pts.push((num(inp, BIG)?, num(inp, BIG)?)); }
+        Ok(pts)
+    };
     for _ in 0..n {
-        shapes.push(match inp.u8()? {
+        let k = inp.u8()?;
+        shapes.push(match k {
             0 => { let (x, y, r0, r1) = (num(inp, BIG)?, num(inp, BIG)?, num(inp, BIG)?, num(inp, BIG)?); if r0 < 0.0 || r1 < 0.0 { return Err(bad()); } ink::Shape::Grad { x, y, r0, r1, c0: colour(inp)?, c1: colour(inp)? } }
             1 => { let (x, y, r) = (num(inp, BIG)?, num(inp, BIG)?, num(inp, 1e5)?); if r < 0.0 { return Err(bad()); } ink::Shape::Disc { x, y, r, c: colour(inp)? } }
             2 => { let (x, y, r, w) = (num(inp, BIG)?, num(inp, BIG)?, num(inp, 1e5)?, num(inp, 1e4)?); if r < 0.0 || w < 0.0 { return Err(bad()); } ink::Shape::Ring { x, y, r, w, c: colour(inp)? } }
@@ -234,6 +242,22 @@ fn read_ink(inp: &mut Input) -> Result<ink::Ink, String> {
                 let shadow = if inp.u8()? == 1 { let (b, dy) = (num(inp, 1024.0)?, num(inp, 1024.0)?); if b < 0.0 { return Err(bad()); } Some((b, dy, colour(inp)?)) } else { None };
                 ink::Shape::Poly { pts, fill, stroke, shadow }
             }
+            // 1.14: the transitions that paint over the picture (ink.rs)
+            4 => { let m = inp.u8()?; if m > 3 { return Err(bad()); } ink::Shape::Mode(m) }
+            5 | 6 => {
+                let lin = k == 6;
+                let a = [num(inp, BIG)?, num(inp, BIG)?, num(inp, BIG)?, num(inp, BIG)?];
+                if !lin && (a[2] < 0.0 || a[3] < 0.0) { return Err(bad()); }
+                let ns = inp.u32()?;
+                if !(1..=16).contains(&ns) { return Err(bad()); }
+                let mut stops = Vec::with_capacity(ns);
+                for _ in 0..ns { let t = num(inp, 1.0)?; if t < 0.0 { return Err(bad()); } stops.push((t, colour(inp)?)); }
+                if stops.windows(2).any(|w| w[1].0 < w[0].0) { return Err(bad()); }
+                ink::Shape::Stops { lin, a, stops, area: read_pts(inp)? }
+            }
+            7 => ink::Shape::Except(if inp.u8()? == 1 { Some(read_pts(inp)?) } else { None }),
+            8 => { let (ox, oy, a) = (num(inp, 1e5)?, num(inp, 1e5)?, num(inp, 1.0)?); if a < 0.0 { return Err(bad()); } ink::Shape::Grain { ox, oy, a } }
+            9 => { let pts = read_pts(inp)?; let (w, sigma) = (num(inp, 1e4)?, num(inp, 1e3)?); if w < 0.0 || sigma < 0.0 { return Err(bad()); } ink::Shape::Rim { pts, w, sigma, c: colour(inp)? } }
             _ => return Err(bad()),
         });
     }

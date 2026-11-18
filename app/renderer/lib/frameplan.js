@@ -10,6 +10,7 @@ import { activeClips, animated, propsAt, mediaById, sourceTime } from '../model.
 import { stabilizeAt } from './stabilize.js';
 import { filterParams, needsGl } from './glfx.js';
 import { isBackgroundElement } from './elements.js';
+import { effectShapes, shutterGeom } from './fxshapes.js';
 
 const clamp = (v, a, b) => Math.max(a, Math.min(b, v));
 /** a·b for canvas matrices [a, b, c, d, e, f] (x' = a x + c y + e, y' = b x + d y + f), b applied first */
@@ -62,13 +63,18 @@ export function framePlan(doc, t, W, H, size = m => ({ w: m.width || 0, h: m.hei
     }
     const local = t - k.start;
     const c = animated(k, local), p = propsAt(c, local);
-    if (p.textMask || (p.shutter != null && p.shutter < 1) || p.vertigo || p.blocks > 0.03 || p.streak || p.holes > 0.02 || p.glitch > 0.05 || p.leak > 0.01 || p.grain > 0.02 || p.flare || (p.bars || 0) > 0.001)
-      return { why: 'transition effects' };
+    // the transitions that paint over the frame after this clip (1.14): drawn by the core as ink (lib/fxshapes.js);
+    // the few that read the picture (a text reveal, vertigo, glitch blocks) still the editor's
+    const fx = effectShapes(c, p, t, W, H);
+    if (fx.why) return { why: fx.why };
+    const shut = p.shutter != null && p.shutter < 1;
+    if (shut && p.mask && p.mask.k < 1) return { why: 'a radial shutter with a wipe' };
+    const fxInk = fx.shapes.length ? { ink: { m: [1, 0, 0, 1, 0, 0], clip: null, cut: null, shapes: fx.shapes }, alpha: 1 } : null;
     // a dip to black or white: a colour over everything drawn so far (after this clip, as drawFrame does)
     const dip = p.dip && p.dip.amount > 0 ? { fill: hexRGB(p.dip.color) || [0, 0, 0], alpha: clamp(p.dip.amount, 0, 1) } : null;
     if (p.opacity <= 0.001) { if (dip) layers.push(dip); continue; }
     const m = mediaById(doc, c.media);
-    if (!m || m.kind === 'audio') continue;
+    if (!m || m.kind === 'audio') { if (fxInk) layers.push(fxInk); if (dip) layers.push(dip); continue; }
     // the clip's filters (1.7): the GPU pass's colour work, as compositor.js drawMedia sets it up (a LUT file or a
     // background-removal matte stays with the JavaScript)
     const matteOn = !!(c.matte && c.matte.file && !c.matte.off);
@@ -150,7 +156,8 @@ export function framePlan(doc, t, W, H, size = m => ({ w: m.width || 0, h: m.hei
     const filter = filtered ? { blur: Math.max(0, ((p.blur || 0) + fblur) * sx), bright: p.bright != null && Math.abs(p.bright - 1) > 0.005 ? +p.bright.toFixed(3) : 1, sat: p.sat != null && Math.abs(p.sat - 1) > 0.005 ? +Math.max(0, p.sat).toFixed(3) : 1 } : null;
     const st = sourceTime(c, t);
     // a wipe, iris, clock, barn doors, blinds… (1.13): the clip seen through the transition's shape
-    const mask = p.mask && p.mask.k < 1 ? maskShapes(p.mask, W, H) : null;
+    // a radial shutter (1.14): the clip seen through the iris's opening, the blades over it (fxInk)
+    const mask = shut ? [{ poly: shutterGeom(p.shutter, W, H).v }] : p.mask && p.mask.k < 1 ? maskShapes(p.mask, W, H) : null;
     const n0 = layers.length;
     if (framed) {
       if (slots >= 63) return { why: 'too many device frames' };
@@ -162,10 +169,12 @@ export function framePlan(doc, t, W, H, size = m => ({ w: m.width || 0, h: m.hei
       if (cur) layers.push(...pointerInk(c, m, cur, { r, rot: p.rotation || 0, box, radius: look && look.radius > 0 ? look : null, crop: [p.crop[0], p.crop[1], 1 - p.crop[0] - p.crop[2], 1 - p.crop[1] - p.crop[3]], disp: [dispW, dispH], sx, alpha: clamp(p.opacity, 0, 1), st }));
     }
     if (mask) for (let i = n0; i < layers.length; i++) layers[i].mask = mask;
+    if (fxInk) layers.push(fxInk);
     if (dip) layers.push(dip);
   }
   // needs13: drawn with what the 1.13 core added (a blurring call-out, a transition's shape)
-  return { bg, layers, overlay, ...(blur || layers.some(l => l.mask) ? { needs13: true } : {}) };
+  const needs14 = layers.some(l => l.ink && l.ink.shapes.some(sh => !['grad', 'disc', 'ring', 'poly'].includes(sh.kind)));
+  return { bg, layers, overlay, ...(blur || layers.some(l => l.mask) ? { needs13: true } : {}), ...(needs14 ? { needs14: true } : {}) };
 }
 
 /**
@@ -320,7 +329,7 @@ export function encodeLayers(layers, srcOf, push, { luts = null, sent = new Map(
     if (l.fill) { u32(0xffffffff); f64(l.alpha); push(Uint8Array.from(l.fill)); continue; }
     if (l.ink) {
       // pointer effects (main.rs read_ink)
-      const k = l.ink, col = c => c.forEach(f64);
+      const k = l.ink, col = c => c.forEach(f64), pts = list => { u32(list.length); for (const [px, py] of list) { f64(px); f64(py); } };
       u32(0xfffffffe); f64(l.alpha); k.m.forEach(f64);
       if (k.clip) { u8(1); k.clip.forEach(f64); } else u8(0);
       if (k.cut) { u8(1); k.cut.b.forEach(f64); [k.cut.w, k.cut.h, k.cut.radius].forEach(f64); } else u8(0);
@@ -329,6 +338,12 @@ export function encodeLayers(layers, srcOf, push, { luts = null, sent = new Map(
         if (s.kind === 'grad') { u8(0); [s.x, s.y, s.r0, s.r1].forEach(f64); col(s.c0); col(s.c1); }
         else if (s.kind === 'disc') { u8(1); [s.x, s.y, s.r].forEach(f64); col(s.c); }
         else if (s.kind === 'ring') { u8(2); [s.x, s.y, s.r, s.w].forEach(f64); col(s.c); }
+        // 1.14 (ink.rs): a blend mode, a gradient with stops, "only outside this", film grain, a soft rim
+        else if (s.kind === 'mode') { u8(4); u8(s.m); }
+        else if (s.kind === 'stops') { u8(s.lin ? 6 : 5); s.a.forEach(f64); u32(s.stops.length); for (const [st, c] of s.stops) { f64(clamp(st, 0, 1)); col(c); } pts(s.area); }
+        else if (s.kind === 'except') { u8(7); if (s.pts) { u8(1); pts(s.pts); } else u8(0); }
+        else if (s.kind === 'grain') { u8(8); [s.ox, s.oy, s.a].forEach(f64); }
+        else if (s.kind === 'rim') { u8(9); pts(s.pts); f64(s.w); f64(s.sigma); col(s.c); }
         else {
           u8(3); u32(s.pts.length); for (const [px, py] of s.pts) { f64(px); f64(py); } col(s.fill);
           if (s.stroke) { u8(1); f64(s.stroke[0]); col(s.stroke[1]); } else u8(0);

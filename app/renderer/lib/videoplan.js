@@ -64,7 +64,7 @@ export function videoJob(doc, from, to, W, H, fps, { maxSources = 48, cursor = n
   const push = b => { chunks.push(b); total += b.length; };
   const u32 = v => { const b = new Uint8Array(4); new DataView(b.buffer).setUint32(0, v >>> 0, true); push(b); };
   const f64 = v => { const b = new Uint8Array(8); new DataView(b.buffer).setFloat64(0, +v, true); push(b); };
-  let bg = null, ink = false, blur = false;
+  let bg = null, ink = false, blur = false, fx14 = false;
   const overlays = [], sent = new Map();
   const editorFrame = fi => { u32(0); u32(0); push(Uint8Array.of(1)); overlays.push(fi); }; // no layers: the editor's picture is all of it
   for (const [fi, t] of plans.entries()) {
@@ -87,6 +87,7 @@ export function videoJob(doc, from, to, W, H, fps, { maxSources = 48, cursor = n
     bg ||= p.bg;
     ink ||= p.layers.some(l => l.ink);
     blur ||= !!p.needs13;
+    fx14 ||= !!p.needs14;
     const uses = new Map();
     for (const l of p.layers) {
       if (l.fill || l.ink || l.slot != null) continue;
@@ -145,6 +146,6 @@ export function videoJob(doc, from, to, W, H, fps, { maxSources = 48, cursor = n
   for (const c of chunks) { out.set(c, o); o += c.length; }
   // core: the oldest core that can draw it (a blurring call-out or a transition's shape: 1.13)
   const editor = [...whole.keys()].sort((a, b) => a - b);
-  return { frames, sources, body: out, ink, overlays, times: plans, from: start, fps, luts, core: blur || samples > 1 ? 13 : 12,
+  return { frames, sources, body: out, ink, overlays, times: plans, from: start, fps, luts, core: fx14 ? 14 : blur || samples > 1 ? 13 : 12,
     whole: editor, wholeWhy: editor.length ? [...new Set(whole.values())] : [] };
 }

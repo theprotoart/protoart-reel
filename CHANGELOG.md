@@ -2,6 +2,8 @@
 
 ## 1.11.0 — 2026-11-16
 
+- Rust core 1.14: light leak, film burn, vintage film burn, glitch, lens flare sweep, fast wipe, letterbox and radial shutter transitions, and film grain, are drawn by the core itself (checked against the editor’s drawing). Only the text reveal, vertigo ramp and glitch blocks are still drawn by the editor in a core export.
+
 - Rust core export (Settings › Processing, experimental): an edit with a text reveal, a glitch, film burn, light leak, vertigo or radial-shutter transition, a turned phone video, an SVG or GIF, or a clip played backwards no longer sends the whole export the usual way. Just those moments are drawn by the editor and handed to the core; the rest is the core’s. The finished export says how many frames the editor drew.
 
 - Export no longer stops with “Video decoding failed: Decoding error” at a damaged part of a recording: the decoder tries again in software, and if that part still won’t decode, the picture holds its last good frame until the recording is readable again. A message says which recording and where in the edit.
