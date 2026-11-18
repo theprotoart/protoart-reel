@@ -3,7 +3,7 @@
 // the clip's own effects) in the background, and plays the rendered sound. Changing a plug-in's settings,
 // bypassing, removing or undoing it, or moving a clip to another track, renders again. The strip shows the
 // plug-in like any insert; click it to open its window.
-import { toast } from './ui.js';
+import { toast, el } from './ui.js';
 import { plainError } from './fx.js';
 import { mediaById, uid } from './model.js';
 import { renderClip, pickPlugin, ensureSource, pluginEdited, captureOpenPlugins } from './fx.js';
@@ -104,17 +104,45 @@ export async function renderPending(app, { trackId = null, onStatus = null } = {
   return renderList(app, ids, onStatus);
 }
 
+// A render running on its own (after a plug-in is added or changed) shows a strip over the timeline: which plug-in,
+// which track, clip n of N, a bar, about how long is left, and STOP (what's left renders at export instead).
+let strip = null, stopAsked = false;
+export function showStrip(app, todo) {
+  strip?.remove();
+  const c0 = app.doc?.clips.find(x => x.id === todo[0]);
+  const tr = c0 && app.doc.tracks.find(t => t.id === c0.track);
+  const names = (tr?.fx || []).filter(isAu).map(f => f.name).join(' + ') || 'the track plug-ins';
+  const fill = el('i'), text = el('span', { class: 'ps-text' });
+  const stop = el('button', { class: 'hw ps-stop', type: 'button', text: 'STOP', title: 'Stop rendering now: the clips not done yet are rendered at export instead (or when you play them through the open plug-in)', onclick: () => { stopAsked = true; stop.disabled = true; stop.textContent = 'STOPPING…'; } });
+  strip = el('div', { class: 'plug-strip', role: 'status' },
+    el('b', { text: `🎛 Rendering ${names}${tr?.name ? ` on “${tr.name}”` : ''}` }), text,
+    el('div', { class: 'ps-bar' }, fill), stop);
+  document.body.append(strip);
+  // over the top of the timeline, where the clips being rendered are
+  const tl = document.getElementById('timeline')?.getBoundingClientRect();
+  if (tl && tl.height) strip.style.top = `${Math.round(tl.top + 34)}px`;
+  const t0 = performance.now();
+  return (k, f) => {
+    const v = Math.min(1, (k + f) / todo.length), secs = (performance.now() - t0) / 1000;
+    const left = v > 0.03 && secs > 5 ? secs / v * (1 - v) : null;
+    fill.style.width = `${Math.max(2, Math.round(v * 100))}%`;
+    text.textContent = `clip ${Math.min(k + 1, todo.length)} of ${todo.length} · ${Math.round(v * 100)}%${left == null ? '' : left < 50 ? ' · under a minute left' : ` · about ${Math.round(left / 60)} min left`}`;
+  };
+}
+
 async function renderList(app, todo, onStatus) {
   if (!todo.length) { app.timeline?.render(); return 0; }
-  busy = true;
+  busy = true; stopAsked = false;
   let done = 0, failed = 0;
-  if (!onStatus) toast(`Rendering ${todo.length} clip${todo.length === 1 ? '' : 's'} through the track plug-ins…`, 3000);
+  const show = onStatus ? null : showStrip(app, todo);
+  const say = (k, f) => { onStatus?.(`Your plug-ins: clip ${k + 1} of ${todo.length}…`, (k + f) / todo.length); show?.(k, f); };
   try {
     for (const [k, id] of todo.entries()) {
+      if (stopAsked) break;
       const c = app.doc?.clips.find(x => x.id === id);
       if (!c || !c.fx?.dirty) continue;
-      onStatus?.(`Your plug-ins: clip ${k + 1} of ${todo.length}…`, k / todo.length);
-      try { await renderClip(app, c, f => onStatus?.(`Your plug-ins: clip ${k + 1} of ${todo.length}…`, (k + f) / todo.length)); done++; }
+      say(k, 0);
+      try { await renderClip(app, c, f => say(k, f)); done++; }
       catch (e) {
         failed++; console.warn('track plug-in render', e);
         if (failed === 1) toast(`A plug-in couldn’t render: ${plainError(e)}`, 8000);
@@ -124,7 +152,9 @@ async function renderList(app, todo, onStatus) {
     }
   } finally {
     busy = false;
-    if (done && !onStatus) toast(`Track plug-ins applied to ${done} clip${done === 1 ? '' : 's'}.`, 2500);
+    if (show) { strip?.remove(); strip = null; }
+    if (!onStatus && (stopAsked || done)) toast(stopAsked ? `Stopped: ${done} clip${done === 1 ? '' : 's'} rendered; the rest render at export.` : `✓ Track plug-ins applied to ${done} clip${done === 1 ? '' : 's'}.`, stopAsked ? 5000 : 3000);
+    if (stopAsked) { stopAsked = false; again = false; }
     app.player?.syncPaused?.();
     if (again) { again = false; lastSig = ''; syncTrackPlugins(app); }
   }

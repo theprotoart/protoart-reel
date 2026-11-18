@@ -2795,3 +2795,14 @@ html[data-theme="light"] .ums-prog-bar { background: rgba(0,0,0,.1); }
 .ums-prog-text { display: block; margin-top: 3px; font-size: 12px; opacity: .8; font-variant-numeric: tabular-nums; }
 /* 🎙 scan button on the deck: how far it's got, along its bottom edge */
 #filler-scan.listening { background-image: linear-gradient(var(--amber, #f5b942), var(--amber, #f5b942)); background-size: calc(var(--p, 0) * 100%) 3px; background-position: left bottom; background-repeat: no-repeat; }
+
+/* a track plug-in rendering on its own: a strip over the timeline with the bar, clip n of N, time left and STOP */
+.plug-strip { position: fixed; left: 50%; top: 55%; transform: translateX(-50%); z-index: 950; display: grid; grid-template-columns: auto 1fr auto; grid-template-areas: "t s b" "bar bar b"; align-items: center; column-gap: 12px; row-gap: 6px;
+  width: min(720px, calc(100vw - 48px)); padding: 10px 14px; border-radius: 10px; background: rgba(24, 22, 19, .96); color: #f3ead8; border: 1px solid rgba(245,185,66,.55); box-shadow: 0 10px 30px rgba(0,0,0,.45); font-size: 14px; }
+.plug-strip > b { grid-area: t; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.plug-strip .ps-text { grid-area: s; opacity: .85; font-variant-numeric: tabular-nums; white-space: nowrap; }
+.plug-strip .ps-bar { grid-area: bar; height: 10px; border-radius: 5px; background: rgba(255,255,255,.12); overflow: hidden; }
+.plug-strip .ps-bar i { display: block; height: 100%; width: 0; background: var(--amber, #f5b942); border-radius: 5px; transition: width .3s ease; }
+.plug-strip .ps-stop { grid-area: b; }
+html[data-theme="light"] .plug-strip { background: rgba(252, 248, 240, .97); color: #2a2620; }
+html[data-theme="light"] .plug-strip .ps-bar { background: rgba(0,0,0,.1); }

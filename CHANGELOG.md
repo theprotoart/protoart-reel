@@ -2,6 +2,8 @@
 
 ## 1.11.0 — 2026-11-16
 
+- A track plug-in rendering on its own (after you add or change one) shows a clear strip over the timeline: the plug-in and track, clip n of N, a bar, about how long is left, and STOP (what’s left then renders at export). Before, the only sign was a small “RENDERING 49%” on one clip.
+
 - RENDER INTO TRACK works like Pro Tools: the track is rendered through its plug-ins onto a new “· rendered” track right below it, with a window showing how far it’s got, and the original clips are muted and greyed out (kept, plug-in and all; right-click › Back to the original sound, or ⌘Z, undoes it).
 - Fixed: after clicking or dragging a graphic or title preset, each press of Space (play) added another copy of it. Space plays again; Return still applies a focused preset. The box drawn for an Area or Magnify callout also can’t be added twice any more.
 
