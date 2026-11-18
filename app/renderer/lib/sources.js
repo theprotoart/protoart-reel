@@ -62,10 +62,13 @@ export class VideoSource {
   }
   _make() {
     if (this.decoder && this.decoder.state !== 'closed') try { this.decoder.close(); } catch { /* closed */ }
-    this.decoder = new VideoDecoder({
-      output: f => { this.frames.push(f); this._poke(); },
-      error: e => { this.error = e; this._poke(); },
+    // (each decoder's frames and failure count only while it's the current one: a failed one says why a moment after
+    // it's been replaced)
+    const d = new VideoDecoder({
+      output: f => { if (this.decoder !== d) { f.close(); return; } this.frames.push(f); this._poke(); },
+      error: e => { if (this.decoder !== d) return; this.error = e; this._poke(); },
     });
+    this.decoder = d;
     this.decoder.configure({ codec: this.track.codec, description: this.track.description, codedWidth: this.track.width, codedHeight: this.track.height, hardwareAcceleration: this.soft ? 'prefer-software' : 'prefer-hardware' });
   }
   _poke() { const w = this.wake; this.wake = null; if (w) w(); }
@@ -115,7 +118,8 @@ export class VideoSource {
     this.lastT = t;
     const s = this.track.samples;
     for (let guard = 0; guard < 100000; guard++) {
-      if (this.error) throw new Error(`Video decoding failed: ${this.error.message || this.error}`);
+      // the decoder closes as soon as it fails, and says why a moment later: either way it's a damaged part
+      if (this.error || this.decoder?.state === 'closed') throw new Error(`Video decoding failed: ${this.error?.message || this.error || 'the decoder stopped'}`);
       while (this.frames.length >= 2 && this.frames[1].timestamp / 1e6 <= t + eps) this.frames.shift().close();
       const last = this.frames[this.frames.length - 1];
       if (last && (last.timestamp / 1e6 > t + eps || this.ended)) return this.frames[0];
@@ -130,7 +134,9 @@ export class VideoSource {
       while (this.next < s.length && this.decoder.decodeQueueSize < 6 && this.frames.length < 6 && fed < 12) {
         const smp = s[this.next++];
         const data = await this.reader.read(smp.offset, smp.size);
-        this.decoder.decode(new EncodedVideoChunk({ type: smp.sync ? 'key' : 'delta', timestamp: Math.round(sampleTime(this.track, smp) * 1e6), duration: Math.round((smp.duration / this.track.timescale) * 1e6), data }));
+        if (this.decoder.state === 'closed') break; // failed while being fed: said at the top of the loop
+        try { this.decoder.decode(new EncodedVideoChunk({ type: smp.sync ? 'key' : 'delta', timestamp: Math.round(sampleTime(this.track, smp) * 1e6), duration: Math.round((smp.duration / this.track.timescale) * 1e6), data })); }
+        catch (e) { throw new Error(`Video decoding failed: ${e?.message || e}`); }
         fed++;
       }
       if (!fed || this.decoder.decodeQueueSize > 0) await this._wait();

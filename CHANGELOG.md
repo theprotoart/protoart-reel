@@ -16,7 +16,7 @@
 
 - Rust core export (Settings › Processing, experimental): an edit with a text reveal, a glitch, film burn, light leak, vertigo or radial-shutter transition, a turned phone video, an SVG or GIF, or a clip played backwards no longer sends the whole export the usual way. Just those moments are drawn by the editor and handed to the core; the rest is the core’s. The finished export says how many frames the editor drew.
 
-- Export no longer stops with “Video decoding failed: Decoding error” at a damaged part of a recording: the decoder tries again in software, and if that part still won’t decode, the picture holds its last good frame until the recording is readable again. A message says which recording and where in the edit.
+- Export no longer stops with “Video decoding failed: Decoding error” at a damaged part of a recording: the decoder tries again in software, and if that part still won’t decode, the picture holds its last good frame until the recording is readable again. A message says which recording and where in the edit. (Fixed the same night: a damaged spot could still stop it with “Cannot call ‘decode’ on a closed codec”, as the Mac closes the decoder a moment before it says why.)
 
 - A track plug-in rendering on its own (after you add or change one) shows a clear strip over the timeline: the plug-in and track, clip n of N, a bar, about how long is left, and STOP (what’s left then renders at export). Before, the only sign was a small “RENDERING 49%” on one clip.
 

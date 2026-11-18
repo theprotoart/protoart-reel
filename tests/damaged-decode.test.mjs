@@ -8,10 +8,13 @@ globalThis.VideoDecoder = class {
   constructor({ output, error }) { this.output = output; this.error = error; this.state = 'configured'; this.decodeQueueSize = 0; }
   configure() {}
   decode(chunk) {
+    // as the browser's: a closed decoder refuses more ("Cannot call 'decode' on a closed codec")
+    if (this.state === 'closed') throw new Error("Failed to execute 'decode' on 'VideoDecoder': Cannot call 'decode' on a closed codec.");
     const ts = chunk.timestamp;
     queueMicrotask(() => {
       if (this.state === 'closed') return;
-      if (ts >= BAD[0] && ts < BAD[1]) { this.state = 'closed'; this.error(new Error('Decoding error')); return; }
+      // it closes at once, and says why only a moment later (more chunks can be fed in between)
+      if (ts >= BAD[0] && ts < BAD[1]) { this.state = 'closed'; setTimeout(() => this.error(new Error('Decoding error')), 5); return; }
       this.output({ timestamp: ts, close() {} });
     });
   }
