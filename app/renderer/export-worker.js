@@ -455,6 +455,8 @@ async function run({ doc, token, opts }) {
   flush(true);
   if (wav) { const head = wavHeader(wavBytes, RATE, 2, 24); return { head, bytes: written + head.length, frames, codec: 'wav' }; }
   if (vTrack && !vTrack.description) throw new Error('The video encoder produced no output');
+  // chapters and captions inside the movie (1.15): their samples at the end of the body
+  if (opts.text && vTrack) { emit(mux.addText(opts.text)); flush(true); }
   const head = mux.finish();
   return { head, bytes: written, frames, codec: vTrack ? vTrack.codec : 'aac' };
 }

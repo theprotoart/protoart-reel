@@ -317,6 +317,7 @@ export function openExport(app) {
     selectRow('Range', st.range, ranges, v => { st.range = v; describe(); }),
     checkbox('Motion blur', st.motionBlur, v => { st.motionBlur = v; describe(); }, 'smoother zooms · ~4× slower'),
     (doc.captions || []).length ? checkbox('Captions file', st.srt = true, v => { st.srt = v; }, 'Save an .srt next to the movie') : null,
+    (doc.captions || []).length || (doc.markers || []).some(mk => !mk.ums) ? checkbox('Chapters & captions inside', st.inner = st.inner !== false, v => { st.inner = v; }, 'Your markers as chapters, and your captions as subtitles you can turn on, in the movie itself (QuickTime, VLC, iPhone)') : null,
     el('div', { class: 'row' }, el('label', { text: 'Master' }), masterBox,
       el('button', { class: 'tool', text: '+ PLUG-IN', title: 'Put one of your own plug-ins (CEDAR, Waves, iZotope, FabFilter…) on the whole mix for this export', onclick: async () => { if (await addMasterPlugin(app)) masterBox.replaceChildren(masterSummary()); } }),
       el('button', { class: 'tool', text: 'MASTER…', onclick: () => openMaster(app) })),
@@ -364,6 +365,13 @@ export function openExport(app) {
     const loud = anim ? null : LOUDNESS_TARGETS[m.loudness] ?? null;
     const plugChain = anim ? [] : m.plugins.filter(p => !p.bypass).map(p => ({ kind: 'au', plugin: p.plugin, state: p.state || '' }));
     let masterFile = null; const temps = [];
+    // chapters (your markers) and captions inside the movie (1.15), relative to the export's start
+    const inner = st.inner !== false && !anim && !SOUND.has(s.codec) ? {
+      dur: to - from,
+      chapters: (doc.markers || []).filter(mk => !mk.ums && mk.t >= from && mk.t < to).map(mk => ({ t: mk.t - from, title: mk.label || 'Chapter' })),
+      captions: (doc.captions || []).filter(c => c.end > from && c.t < to).map(c => ({ t: Math.max(0, c.t - from), end: Math.min(to, c.end) - from, text: c.text })),
+    } : null;
+    const innerText = inner && (inner.chapters.length || inner.captions.length) ? inner : null;
     const cleanup = () => { for (const t of temps) app.api.fxRemoveTemp(app.token, t); };
     // the recorded clicks of clips that play click sounds, for the core to add them (read from the cursor files)
     const cursors = new Map();
@@ -499,6 +507,7 @@ export function openExport(app) {
             const derr = drawing && await drawing;
             if (derr instanceof Error && !r) throw derr;
           } finally { off?.(); }
+          if (r && innerText) { status.textContent = 'Adding chapters and captions…'; await app.api.exportTextTracks?.(r.name, innerText).catch(e => toast(`Couldn’t put the chapters and captions inside the movie (${e.message}); the movie is fine without them.`, 6000)); }
           if (r) {
             progress.firstChild.style.width = '100%'; cleanup();
             const nw = job.whole?.length || 0;
@@ -559,7 +568,7 @@ export function openExport(app) {
     worker.postMessage({ type: 'start', doc: JSON.parse(JSON.stringify(doc)), token: app.token, opts: { stretchMax: can('stretchLong').ok ? 1200 : 600,
       width: w, height: hh, fps, codec: s.codec, motionBlur: st.motionBlur && !SOUND.has(s.codec) ? 4 : 0, kind: s.codec === 'aac' ? 'm4a' : s.codec === 'wav' ? 'wav' : anim ? s.codec : 'mp4', from, to,
       bitrate: videoBitrate(s, w, hh, fps, to - from), audioBitrate: s.abr ? s.abr * 1000 : Number(pref('audioBitrate')) || 192000, hardware: s.hw ? true : pref('encoder') !== 'software',
-      masterFile, loudness: loud, ceiling: m.ceiling, dither: s.dither !== false, loop: s.loop !== false,
+      masterFile, loudness: loud, ceiling: m.ceiling, dither: s.dither !== false, loop: s.loop !== false, text: innerText,
     } });
   });
   const kindOf = s => (s.codec === 'aac' ? 'm4a' : s.codec === 'wav' ? 'wav' : ANIM.has(s.codec) ? s.codec : 'mp4');

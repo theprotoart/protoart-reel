@@ -93,7 +93,7 @@ Still open: *foreground-window callouts* (needs window positions recorded) and *
 **Stage C: text, captions, titles — done**
 Caption lane with SRT/VTT import & export, burn-in, .srt beside exports; letter animations; title
 templates; saved text styles; annotation drawings; speech from text (macOS voices).
-Still open: captions as a soft-subtitle track *inside* the MP4 (the .srt beside it covers YouTube).
+Captions as a soft-subtitle track inside the MP4, and markers as chapters in it: done (1.15).
 
 **Stage D: picture — done**
 GPU filters (colour, looks, LUTs, sharpen, blur, vignette, B&W), green screen, background removal
@@ -111,7 +111,7 @@ Still open: letterbox / fill choice when the export shape differs from the canva
 **Recording**
 ✅ screen / window / part of the screen, camera, mic, computer audio, per-app audio · ✅ countdown ·
 ✅ stop-after timer · ✅ clicks and keystrokes · ✅ add a recording to an open project ·
-🔜 pause / resume while recording · 🔜 add markers while recording (a key) · 🔜 recording monitor
+✅ pause / resume while recording · ✅ add markers while recording (⌥⇧⌘M) · 🔜 recording monitor
 (levels while recording) · 🔜 iPhone / iPad screen recording over USB, with touch callouts ·
 🔜 up to 16 audio inputs (multi-channel interfaces) · ✖ Telestream Audio driver (Reel uses Apple's
 own system-audio capture and the reel-audio helper instead)
@@ -139,13 +139,13 @@ Global Library, and AI Image makes backgrounds and stills
 ✅ H.264 / HEVC MP4, sound-only M4A · ✅ built-in presets incl. iPhone / iPad and App Store preview ·
 ✅ save your own presets · ✅ animated GIF and animated PNG of a range · ✅ batch export to a folder ·
 ✅ frame-rate choice · ✅ size and time estimate · ✅ .srt beside the movie · ✅ chapters from markers ·
-🔜 MOV / M4V containers · 🔜 captions and chapters inside the MP4 ·
+🔜 MOV / M4V containers · ✅ captions and chapters inside the MP4 (1.15) ·
 ✖ Publish to YouTube / Vimeo / Wistia / Box / Dropbox / Google Drive / Imgur for now: each needs
 an app registered with that service and your sign-in; export + upload in the browser meanwhile
 
 **Projects and settings**
 ✅ templates (save as / new from) · ✅ archive project (only used media) · ✅ Explain mode ·
-🔜 keyboard shortcut editor · 🔜 proxy media for 4K / Retina recordings · 🔜 default document
+🔜 keyboard shortcut editor · ✅ proxy media for 4K / Retina recordings · 🔜 default document
 settings (canvas, frame rate) in a Settings window
 
 ## CapCut-style ideas (adapted to the gear look)

@@ -383,6 +383,127 @@ function descriptor(tag, body) {
   return new Uint8Array([tag, 0x80 | ((len >> 21) & 127), 0x80 | ((len >> 14) & 127), 0x80 | ((len >> 7) & 127), len & 127, ...body]);
 }
 
+// ------------------------------------------------------------------ chapters and captions inside the movie (1.15)
+// A chapter track (QuickTime text, as Apple's players and ffmpeg read it, pointed to by a 'chap' reference from the
+// other tracks) plus Nero 'chpl' chapters in udta (VLC, mpv and others), and a subtitle track (3GPP timed text,
+// 'tx3g' in an 'sbtl' track, off until chosen). Laid out as ffmpeg writes them, checked with ffprobe. Times in ms.
+const hex = h => Uint8Array.from(h.match(/../g).map(x => parseInt(x, 16)));
+const TEXT_ENTRY = hex('00000000000000010000000100000000000000000000000000000000000000010000000000000000000d667461620001000100');
+const TX3G_ENTRY = hex('00000000000000010000000001ff000000ff00000000000000000000000000010010ffffffff00000012667461620001000105417269616c');
+const GMHD = hex('00000018676d696e000000000040800080008000000000000000002c74657874000100000000000000000000000000000001000000000000000000000000000040000000');
+const ENCD = hex('0000000c656e636400000100'); // (UTF-8: a chapter sample's encoding)
+const textBytes = (str, extra) => { const t = enc.encode(String(str).slice(0, 2000)); const o = new Uint8Array(2 + t.length + (extra ? extra.length : 0)); o[0] = t.length >> 8; o[1] = t.length & 255; o.set(t, 2); if (extra) o.set(extra, 2 + t.length); return o; };
+
+/**
+ * The samples of a movie's chapters and captions. text: { chapters: [{ t, title }] (seconds), captions: [{ t, end,
+ * text }], dur (seconds) }. Returns { data (the samples, in order: chapters then captions), chap, subs } with each
+ * track's samples ({ off, size, dur } in ms) and duration, or null where there's none.
+ */
+export function textSamples(text) {
+  const durMs = Math.max(1, Math.round((text.dur || 0) * 1000));
+  const parts = [];
+  let off = 0;
+  const add = (bytes, dur, list) => { list.push({ off, size: bytes.length, dur }); parts.push(bytes); off += bytes.length; };
+  let chap = null, subs = null;
+  // chapters: from 0 (the first called Intro if no marker starts there), each until the next, the last until the end
+  const ch = (text.chapters || []).filter(c => c.t >= 0 && c.t * 1000 < durMs - 1).map(c => ({ ms: Math.round(c.t * 1000), title: String(c.title || 'Chapter') })).sort((a, b) => a.ms - b.ms)
+    .filter((c, i, a) => !i || c.ms > a[i - 1].ms);
+  if (ch.length) {
+    if (ch[0].ms > 0) ch.unshift({ ms: 0, title: 'Intro' });
+    chap = { samples: [], dur: durMs, list: ch };
+    ch.forEach((c, i) => add(textBytes(c.title, ENCD), (i + 1 < ch.length ? ch[i + 1].ms : durMs) - c.ms, chap.samples));
+  }
+  // captions: each from its start until its end (or the next one's start), the gaps as empty samples
+  const cs = (text.captions || []).map(c => ({ a: Math.max(0, Math.round(c.t * 1000)), b: Math.min(durMs, Math.round(c.end * 1000)), text: String(c.text || '').trim() }))
+    .filter(c => c.b > c.a && c.text).sort((x, y) => x.a - y.a);
+  if (cs.length) {
+    subs = { samples: [], dur: 0 };
+    let at = 0;
+    cs.forEach((c, i) => {
+      const a = Math.max(c.a, at), b = Math.min(c.b, i + 1 < cs.length ? Math.max(cs[i + 1].a, a + 1) : c.b);
+      if (b <= a) return;
+      if (a > at) add(textBytes(''), a - at, subs.samples);
+      add(textBytes(c.text), b - a, subs.samples);
+      at = b;
+    });
+    add(textBytes(''), 0, subs.samples); // (ends the last one)
+    subs.dur = at;
+  }
+  const data = new Uint8Array(off);
+  let o = 0; for (const p of parts) { data.set(p, o); o += p.length; }
+  return { data, chap, subs };
+}
+
+/** A text track's trak, its samples at file offset base + their own; movieTs: the movie's timescale. */
+function textTrak(kind, id, tr, base, movieTs) {
+  const chapters = kind === 'chap', movieDur = Math.round(tr.dur * movieTs / 1000);
+  const tkhd = fullbox('tkhd', 0, chapters ? 2 : 3, bytes([32, 0], [32, 0], [32, id], [32, 0], [32, movieDur], [32, 0], [32, 0], [16, 0], [16, chapters ? 0 : 2], [16, 0], [16, 0]), MATRIX, bytes([32, 0], [32, 0]));
+  const elst = fullbox('elst', 0, 0, bytes([32, 1], [32, movieDur], [32, 0], [16, 1], [16, 0]));
+  const mdhd = fullbox('mdhd', 0, 0, bytes([32, 0], [32, 0], [32, 1000], [32, tr.dur], [16, chapters ? 0 : 0x55c4], [16, 0]));
+  const hdlr = fullbox('hdlr', 0, 0, bytes([32, 0]), enc.encode(chapters ? 'text' : 'sbtl'), new Uint8Array(12), enc.encode(chapters ? 'ChapterHandler\0' : 'SubtitleHandler\0'));
+  const xmhd = chapters ? box('gmhd', GMHD) : fullbox('nmhd', 0, 0);
+  const dinf = box('dinf', fullbox('dref', 0, 0, bytes([32, 1]), fullbox('url ', 0, 1)));
+  const s = tr.samples;
+  const stsd = fullbox('stsd', 0, 0, bytes([32, 1]), box(chapters ? 'text' : 'tx3g', chapters ? TEXT_ENTRY : TX3G_ENTRY));
+  const runs = []; for (const x of s) { const l = runs[runs.length - 1]; if (l && l[1] === x.dur) l[0]++; else runs.push([1, x.dur]); }
+  const stts = fullbox('stts', 0, 0, bytes([32, runs.length], ...runs.flatMap(r => [[32, r[0]], [32, r[1]]])));
+  const stsc = fullbox('stsc', 0, 0, bytes([32, 1], [32, 1], [32, s.length], [32, 1])); // all in one chunk
+  const stsz = fullbox('stsz', 0, 0, bytes([32, 0], [32, s.length], ...s.map(x => [32, x.size])));
+  const co64 = fullbox('co64', 0, 0, bytes([32, 1], [64, base + s[0].off]));
+  return box('trak', tkhd, box('edts', elst), box('mdia', mdhd, hdlr, box('minf', xmhd, dinf, box('stbl', stsd, stts, stsc, stsz, co64))));
+}
+
+/** Nero chapters (udta 'chpl'): start in 100 ns units and title. */
+function chplBox(list) {
+  const parts = [hex('01000000'), bytes([32, 0], [8, Math.min(255, list.length)])];
+  for (const c of list.slice(0, 255)) { const t = enc.encode(c.title).slice(0, 255); parts.push(bytes([64, c.ms * 10000], [8, t.length]), t); }
+  return box('chpl', ...parts);
+}
+const trefChap = id => box('tref', box('chap', bytes([32, id])));
+
+/**
+ * Adds text tracks to a finished movie's moov (a Buffer/Uint8Array of the whole moov box), their samples written at
+ * file offset `base` (an mdat's body). Returns the new moov. (export: the core's MP4s, written by the Mac's encoder)
+ */
+export function moovWithText(moov, ts, base) {
+  const kids = [...boxes(moov, 8, moov.length)];
+  const mvhd = kids.find(k => k.type === 'mvhd');
+  if (!mvhd) throw new Error('No movie header');
+  const v1 = moov[mvhd.body] === 1;
+  const movieTs = u32(moov, mvhd.body + (v1 ? 20 : 12));
+  const mv = moov.slice(mvhd.start, mvhd.end);
+  const nextAt = mvhd.end - mvhd.start - 4;
+  let next = u32(mv, nextAt);
+  const ids = {};
+  if (ts.chap) ids.chap = next++;
+  if (ts.subs) ids.subs = next++;
+  new DataView(mv.buffer, mv.byteOffset).setUint32(nextAt, next);
+  const out = [mv];
+  let udta = null;
+  for (const k of kids) {
+    if (k.type === 'mvhd') continue;
+    if (k.type === 'trak' && ids.chap) {
+      // a 'chap' reference to the chapter track, before its media
+      const tk = [...boxes(moov, k.body, k.end)];
+      const parts = [];
+      for (const c of tk) { if (c.type === 'mdia' && !tk.some(x => x.type === 'tref')) parts.push(trefChap(ids.chap)); parts.push(moov.slice(c.start, c.end)); }
+      out.push(box('trak', ...parts));
+    } else if (k.type === 'udta') udta = moov.slice(k.body, k.end);
+    else out.push(moov.slice(k.start, k.end));
+  }
+  // (the samples' offsets are within ts.data, which starts at base)
+  if (ts.chap) out.push(textTrak('chap', ids.chap, ts.chap, base, movieTs));
+  if (ts.subs) { const tr = textTrak('subs', ids.subs, ts.subs, base, movieTs); out.push(ids.chap ? withTref(tr, ids.chap) : tr); }
+  if (ts.chap || udta) out.push(box('udta', ...(udta ? [udta] : []), ...(ts.chap ? [chplBox(ts.chap.list)] : [])));
+  return box('moov', ...out);
+}
+/** (the subtitle track points at the chapters too, as ffmpeg's does) */
+function withTref(trak, chapId) {
+  const kids = [...boxes(trak, 8, trak.length)], parts = [];
+  for (const c of kids) { if (c.type === 'mdia') parts.push(trefChap(chapId)); parts.push(trak.slice(c.start, c.end)); }
+  return box('trak', ...parts);
+}
+
 /**
  * Muxer for WebCodecs output. Usage:
  *   const m = new Muxer({ video: { codec, width, height, description, timescale }, audio: { codec, sampleRate, channels, description } });
@@ -408,6 +529,14 @@ export class Muxer {
     return data;
   }
   addVideo(data, meta) { return this._add('video', data, meta); }
+  /** (1.15) Chapters and captions (textSamples' text): their samples, to append to the mdat body after the rest. */
+  addText(text) {
+    const ts = textSamples(text);
+    if (!ts.chap && !ts.subs) return new Uint8Array(0);
+    this.text = { ts, at: this.offset };
+    this.offset += ts.data.length;
+    return ts.data;
+  }
   addAudio(data, meta) { return this._add('audio', data, meta); }
 
   finish() {
@@ -459,7 +588,8 @@ export class Muxer {
     }
     const mvhd = fullbox('mvhd', 0, 0, bytes([32, 0], [32, 0], [32, MOVIE_TS], [32, movieDur], [32, 0x00010000], [16, 0x0100], [16, 0], [32, 0], [32, 0]),
       MATRIX, new Uint8Array(24), bytes([32, this.tracks.length + 1]));
-    return box('moov', mvhd, ...traks);
+    const moov = box('moov', mvhd, ...traks);
+    return this.text ? moovWithText(moov, this.text.ts, base + this.text.at) : moov;
   }
 
   _trak(t, base, mediaDur, movieDur, start) {

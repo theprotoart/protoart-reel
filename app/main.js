@@ -1883,6 +1883,14 @@ handle('captions:beside', async (name, text) => {
   return path.basename(out);
 });
 
+// chapters and captions inside a Rust-core export (1.15; the editor's own exports carry them from its muxer)
+handle('export:textTracks', async (name, text) => {
+  const dst = [...exportedFiles].find(f => path.basename(f) === name);
+  if (!dst || !/\.(mp4|m4v|mov)$/i.test(dst)) throw new Error('Unknown export');
+  if (!text || typeof text !== 'object' || !(text.dur > 0) || JSON.stringify(text).length > 16 << 20) throw new Error('Bad text');
+  return require('./engine/mp4text').addTextTracks(dst, text, await loadMp4());
+});
+
 // Speech from text with macOS's own voices (the built-in `say` command; offline, nothing installed)
 const { execFile, spawn } = require('child_process');
 const runSay = args => new Promise((res, rej) => execFile('/usr/bin/say', args, { timeout: 120000, maxBuffer: 4 << 20 }, (e, out) => (e ? rej(e) : res(out))));
