@@ -60,7 +60,10 @@ export function drawFrame(ctx, doc, t, sources, opts = {}) {
       if (!p.textMask || p.opacity <= 0.001) continue;
       try {
         opts.slot('reveal-shadow:' + k.id); inSlot = true; revealShadow(ctx, p.textMask, W, H);
-        opts.slot('reveal-mask:' + k.id); revealMask(ctx, p.textMask, W, H);
+        // (seen through a wipe too: the words cut to it, as the editor's layer is clipped to it before the words cut it)
+        opts.slot('reveal-mask:' + k.id); ctx.save();
+        if (p.mask && p.mask.k < 1) { maskPath(ctx, p.mask, W, H); ctx.clip(); }
+        revealMask(ctx, p.textMask, W, H); ctx.restore();
       } catch (e) { if (opts.onError) opts.onError(k, e); }
     }
   }
@@ -118,7 +121,7 @@ export function drawFrame(ctx, doc, t, sources, opts = {}) {
       if ((p.bars || 0) > 0.001 || lb) letterbox(ctx, W, H, lb?.ratio || 2.39, lb ? 1 : 0, p.bars || 0);
     }
     }
-    if (p.dip && p.dip.amount > 0) {
+    if (p.dip && p.dip.amount > 0 && !(coreFx && c.type !== 'media' && fxOf(k))) { // (with effects the core lays the dip after them)
       ctx.save(); ctx.globalAlpha = clamp(p.dip.amount, 0, 1); ctx.fillStyle = p.dip.color; ctx.fillRect(0, 0, W, H); ctx.restore();
     }
   }

@@ -100,6 +100,15 @@ test('a video export plan: each clip read once at the size it needs, or why not'
     const p = framePlan(d, 1, 320, 180);
     assert.deepEqual(p.slotKeys, ['over:x']);
     assert.ok(p.layers.at(-1).ink && p.layers.at(-2).slot === 0, 'the slot, then the effects over it');
+    // with a dip at the same time: the dip after the effects
+    const dd = { ...d, clips: d.clips.map(c => c.id === 'x' ? { ...c, start: 0.6, duration: 0.8, transOut: { type: 'dip-black', dur: 0.5 } } : c) };
+    const pd = framePlan(dd, 1, 320, 180);
+    assert.ok(!pd.why, pd.why);
+    assert.ok(pd.layers.at(-1).fill && pd.layers.at(-2).ink, 'effects, then the dip');
+    // a text reveal with a wipe out at the same time: the core's (the editor cuts the words to the wipe)
+    const rw = framePlan(docOf([{ ...clip('c1', 'a', 't1', 0, 1.2), transIn: { type: 'text-reveal', dur: 0.5 }, transOut: { type: 'wipe-left', dur: 0.5 } }]), 0.8, 320, 180);
+    assert.ok(!rw.why, rw.why);
+    assert.deepEqual(rw.layers.find(l => l.media).mask, [{ slot: 1 }]);
   }
   // a long edit of many clips (1.15): cut into parts of no more than 48 decoders each, one after another
   {

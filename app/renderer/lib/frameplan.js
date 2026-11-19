@@ -50,15 +50,17 @@ export function framePlan(doc, t, W, H, size = m => ({ w: m.width || 0, h: m.hei
       // its transition effects (1.15), as ink the core paints after it (the editor leaves them out of its drawing)
       const fq = effectShapes(animated(k, t - k.start), q, t, W, H).shapes;
       const fqInk = fq.length ? { ink: { m: [1, 0, 0, 1, 0, 0], clip: null, cut: null, shapes: fq }, alpha: 1 } : null;
-      if (fqInk && q.dip && q.dip.amount > 0) return { why: 'a dip and transition effects at once on a title or graphic' }; // (the dip goes after the effects)
+      // a dip at the same time (1.15): after the effects, as the editor (which leaves it out of its drawing then)
+      const qDip = fqInk && q.dip && q.dip.amount > 0 ? { fill: hexRGB(q.dip.color) || [0, 0, 0], alpha: clamp(q.dip.amount, 0, 1) } : null;
       if (k.type === 'element' && isBackgroundElement(k.element)) {
         if (slots >= 63) return { why: 'too many background graphics' };
         layers.push({ slot: slots++, key: k.id }); overlay = true; blur = true; // (needs the 1.13 core)
         if (fqInk) layers.push(fqInk);
+        if (qDip) layers.push(qDip);
         continue;
       }
       // a title or graphic with them: it and those under it go into a slot, the effects over that (after the pictures)
-      if (fqInk) { overFx.push({ id: k.id, ink: fqInk }); overlay = true; }
+      if (fqInk) { overFx.push({ id: k.id, ink: fqInk, dip: qDip }); overlay = true; }
       // a blurring call-out (1.13): the core blurs round it (overlay.rs), where the editor's drawing says
       if (k.type === 'callout' && (k.callout?.blur || 0) > 0) blur = true;
       if (q.opacity > 0.001 || q.dip) overlay = true;
@@ -75,7 +77,7 @@ export function framePlan(doc, t, W, H, size = m => ({ w: m.width || 0, h: m.hei
     // a text reveal (1.15): the clip seen through words the editor draws (white, into a slot of their own that the
     // core reads as the cut), over their soft shadow (into a slot under the clip)
     const tm = p.textMask;
-    if (tm && (shut || (p.mask && p.mask.k < 1))) return { why: 'a text reveal with a wipe' };
+    if (tm && shut) return { why: 'a text reveal with a radial shutter' }; // (with a wipe: the editor cuts the words to it)
     if (tm && slots >= 62) return { why: 'too many text reveals' };
     const fxInk = fx.shapes.length ? { ink: { m: [1, 0, 0, 1, 0, 0], clip: null, cut: null, shapes: fx.shapes }, alpha: 1 } : null;
     // a dip to black or white: a colour over everything drawn so far (after this clip, as drawFrame does)
@@ -190,6 +192,7 @@ export function framePlan(doc, t, W, H, size = m => ({ w: m.width || 0, h: m.hei
   for (const o of overFx) {
     if (slots >= 63) return { why: 'too many titles with transition effects' };
     layers.push({ slot: slots++, key: 'over:' + o.id }, o.ink); blur = true;
+    if (o.dip) layers.push(o.dip);
   }
   for (const l of layers) if (l.slot != null) keys[l.slot] = l.key;
   return { bg, layers, overlay, slotKeys: keys, ...(blur || layers.some(l => l.mask) ? { needs13: true } : {}), ...(needs14 ? { needs14: true } : {}), ...(needs15 ? { needs15: true } : {}) };
