@@ -74,7 +74,8 @@ JavaScript runs, as before). When little JavaScript is left, the window itself c
      with a wipe at the same time (the editor cuts the words to the wipe).
    - Still the editor's (drawn whole and handed to the core): pointer effects on a turned phone video, a text
      reveal with a radial shutter at the same time — both rare.
-   - Next: those, then the setting comes on by default.
+   - **Done (1.15):** pointer effects on a bordered picture (the border drawn on its own, over them).
+   - **Done (1.15): on by default.**
 6. **Recording:** screen, window and camera through ScreenCaptureKit.
 7. **The window:** a plain Rust interface (egui or Slint), once the pieces above no longer need the browser.
 

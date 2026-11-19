@@ -114,8 +114,8 @@ export function framePlan(doc, t, W, H, size = m => ({ w: m.width || 0, h: m.hei
     const fxOn = !!((c.cursor && c.cursor.show !== false) || m.pointerSeparate);
     if (fxOn) {
       if (!cursor) return { why: 'pointer effects' };
-      if ((((m.rotation || 0) % 360) + 360) % 360 || (c.stab && m.kind === 'video') || p.border > 0 || filtered) return { why: 'pointer effects on a turned, stabilized, bordered or blurred picture' };
-      if (c.cursor?.magnify && (p.radius > 0 || u)) return { why: 'the pointer magnifier on a rounded or filtered picture' };
+      if ((((m.rotation || 0) % 360) + 360) % 360 || (c.stab && m.kind === 'video') || filtered) return { why: 'pointer effects on a turned, stabilized or blurred picture' };
+      if (c.cursor?.magnify && (p.radius > 0 || p.border > 0 || u)) return { why: 'the pointer magnifier on a rounded, bordered or filtered picture' };
     }
     const { w: srcW0, h: srcH0 } = size(m);
     if (!(srcW0 > 0 && srcH0 > 0)) return { why: 'a picture whose size isn’t known' };
@@ -178,10 +178,14 @@ export function framePlan(doc, t, W, H, size = m => ({ w: m.width || 0, h: m.hei
       if (slots >= 63) return { why: 'too many device frames' };
       layers.push({ slot: slots++, key: 'frame:' + c.id }); overlay = true; blur = true;
     }
-    layers.push({ media: m.id, clip: c.id, st, alpha: clamp(p.opacity, 0, 1), m: M, rect, look, filter, grade });
-    if (fxOn) {
-      const cur = cursor(c, st);
-      if (cur) layers.push(...pointerInk(c, m, cur, { r, rot: p.rotation || 0, box, radius: look && look.radius > 0 ? look : null, crop: [p.crop[0], p.crop[1], 1 - p.crop[0] - p.crop[2], 1 - p.crop[1] - p.crop[3]], disp: [dispW, dispH], sx, alpha: clamp(p.opacity, 0, 1), st }));
+    // pointer effects on a bordered picture (1.15): the editor draws the border last, over them, so the picture's layer
+    // goes without it, the effects (cut to the box) next, then the border on its own
+    const cur = fxOn ? cursor(c, st) : null;
+    const borderAfter = cur && look && look.border > 0 ? { ...look, shadow: 0, dy: 0, cut: false, onlyBorder: true } : null;
+    layers.push({ media: m.id, clip: c.id, st, alpha: clamp(p.opacity, 0, 1), m: M, rect, look: borderAfter ? { ...look, border: 0, cut: true } : look, filter, grade });
+    if (cur) {
+      layers.push(...pointerInk(c, m, cur, { r, rot: p.rotation || 0, box, radius: look && (look.radius > 0 || look.border > 0) ? look : null, crop: [p.crop[0], p.crop[1], 1 - p.crop[0] - p.crop[2], 1 - p.crop[1] - p.crop[3]], disp: [dispW, dispH], sx, alpha: clamp(p.opacity, 0, 1), st }));
+      if (borderAfter) { layers.push({ media: m.id, clip: c.id, st, alpha: clamp(p.opacity, 0, 1), m: M, rect, look: borderAfter, filter: null, grade: null }); needs15 = true; }
     }
     if (mask) for (let i = n0; i < layers.length; i++) layers[i].mask = mask;
     if (fxInk) layers.push(fxInk);
@@ -378,7 +382,7 @@ export function encodeLayers(layers, srcOf, push, { luts = null, sent = new Map(
     }
     u32(srcOf(l)); f64(l.alpha); l.m.forEach(f64); l.rect.forEach(f64);
     const k = l.look;
-    if (!k) u8(0); else { u8(1); k.b.forEach(f64); [k.w, k.h, k.radius, k.border].forEach(f64); push(Uint8Array.from(k.borderColor)); [k.shadow, k.dy].forEach(f64); u8(k.cut ? 1 : 0); }
+    if (!k) u8(0); else { u8(1); k.b.forEach(f64); [k.w, k.h, k.radius, k.border].forEach(f64); push(Uint8Array.from(k.borderColor)); [k.shadow, k.dy].forEach(f64); u8(k.onlyBorder ? 2 : k.cut ? 1 : 0); } // (2, 1.15: only the border)
     const f = l.filter;
     if (!f) u8(0); else { u8(1); [f.blur, f.bright, f.sat].forEach(f64); }
     const g = l.grade;

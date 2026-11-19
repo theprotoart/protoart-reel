@@ -105,7 +105,9 @@ pub fn fill_layer(rgb: [u8; 3], alpha: f64) -> Layer { Layer { src: usize::MAX, 
 /// corners (radius, px), a border drawn on its edge (border px wide, in border_rgb) and a soft shadow under it (blur
 /// px as the canvas's shadowBlur, moved down dy px), as compositor.js drawMedia draws them; cut (1.5): the picture is
 /// cut to the box even with square corners (a stabilized picture moves inside its box).
-pub struct Look { pub b: [f64; 6], pub w: f64, pub h: f64, pub radius: f64, pub border: f64, pub border_rgb: [u8; 3], pub shadow: f64, pub dy: f64, pub cut: bool }
+/// only_border (1.15): just the border, nothing else of the layer (drawn over the pointer effects on the picture, as
+/// the editor draws the border last)
+pub struct Look { pub b: [f64; 6], pub w: f64, pub h: f64, pub radius: f64, pub border: f64, pub border_rgb: [u8; 3], pub shadow: f64, pub dy: f64, pub cut: bool, pub only_border: bool }
 
 /// Signed distance (canvas px) from a point of the box (px from its middle) to its rounded edge: < 0 inside.
 fn rr_dist(x: f64, y: f64, w: f64, h: f64, r: f64) -> f64 {
@@ -185,6 +187,22 @@ fn shadow(acc: &mut [[f64; 3]], w: usize, h: usize, lk: &Look, alpha: f64) {
     });
 }
 
+
+/// A box's border: a line border px wide along its edge, half in, half out.
+fn draw_border(acc: &mut [[f64; 3]], w: usize, h: usize, lk: &Look, ib: &[f64; 6], alpha: f64) {
+    if lk.border <= 0.0 { return; }
+    let half = lk.border / 2.0;
+    let (x0, x1, y0, y1) = box_bounds(lk, half + 2.0, w, h);
+    for y in y0..y1 { for x in x0..x1 {
+        let (bx, by) = box_at(lk, ib, x as f64 + 0.5, y as f64 + 0.5);
+        // (square corners: the canvas joins the lines mitred, so the border's outer corner is square too, 1.15)
+        let d = if lk.radius > 0.0 { rr_dist(bx, by, lk.w, lk.h, lk.radius) } else { (bx.abs() - lk.w / 2.0).max(by.abs() - lk.h / 2.0) }.abs();
+        let cov = (half - d + 0.5).clamp(0.0, 1.0).min(lk.border) * alpha;
+        if cov <= 0.0 { continue; }
+        let o = &mut acc[y * w + x];
+        for ch in 0..3 { o[ch] = lk.border_rgb[ch] as f64 * cov + o[ch] * (1.0 - cov); }
+    } }
+}
 
 /// A new Vec of n values, each row of `width` written by f(row index, row) over the cores (1.15): written once, not
 /// zeroed first. f must write every value of its row.
@@ -278,6 +296,7 @@ pub fn draw_then(w: usize, h: usize, bg: [u8; 3], pictures: &[Picture], layers: 
         let r = l.rect;
         // the box: its shadow and the black under it first (as the canvas fills the shape with the shadow on)
         let look = l.look.as_ref().and_then(|lk| invert(&lk.b).map(|ib| (lk, ib)));
+        if let Some((lk, ib)) = &look { if lk.only_border { draw_border(&mut acc, w, h, lk, ib, l.alpha); break 'one; } }
         if let Some((lk, ib)) = &look {
             if lk.shadow > 0.0 {
                 shadow(&mut acc, w, h, lk, l.alpha);
@@ -412,20 +431,7 @@ pub fn draw_then(w: usize, h: usize, bg: [u8; 3], pictures: &[Picture], layers: 
             } }
         }
         // the border: a line border px wide along the box's edge, half in, half out
-        if let Some((lk, ib)) = &look {
-            if lk.border > 0.0 {
-                let half = lk.border / 2.0;
-                let (x0, x1, y0, y1) = box_bounds(lk, half + 2.0, w, h);
-                for y in y0..y1 { for x in x0..x1 {
-                    let (bx, by) = box_at(lk, ib, x as f64 + 0.5, y as f64 + 0.5);
-                    let d = rr_dist(bx, by, lk.w, lk.h, lk.radius).abs();
-                    let cov = (half - d + 0.5).clamp(0.0, 1.0).min(lk.border) * l.alpha;
-                    if cov <= 0.0 { continue; }
-                    let o = &mut acc[y * w + x];
-                    for ch in 0..3 { o[ch] = lk.border_rgb[ch] as f64 * cov + o[ch] * (1.0 - cov); }
-                } }
-            }
-        }
+        if let Some((lk, ib)) = &look { draw_border(&mut acc, w, h, lk, ib, l.alpha); }
         }
         if let (Some(mask), Some(before)) = (&l.mask, before) {
             // slot masks (1.15): the editor's drawing for each, over black
@@ -487,14 +493,14 @@ mod tests {
     fn rounded_corners_cut_the_picture_and_a_border_goes_round_it() {
         // a 20 × 20 white picture filling a 20 × 20 box at (10, 10) on a black 40 × 40 canvas, corners 6 px, a red 2 px border
         let pic = solid(20, 20, [255, 255, 255, 255]);
-        let lk = Look { b: [20.0, 0.0, 0.0, 20.0, 20.0, 20.0], w: 20.0, h: 20.0, radius: 6.0, border: 0.0, border_rgb: [255, 0, 0], shadow: 0.0, dy: 0.0, cut: false };
+        let lk = Look { b: [20.0, 0.0, 0.0, 20.0, 20.0, 20.0], w: 20.0, h: 20.0, radius: 6.0, border: 0.0, border_rgb: [255, 0, 0], shadow: 0.0, dy: 0.0, cut: false, only_border: false };
         let out = draw(40, 40, [0, 0, 0], &[pic], &[Layer { src: 0, alpha: 1.0, m: [1.0, 0.0, 0.0, 1.0, 10.0, 10.0], rect: [0.0, 0.0, 20.0, 20.0], look: Some(lk), fill: None, filter: None, grade: None, ink: None, mask: None }]);
         let at = |x: usize, y: usize| out[(y * 40 + x) * 4];
         assert_eq!(at(20, 20), 255);
         assert_eq!(at(10, 10), 0, "the corner is cut off");
         assert_eq!(at(20, 10), 255, "the straight edge isn't");
         let pic = solid(20, 20, [255, 255, 255, 255]);
-        let lk = Look { b: [20.0, 0.0, 0.0, 20.0, 20.0, 20.0], w: 20.0, h: 20.0, radius: 0.0, border: 2.0, border_rgb: [255, 0, 0], shadow: 0.0, dy: 0.0, cut: false };
+        let lk = Look { b: [20.0, 0.0, 0.0, 20.0, 20.0, 20.0], w: 20.0, h: 20.0, radius: 0.0, border: 2.0, border_rgb: [255, 0, 0], shadow: 0.0, dy: 0.0, cut: false, only_border: false };
         let out = draw(40, 40, [0, 0, 0], &[pic], &[Layer { src: 0, alpha: 1.0, m: [1.0, 0.0, 0.0, 1.0, 10.0, 10.0], rect: [0.0, 0.0, 20.0, 20.0], look: Some(lk), fill: None, filter: None, grade: None, ink: None, mask: None }]);
         let px = |x: usize, y: usize| [out[(y * 40 + x) * 4], out[(y * 40 + x) * 4 + 1]];
         assert_eq!(px(9, 20), [255, 0], "the border outside the edge");
@@ -504,7 +510,7 @@ mod tests {
     #[test]
     fn a_shadow_falls_below() {
         let pic = solid(10, 10, [255, 255, 255, 255]);
-        let lk = Look { b: [10.0, 0.0, 0.0, 10.0, 20.0, 15.0], w: 10.0, h: 10.0, radius: 0.0, border: 0.0, border_rgb: [0, 0, 0], shadow: 8.0, dy: 2.0, cut: false };
+        let lk = Look { b: [10.0, 0.0, 0.0, 10.0, 20.0, 15.0], w: 10.0, h: 10.0, radius: 0.0, border: 0.0, border_rgb: [0, 0, 0], shadow: 8.0, dy: 2.0, cut: false, only_border: false };
         let out = draw(40, 40, [200, 200, 200], &[pic], &[Layer { src: 0, alpha: 1.0, m: [1.0, 0.0, 0.0, 1.0, 15.0, 10.0], rect: [0.0, 0.0, 10.0, 10.0], look: Some(lk), fill: None, filter: None, grade: None, ink: None, mask: None }]);
         let at = |x: usize, y: usize| out[(y * 40 + x) * 4];
         assert!(at(20, 22) < 170, "darker just under it: {}", at(20, 22));
@@ -521,7 +527,7 @@ mod tests {
     fn a_stabilized_picture_is_cut_to_its_box() {
         // the picture drawn twice its size around the box's middle, but cut to the 10 × 10 box at (5, 5)
         let pic = solid(10, 10, [255, 255, 255, 255]);
-        let lk = Look { b: [10.0, 0.0, 0.0, 10.0, 10.0, 10.0], w: 10.0, h: 10.0, radius: 0.0, border: 0.0, border_rgb: [0, 0, 0], shadow: 0.0, dy: 0.0, cut: true };
+        let lk = Look { b: [10.0, 0.0, 0.0, 10.0, 10.0, 10.0], w: 10.0, h: 10.0, radius: 0.0, border: 0.0, border_rgb: [0, 0, 0], shadow: 0.0, dy: 0.0, cut: true, only_border: false };
         let out = draw(20, 20, [0, 0, 0], &[pic], &[Layer { src: 0, alpha: 1.0, m: [2.0, 0.0, 0.0, 2.0, 0.0, 0.0], rect: [0.0, 0.0, 10.0, 10.0], look: Some(lk), fill: None, filter: None, grade: None, ink: None, mask: None }]);
         let at = |x: usize, y: usize| out[(y * 20 + x) * 4];
         assert_eq!(at(10, 10), 255);

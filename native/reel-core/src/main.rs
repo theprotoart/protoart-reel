@@ -214,7 +214,7 @@ fn read_ink(inp: &mut Input) -> Result<ink::Ink, String> {
         let mut b = [0.0; 6]; for v in b.iter_mut() { *v = num(inp, BIG)?; }
         let (w, h, radius) = (num(inp, BIG)?, num(inp, BIG)?, num(inp, 4096.0)?);
         if w <= 0.0 || h <= 0.0 || radius < 0.0 { return Err(bad()); }
-        Some(frame::Look { b, w, h, radius, border: 0.0, border_rgb: [0, 0, 0], shadow: 0.0, dy: 0.0, cut: true })
+        Some(frame::Look { b, w, h, radius, border: 0.0, border_rgb: [0, 0, 0], shadow: 0.0, dy: 0.0, cut: true, only_border: false })
     } else { None };
     let n = inp.u32()?;
     if n > 64 { return Err(bad()); }
@@ -336,10 +336,12 @@ fn read_layer(inp: &mut Input, npics: usize) -> Result<frame::Layer, String> {
         let (bw, bh, radius, border) = (inp.f64()?, inp.f64()?, inp.f64()?, inp.f64()?);
         let border_rgb = [inp.u8()?, inp.u8()?, inp.u8()?];
         let (shadow, dy) = (inp.f64()?, inp.f64()?);
-        let cut = inp.u8()? == 1;
+        // 1: cut to the box; 2 (1.15): only the border
+        let kind = inp.u8()?;
+        let (cut, only_border) = (kind == 1, kind == 2);
         let ok = b.iter().chain([bw, bh, radius, border, shadow, dy].iter()).all(|v| v.is_finite()) && bw > 0.0 && bh > 0.0 && (0.0..=4096.0).contains(&radius) && (0.0..=512.0).contains(&border) && (0.0..=1024.0).contains(&shadow) && dy.abs() <= 1024.0;
         if !ok { return Err("bad layer look".into()); }
-        Some(frame::Look { b, w: bw, h: bh, radius, border, border_rgb, shadow, dy, cut })
+        Some(frame::Look { b, w: bw, h: bh, radius, border, border_rgb, shadow, dy, cut, only_border })
     } else { None };
     // 1.6: the canvas filter it's drawn with: u8 1, then blur px · brightness · saturation f64; 0, none
     let filter = if inp.u8()? == 1 {

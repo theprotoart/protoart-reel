@@ -2,6 +2,8 @@
 
 ## 1.11.0 — 2026-11-16
 
+- Rust core export: pointer effects (spotlight, highlight, click rings, the pointer itself) on a picture with a border are drawn by the core, the border over them as in the editor; and a square-cornered border now has square outer corners, as the editor draws it (they were slightly rounded).
+
 - Export: your markers go inside the movie as chapters, and your captions as subtitles you can turn on (QuickTime, the TV app, iPhone, VLC), with the new “Chapters & captions inside” option (on). The picture and sound are untouched; the .srt beside the movie and the YouTube chapter list are still there.
 
 - Master: a De-click stage runs first on the whole mix (on in every master, old projects included), taking out clicks and pops (an edit without a fade, a plug-pop, a mouth click) before the master and the loudness target bring the level up and make them stand out. Gentle by default so drum hits are left alone; Sensitivity in Master settings if you still hear some. The Rust core does the same, sample for sample.

@@ -141,7 +141,14 @@ test('pointer effects go to the core as ink layers (and a magnifier picture), gi
   const none = framePlan(doc, 1, 320, 180, undefined, () => null);
   assert.equal(none.layers.length, 1, 'no pointer then: no effects, as the editor');
   doc.clips[0].props.border = 4;
-  assert.match(framePlan(doc, 1, 320, 180, undefined, () => cur).why, /pointer/);
+  assert.match(framePlan(doc, 1, 320, 180, undefined, () => cur).why, /magnifier/, 'the magnifier on a bordered picture: still the editor’s');
+  // (1.15) the rest on a bordered picture: the picture without its border, the effects cut to the box, then the border
+  doc.clips[0].cursor.magnify = false;
+  const b = framePlan(doc, 1, 320, 180, undefined, () => cur);
+  assert.ok(!b.why && b.needs15, b.why);
+  assert.deepEqual(b.layers.map(l => l.ink ? 'ink' : l.look?.onlyBorder ? 'border' : 'picture'), ['picture', 'ink', 'ink', 'border']);
+  assert.equal(b.layers[0].look.border, 0); assert.ok(b.layers[0].look.cut && b.layers[1].ink.cut, 'cut to the box');
+  assert.equal(b.layers[3].look.border, 4);
 });
 
 test('the Rust core draws a whole export, frame for frame as its frame job does', { skip }, async () => {
