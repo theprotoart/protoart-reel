@@ -84,6 +84,15 @@ test('a video export plan: each clip read once at the size it needs, or why not'
     assert.deepEqual(p.layers[1].mask, [{ slot: 1 }]);
     assert.ok(!framePlan(docOf([clip('c1', 'a', 't1', 0, 2)]), 1, 320, 180).needs15, 'none afterwards');
   }
+  // transition effects on a title (1.15): the core paints them after the titles up to it (a slot), not the editor
+  {
+    const d = { ...doc, clips: [...doc.clips, { id: 'x', type: 'text', track: 't2', start: 0.9, duration: 1, props: props(), text: { content: 'Hi' }, transIn: { type: 'glitch', dur: 0.5 } }] };
+    const j = videoJob(d, 0, 2, 320, 180, 10);
+    assert.ok(!j.why && !j.whole.length, j.why || String(j.whole));
+    const p = framePlan(d, 1, 320, 180);
+    assert.deepEqual(p.slotKeys, ['over:x']);
+    assert.ok(p.layers.at(-1).ink && p.layers.at(-2).slot === 0, 'the slot, then the effects over it');
+  }
   // a long edit of many clips (1.15): cut into parts of no more than 48 decoders each, one after another
   {
     const many = docOf(Array.from({ length: 130 }, (_, i) => clip('k' + i, 'a', 't1', i * 0.5, 0.5)));

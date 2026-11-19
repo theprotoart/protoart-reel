@@ -41,24 +41,26 @@ export function framePlan(doc, t, W, H, size = m => ({ w: m.width || 0, h: m.hei
   let overlay = !!(cs.burn && (doc.captions || []).some(c => t >= c.t && t < c.end)), blur = false;
   const layers = [];
   let slots = 0, needs15 = false;
+  const overFx = []; // titles and graphics with transition effects, in order
   const keys = []; // slot number → the key the editor draws it under (the slots that aren't layers: a text reveal's cut)
   for (const k of activeClips(doc, t)) {
     if (k.type !== 'media') {
       const q = propsAt(animated(k, t - k.start), t - k.start);
       // a background graphic (1.13): the editor draws it, into its place in the stack (a slot the core leaves for it)
+      // its transition effects (1.15), as ink the core paints after it (the editor leaves them out of its drawing)
+      const fq = effectShapes(animated(k, t - k.start), q, t, W, H).shapes;
+      const fqInk = fq.length ? { ink: { m: [1, 0, 0, 1, 0, 0], clip: null, cut: null, shapes: fq }, alpha: 1 } : null;
+      if (fqInk && q.dip && q.dip.amount > 0) return { why: 'a dip and transition effects at once on a title or graphic' }; // (the dip goes after the effects)
       if (k.type === 'element' && isBackgroundElement(k.element)) {
-        if (q.vertigo || q.blocks > 0.03 || q.streak || q.holes > 0.02 || q.glitch > 0.05 || q.leak > 0.01 || q.grain > 0.02 || q.flare || (q.bars || 0) > 0.001 || (q.shutter != null && q.shutter < 1))
-          return { why: 'transition effects on a background graphic' };
         if (slots >= 63) return { why: 'too many background graphics' };
         layers.push({ slot: slots++, key: k.id }); overlay = true; blur = true; // (needs the 1.13 core)
+        if (fqInk) layers.push(fqInk);
         continue;
       }
-      // transitions that read the picture under them, and a blurring call-out, still go the editor's way
-      if (q.vertigo || q.blocks > 0.03 || q.streak || q.holes > 0.02 || q.glitch > 0.05 || q.leak > 0.01 || q.grain > 0.02 || q.flare || (q.bars || 0) > 0.001 || (q.shutter != null && q.shutter < 1))
-        return { why: 'transition effects on a title or graphic' };
+      // a title or graphic with them: it and those under it go into a slot, the effects over that (after the pictures)
+      if (fqInk) { overFx.push({ id: k.id, ink: fqInk }); overlay = true; }
       // a blurring call-out (1.13): the core blurs round it (overlay.rs), where the editor's drawing says
       if (k.type === 'callout' && (k.callout?.blur || 0) > 0) blur = true;
-      if ((k.filters || []).some(f => !f.off && ['grain', 'letterbox'].includes(f.type))) return { why: 'film filters on a title or graphic' };
       if (q.opacity > 0.001 || q.dip) overlay = true;
       continue;
     }
@@ -185,6 +187,10 @@ export function framePlan(doc, t, W, H, size = m => ({ w: m.width || 0, h: m.hei
   }
   // needs13: drawn with what the 1.13 core added (a blurring call-out, a transition's shape)
   const needs14 = layers.some(l => l.ink && l.ink.shapes.some(sh => !['grad', 'disc', 'ring', 'poly'].includes(sh.kind)));
+  for (const o of overFx) {
+    if (slots >= 63) return { why: 'too many titles with transition effects' };
+    layers.push({ slot: slots++, key: 'over:' + o.id }, o.ink); blur = true;
+  }
   for (const l of layers) if (l.slot != null) keys[l.slot] = l.key;
   return { bg, layers, overlay, slotKeys: keys, ...(blur || layers.some(l => l.mask) ? { needs13: true } : {}), ...(needs14 ? { needs14: true } : {}), ...(needs15 ? { needs15: true } : {}) };
 }

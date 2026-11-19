@@ -9,7 +9,7 @@ import { filterParams, needsGl } from './lib/glfx.js';
 import { stabilizeAt } from './lib/stabilize.js';
 import { drawElement, isBackgroundElement } from './lib/elements.js';
 import { polyPoints } from './lib/sketch.js';
-import { hash2, shutterGeom, SHUTTER_N } from './lib/fxshapes.js';
+import { hash2, shutterGeom, SHUTTER_N, effectShapes } from './lib/fxshapes.js';
 
 /**
  * ctx: CanvasRenderingContext2D or OffscreenCanvasRenderingContext2D sized to the output.
@@ -64,10 +64,21 @@ export function drawFrame(ctx, doc, t, sources, opts = {}) {
       } catch (e) { if (opts.onError) opts.onError(k, e); }
     }
   }
+  // titles and graphics with transition effects (1.15): the core paints those effects (lib/frameplan.js), so the
+  // titles up to each such one go into a slot under them, and the editor leaves the effects out
+  const coreFx = !!(opts.overlayOnly && opts.slot);
+  const ovs = coreFx ? here.filter(overlay) : [];
+  const fxOf = k => { const c = animated(k, t - k.start); return effectShapes(c, propsAt(c, t - k.start), t, W, H).shapes.length > 0; };
+  const hasFx = ovs.map(fxOf);
+  const groupOf = k => { for (let i = ovs.indexOf(k); i >= 0 && i < ovs.length; i++) if (hasFx[i]) return 'over:' + ovs[i].id; return null; };
+  let curKey = null;
   for (const k of opts.overlayOnly ? [...bgs, ...here.filter(overlay)] : [...here.filter(k => !overlay(k)), ...here.filter(overlay)]) {
     if (opts.overlayOnly && opts.slot) {
-      const bg = bgs.includes(k);
-      if (bg) { opts.slot(k.id); inSlot = true; } else if (inSlot) { opts.slot(null); inSlot = false; }
+      // a background graphic into its slot; a title or graphic into the slot of the first one from it on whose
+      // transition effects the core paints after it (1.15: 'over:' + its id), else over everything
+      const want = bgs.includes(k) ? k.id : groupOf(k);
+      if (want != null) { if (want !== curKey) opts.slot(want); curKey = want; inSlot = true; }
+      else if (inSlot) { opts.slot(null); inSlot = false; curKey = null; }
     }
     const local = t - k.start;
     const c = animated(opts.unzoom === k.id ? unzoomed(k) : k, local); // keyframed values at this moment (the whole picture while its dynamic zoom is being framed)
@@ -88,8 +99,9 @@ export function drawFrame(ctx, doc, t, sources, opts = {}) {
       else if (c.type === 'element') drawElement(dc, c.element, p, local, c.duration, W, H, sources.image ? id => (id ? sources.image(id) : null) : null);
     } catch (e) { if (opts.onError) opts.onError(c, e); }
     if (masked) dc.restore();
-    if (shut) { dc.restore(); shutterBlades(dc, p.shutter, W, H); }
+    if (shut) { dc.restore(); if (!coreFx) shutterBlades(dc, p.shutter, W, H); }
     if (p.textMask) { try { finishReveal(ctx, dc, p.textMask, W, H); } catch (e) { if (opts.onError) opts.onError(c, e); } }
+    if (!coreFx) { // (in an export the core draws these, lib/fxshapes.js)
     if (p.vertigo && p.vertigo.amt > 0.01) vertigoHold(ctx, p.vertigo, W, H);
     if (p.blocks > 0.03) glitchBlocks(ctx, p.blocks, W, H, t);
     if (p.streak && p.streak.amt > 0.02) wipeStreak(ctx, p.streak, W, H);
@@ -104,6 +116,7 @@ export function drawFrame(ctx, doc, t, sources, opts = {}) {
       if (p.flare && p.flare.amt > 0.02) lensFlare(ctx, p.flare, W, H);
       const lb = fl.find(f => f.type === 'letterbox');
       if ((p.bars || 0) > 0.001 || lb) letterbox(ctx, W, H, lb?.ratio || 2.39, lb ? 1 : 0, p.bars || 0);
+    }
     }
     if (p.dip && p.dip.amount > 0) {
       ctx.save(); ctx.globalAlpha = clamp(p.dip.amount, 0, 1); ctx.fillStyle = p.dip.color; ctx.fillRect(0, 0, W, H); ctx.restore();

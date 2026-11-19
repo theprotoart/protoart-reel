@@ -2,6 +2,8 @@
 
 ## 1.11.0 — 2026-11-16
 
+- Rust core export: glitch, light leak, film burn, lens flare, radial shutter, letterbox and the other transition effects on a title or graphic are painted by the core too (the editor draws the titles, the core the effects over them), instead of those frames being drawn whole by the editor.
+
 - Rust core 1.15: the text reveal transition is drawn by the core too. The editor draws just the words (and their soft shadow) and the core cuts the clip to them, so those frames no longer have to be drawn whole by the editor (checked against the editor’s drawing: the same to within a shade).
 
 - Rust core export of a long edit: an edit with more than 48 clips used to go the usual way (“too many clips”). Now it’s cut into parts of up to 48 clips each, which the core draws one after another into the same encoder: one export, the same to the byte as in one go (and a clip that repeats starts a new part rather than sending it all the usual way).
