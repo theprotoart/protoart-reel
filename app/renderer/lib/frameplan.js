@@ -115,7 +115,7 @@ export function framePlan(doc, t, W, H, size = m => ({ w: m.width || 0, h: m.hei
     if (fxOn) {
       if (!cursor) return { why: 'pointer effects' };
       if ((((m.rotation || 0) % 360) + 360) % 360 || (c.stab && m.kind === 'video') || filtered) return { why: 'pointer effects on a turned, stabilized or blurred picture' };
-      if (c.cursor?.magnify && (p.radius > 0 || p.border > 0 || u)) return { why: 'the pointer magnifier on a rounded, bordered or filtered picture' };
+      if (c.cursor?.magnify && (u || ((p.radius > 0 || p.border > 0) && (shut || (p.mask && p.mask.k < 1) || tm)))) return { why: 'the pointer magnifier on a filtered picture, or a rounded one in a wipe' };
     }
     const { w: srcW0, h: srcH0 } = size(m);
     if (!(srcW0 > 0 && srcH0 > 0)) return { why: 'a picture whose size isn’t known' };
@@ -189,7 +189,7 @@ export function framePlan(doc, t, W, H, size = m => ({ w: m.width || 0, h: m.hei
       layers.push(...pointerInk(c, m, cur, { r, rot: p.rotation || 0, box, radius: look && (look.radius > 0 || look.border > 0) ? look : null, crop: [p.crop[0], p.crop[1], 1 - p.crop[0] - p.crop[2], 1 - p.crop[1] - p.crop[3]], disp: [dispW, dispH], sx, alpha: clamp(p.opacity, 0, 1), st }));
       if (borderAfter) { layers.push({ media: m.id, clip: c.id, st, alpha: clamp(p.opacity, 0, 1), m: M, rect, look: borderAfter, filter: null, grade: null }); needs15 = true; }
     }
-    if (mask) for (let i = n0; i < layers.length; i++) layers[i].mask = mask;
+    if (mask) for (let i = n0; i < layers.length; i++) layers[i].mask = mask; // (the magnifier's own cut can't be with one: see above)
     if (fxInk) layers.push(fxInk);
     if (dip) layers.push(dip);
   }
@@ -250,6 +250,14 @@ const ARROW_IN = [[1.4, 3.2], [1.4, 13.8], [4.6, 10.8], [7.7, 17.6], [8.6, 17.2]
  * the magnifier (a round box of the same video, larger), then an ink layer for the highlight, the click and the
  * pointer itself. Their shapes are in the clip's own space (px from the middle of its box, before it's turned).
  */
+/** A rounded box's outline (w × h about its middle, corners r), as canvas points through M. */
+function boxOutline(M, w, h, r) {
+  r = Math.max(0, Math.min(r, w / 2, h / 2));
+  const pts = [], N = r > 0 ? 16 : 0;
+  for (const [cx, cy, a0] of [[w / 2 - r, -h / 2 + r, -Math.PI / 2], [w / 2 - r, h / 2 - r, 0], [-w / 2 + r, h / 2 - r, Math.PI / 2], [-w / 2 + r, -h / 2 + r, Math.PI]])
+    for (let i = 0; i <= N; i++) { const a = a0 + (i / Math.max(1, N)) * Math.PI / 2, u = cx + r * Math.cos(a), v = cy + r * Math.sin(a); pts.push([M[0] * u + M[2] * v + M[4], M[1] * u + M[3] * v + M[5]]); }
+  return pts;
+}
 export function pointerInk(c, m, cur, { r, rot, box, radius, crop, disp, sx, alpha, st }) {
   const fx = c.cursor || {};
   const [cl, ct, cw, ch] = crop;
@@ -268,7 +276,9 @@ export function pointerInk(c, m, cur, { r, rot, box, radius, crop, disp, sx, alp
     if (half > 0 && rad > 0) {
       const lm = mul(mul(mul(M, translate(x - rad, y - rad)), scale(rad / half, rad / half)), translate(-(ux - half), -(uy - half)));
       out.push({ media: m.id, clip: c.id, st, alpha, m: lm, rect: [ux - half, uy - half, ux + half, uy + half],
-        look: { b: mul(mul(M, translate(x, y)), scale(rad * 2, rad * 2)), w: rad * 2, h: rad * 2, radius: rad, border: 3 * sx, borderColor: [255, 255, 255], shadow: 18 * sx, dy: 0, cut: false }, filter: null, grade: null });
+        look: { b: mul(mul(M, translate(x, y)), scale(rad * 2, rad * 2)), w: rad * 2, h: rad * 2, radius: rad, border: 3 * sx, borderColor: [255, 255, 255], shadow: 18 * sx, dy: 0, cut: false }, filter: null, grade: null,
+        // (1.15) on a rounded or bordered picture the editor draws it inside the box's outline: cut to it
+        ...(radius ? { mask: [{ poly: boxOutline(M, r.w, r.h, radius.radius) }] } : {}) });
     }
   }
   const shapes = [];

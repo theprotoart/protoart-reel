@@ -3,6 +3,7 @@
 ## 1.11.0 — 2026-11-16
 
 - Rust core export: a device frame (phone, laptop, browser, window) on a clip with a drop shadow is drawn by the core too, the shadow under the frame as in the editor.
+- Rust core export: the pointer magnifier on a rounded or bordered picture is drawn by the core, cut to the box’s outline as in the editor.
 - Rust core export: pointer effects (spotlight, highlight, click rings, the pointer itself) on a picture with a border are drawn by the core, the border over them as in the editor; and a square-cornered border now has square outer corners, as the editor draws it (they were slightly rounded).
 
 - Export: your markers go inside the movie as chapters, and your captions as subtitles you can turn on (QuickTime, the TV app, iPhone, VLC), with the new “Chapters & captions inside” option (on). The picture and sound are untouched; the .srt beside the movie and the YouTube chapter list are still there.
