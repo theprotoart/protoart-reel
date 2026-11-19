@@ -2,6 +2,8 @@
 
 ## 1.11.0 — 2026-11-16
 
+- Rust core export of a long edit: an edit with more than 48 clips used to go the usual way (“too many clips”). Now it’s cut into parts of up to 48 clips each, which the core draws one after another into the same encoder: one export, the same to the byte as in one go (and a clip that repeats starts a new part rather than sending it all the usual way).
+
 - Export on a nearly full drive: finishing an MP4 used to write a whole second copy of it (to put its index in front), so a drive with room for the export but not twice it failed at the very end (“ENOSPC: no space left on device”) after the whole export. Now, when space is short, the index goes in front of the export where it is, needing a couple of MB instead of the export’s size again; and Reel warns before it starts when the drive doesn’t have room for the export at all.
 
 - Labels move their section: drag a 🏷 label on the ruler and everything under it (picture, sound and titles, with their cuts and fades) goes with it, the rest closing up and making room, labels and markers and all. ⌥-drag moves just the label; drag either end to resize it; a click puts the playhead where you click, as on the ruler. In and Out are plain points again (no ◀ MOVE ▶ grip).

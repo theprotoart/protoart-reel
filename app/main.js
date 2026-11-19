@@ -1656,12 +1656,29 @@ handle('core:videoExport', async (id, token, job) => {
   if (!job || typeof job !== 'object' || !int(job.w, 2, 8192) || !int(job.h, 2, 8192) || job.w % 2 || job.h % 2 || !num(job.fps, 1, 240)
     || !['h264', 'hevc'].includes(job.codec) || !int(job.vbr, 100000, 400000000) || !int(job.abr, 32000, 512000)
     || !(job.body instanceof Uint8Array) || job.body.length > 1 << 30 || !Array.isArray(job.sources) || !job.sources.length || job.sources.length > 48) throw new Error('Bad export');
-  const sources = [];
-  for (const s of job.sources) {
-    if (!s || !validate.mediaName(s.file) || !num(s.from, 0, 1e6) || !num(s.to, 0, 1e6) || s.to < s.from || !int(s.w, 2, 8192) || !int(s.h, 2, 8192)) throw new Error('Bad export source');
-    const f = path.join(mediaDir(p), s.file), st = await fs.promises.lstat(f);
-    if (!st.isFile()) throw new Error('Not a media file');
-    sources.push({ path: f, from: s.from, to: Math.max(s.to, s.from + 0.001), w: s.w, h: s.h });
+  const checkSources = async list => {
+    const out = [];
+    for (const s of list) {
+      if (!s || !validate.mediaName(s.file) || !num(s.from, 0, 1e6) || !num(s.to, 0, 1e6) || s.to < s.from || !int(s.w, 2, 8192) || !int(s.h, 2, 8192)) throw new Error('Bad export source');
+      const f = path.join(mediaDir(p), s.file), st = await fs.promises.lstat(f);
+      if (!st.isFile()) throw new Error('Not a media file');
+      out.push({ path: f, from: s.from, to: Math.max(s.to, s.from + 0.001), w: s.w, h: s.h });
+    }
+    return out;
+  };
+  const sources = await checkSources(job.sources);
+  // a long edit in parts (1.15): each part's own sources (48 at most) and job, run one after another
+  let parts = null;
+  if (job.parts != null) {
+    if (!Array.isArray(job.parts) || job.parts.length < 1 || job.parts.length > 4000) throw new Error('Bad export');
+    let bytes = 0;
+    parts = [];
+    for (const pt of job.parts) {
+      if (!pt || !(pt.body instanceof Uint8Array) || !Array.isArray(pt.sources) || pt.sources.length > 48 || !int(pt.frames, 1, 3 * 3600 * 240)) throw new Error('Bad export part');
+      bytes += pt.body.length;
+      if (bytes > 1 << 30) throw new Error('Bad export');
+      parts.push({ body: pt.body, frames: pt.frames, overlay: !!pt.overlay, sources: await checkSources(pt.sources) });
+    }
   }
   // the sound: the mix Reel wrote for this export (in the project's media folder), or none
   let sound = null;
@@ -1677,7 +1694,7 @@ handle('core:videoExport', async (id, token, job) => {
   const send = f => { if (win && !win.isDestroyed()) win.webContents.send('core:progress', id, f); };
   try {
     const r = await videoExport({ coreBin: core.binary(), framesBin: FRAMES_BIN, encodeBin: ENCODE_BIN, sources, body: job.body, out: tmp, w: job.w, h: job.h, fps: job.fps,
-      codec: job.codec, vbr: job.vbr, abr: job.abr, sound, onProgress: send, signal: ctl.signal, overlay: !!job.overlay, onOverlay: w => overlayPipe(id).set(w) });
+      codec: job.codec, vbr: job.vbr, abr: job.abr, sound, onProgress: send, signal: ctl.signal, overlay: !!job.overlay, onOverlay: w => overlayPipe(id).set(w), ...(parts ? { parts } : {}) });
     await closeHandle(id);
     await fs.promises.rm(h.file, { force: true }); // the JavaScript export's part file, unused
     await fs.promises.rename(tmp, h.dst);
@@ -1694,8 +1711,11 @@ const coreOverlays = new Map();
 function overlayPipe(id) {
   let e = coreOverlays.get(id);
   if (!e) {
-    let set; const ready = new Promise(r => { set = r; });
-    e = { ready, set: w => { e.w = w; set(w); }, w: undefined };
+    // (a long edit's parts, 1.15: each part's core brings a new pipe; ending one waits for the next)
+    e = { w: undefined };
+    const arm = () => { let set; e.ready = new Promise(r => { set = r; }); e.set = w => { e.w = w; set(w); }; };
+    arm();
+    e.next = () => { e.w = undefined; arm(); };
     coreOverlays.set(id, e);
   }
   return e;
@@ -1703,9 +1723,15 @@ function overlayPipe(id) {
 handle('core:overlay', async (id, data) => {
   if (typeof id !== 'string' || id.length > 64) throw new Error('Bad overlay');
   const e = overlayPipe(id);
-  const w = e.w !== undefined ? e.w : await Promise.race([e.ready, new Promise(r => setTimeout(() => r(null), 60000))]);
+  // its core may not have started yet (the export starting, or a long edit's next part waiting for the one before):
+  // waits as long as the export is running (a minute at most before it has begun)
+  let w = e.w;
+  for (let waited = 0; w === undefined; waited++) {
+    w = await Promise.race([e.ready, new Promise(r => setTimeout(() => r(undefined), 1000))]);
+    if (w === undefined && (waited > 60 && !coreVideos.has(id))) w = null;
+  }
   if (!w || w.destroyed) throw new Error('The export stopped');
-  if (data == null) { w.end(); return; }
+  if (data == null) { w.end(); e.next(); return; }
   if (!(data instanceof Uint8Array) || data.length > 64 << 20) throw new Error('Bad overlay');
   await new Promise((res, rej) => {
     const ok = w.write(Buffer.from(data.buffer, data.byteOffset, data.length), err => { if (err) rej(new Error('The export stopped')); });

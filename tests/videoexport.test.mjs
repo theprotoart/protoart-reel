@@ -73,9 +73,19 @@ test('a video export plan: each clip read once at the size it needs, or why not'
     assert.ok(!j.why && !j.whole.length, `${type}: ${j.why || j.whole}`);
     assert.equal(j.core, 14, `${type} needs the 1.14 core`);
   }
+  // a long edit of many clips (1.15): cut into parts of no more than 48 decoders each, one after another
+  {
+    const many = docOf(Array.from({ length: 130 }, (_, i) => clip('k' + i, 'a', 't1', i * 0.5, 0.5)));
+    const j = videoJob(many, 0, 65, 320, 180, 10);
+    assert.ok(!j.why, j.why);
+    assert.ok(j.parts.length >= 3, `${j.parts.length} parts`);
+    assert.ok(j.parts.every(pt => pt.sources.length <= 48 && pt.sources.length > 0));
+    assert.equal(j.parts.reduce((n, pt) => n + pt.frames, 0), j.frames, 'every frame in one part');
+    assert.equal(j.whole.length, 0, 'none of it the editor’s');
+  }
   // played backwards: a decoder reads forwards only
   const back = videoJob(docOf([clip('c1', 'a', 't1', 0, 2, {}, { retime: [{ t: 0, s: 2 }, { t: 2, s: 0 }] })]), 0, 2, 320, 180, 10);
-  assert.ok(back.why == null || /backwards/.test(back.why));
+  assert.match(back.why, /backwards/, 'a part every frame: the usual export instead');
 });
 
 test('pointer effects go to the core as ink layers (and a magnifier picture), given the recorded pointer', () => {
@@ -284,5 +294,52 @@ f.on('close', c => process.exit(c));
     const f10 = raw.subarray(10 * W * H * 4, 11 * W * H * 4), seen = new Set();
     for (let p = 0; p < f10.length; p += 4 * 97) seen.add(f10[p] + ',' + f10[p + 1]);
     assert.ok(seen.size > 20, 'frame 10 is the video');
+  } finally { fs.rmSync(dir, { recursive: true, force: true }); }
+});
+
+test('a long edit in parts (1.15): each part its own decoders, all into one encoder, the same as in one go', { skip }, async () => {
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'vexp-'));
+  try {
+    execFileSync(ffmpeg, ['-v', 'error', '-f', 'lavfi', '-i', 'testsrc2=s=640x360:r=25:d=14', '-pix_fmt', 'yuv420p', path.join(dir, 'a.mp4')]);
+    execFileSync(ffmpeg, ['-v', 'error', '-f', 'lavfi', '-i', 'sine=f=440:d=6', '-ar', '48000', '-ac', '2', path.join(dir, 'mix.wav')]);
+    const fakeFrames = path.join(dir, 'reel-frames'), fakeEncode = path.join(dir, 'reel-encode');
+    fs.writeFileSync(fakeFrames, `#!${process.execPath}
+const { spawn, execFileSync } = require('child_process');
+const [, , mode, file, from, to, w, h] = process.argv;
+const r = execFileSync('${ffprobe}', ['-v', 'error', '-select_streams', 'v', '-show_entries', 'stream=r_frame_rate', '-of', 'csv=p=0', file]).toString().trim().split('/');
+const fps = r[0] / (r[1] || 1), first = Math.max(0, Math.floor((+from - 0.5) * fps));
+const f = spawn('${ffmpeg}', ['-v', 'error', '-i', file, '-vf', 'select=gte(n\\\\,' + first + '),scale=' + w + ':' + h + ':flags=area,format=bgra', '-vsync', '0', '-f', 'rawvideo', '-'], { stdio: ['ignore', 'pipe', 'inherit'] });
+const size = w * h * 4; let buf = Buffer.alloc(0), n = first;
+process.stdout.on('error', () => process.exit(0));
+f.stdout.on('data', d => { buf = Buffer.concat([buf, d]); while (buf.length >= size) { const t = Buffer.alloc(8); t.writeDoubleLE(n++ / fps); if (!process.stdout.write(Buffer.concat([t, buf.subarray(0, size)]))) f.stdout.pause(); buf = buf.subarray(size); if (n / fps > +to + 0.25) { f.kill(); process.stdout.end(() => process.exit(0)); return; } } });
+process.stdout.on('drain', () => f.stdout.resume());
+f.on('close', () => process.stdout.end(() => process.exit(0)));
+`, { mode: 0o755 });
+    fs.writeFileSync(fakeEncode, `#!${process.execPath}
+const { spawn } = require('child_process'); const fs = require('fs');
+const [, , out, w, h, fps, codec, vbr, abr, sound] = process.argv;
+const f = spawn('${ffmpeg}', ['-v', 'error', '-f', 'rawvideo', '-pix_fmt', 'bgra', '-s', w + 'x' + h, '-r', fps, '-i', '-', '-c:v', 'libx264', '-pix_fmt', 'yuv420p', out], { stdio: ['pipe', 'ignore', 'inherit'] });
+const raw = fs.createWriteStream(out + '.raw');
+process.stdin.on('data', d => { raw.write(d); if (!f.stdin.write(d)) { process.stdin.pause(); f.stdin.once('drain', () => process.stdin.resume()); } });
+process.stdin.on('end', () => { raw.end(); f.stdin.end(); });
+f.on('close', c => process.exit(c));
+`, { mode: 0o755 });
+    const W = 320, H = 180, fps = 10;
+    // 30 clips of 0.2 s, each from its own place in the video
+    const doc = docOf(Array.from({ length: 30 }, (_, i) => ({ ...clip('k' + i, 'a', 't1', i * 0.2, 0.2), in: (i * 0.37) % 10 })));
+    const run = async (maxSources, name) => {
+      const job = videoJob(doc, 0, 6, W, H, fps, { maxSources });
+      assert.ok(!job.why, job.why);
+      const out = path.join(dir, name);
+      const r = await videoExport({ coreBin: bin, framesBin: fakeFrames, encodeBin: fakeEncode, out, w: W, h: H, fps, codec: 'h264', vbr: 2_000_000, abr: 128_000, sound: path.join(dir, 'mix.wav'), onProgress: () => {},
+        parts: job.parts.map(pt => ({ frames: pt.frames, body: pt.body, overlay: false, sources: pt.sources.map(x => ({ ...x, path: path.join(dir, x.file) })) })) });
+      return { r, parts: job.parts.length, raw: fs.readFileSync(out + '.raw') };
+    };
+    const split = await run(12, 'split.mp4'), whole = await run(48, 'whole.mp4');
+    assert.equal(split.parts, 3, 'cut into three parts');
+    assert.equal(whole.parts, 1);
+    assert.equal(split.r.frames, 60);
+    assert.equal(split.raw.length, 60 * W * H * 4, 'every frame, once');
+    assert.ok(split.raw.equals(whole.raw), 'the same frames, byte for byte, as in one go');
   } finally { fs.rmSync(dir, { recursive: true, force: true }); }
 });

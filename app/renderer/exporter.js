@@ -96,8 +96,12 @@ export async function sendOverlays(app, doc, job, W, H, cursor, send) {
       return p.then(px => { worker.postMessage({ type: 'more' }); return px; });
     };
   }
+  // a long edit in parts (1.15): each part's core takes its own frames' drawing, ended before the next part's
+  const groups = job.parts ? job.parts.map(pt => pt.overlays).filter(g => g.length) : [job.overlays];
   try {
-  for (const fi of job.overlays) {
+  for (const [gi, group] of groups.entries()) {
+  if (gi > 0) { await send(null); prev = null; } // the next part's core: nothing drawn before it
+  for (const fi of group) {
     const t = job.times ? job.times[fi] : job.from + fi / job.fps;
     if (whole.has(fi)) {
       // the whole frame, as one picture over nothing (overlay.rs: a picture step)
@@ -148,6 +152,7 @@ export async function sendOverlays(app, doc, job, W, H, cursor, send) {
     const same = prev && prev.length === out.length && (() => { const a = new Uint32Array(prev.buffer, 0, prev.length >> 2), b = new Uint32Array(out.buffer, 0, out.length >> 2); for (let i = 0; i < a.length; i++) if (a[i] !== b[i]) return false; for (let i = a.length * 4; i < out.length; i++) if (prev[i] !== out[i]) return false; return true; })();
     await send(same ? Uint8Array.of(255, 255, 255, 255) : out);
     if (!same) prev = out;
+  }
   }
   } finally { if (worker) { worker.postMessage({ type: 'cancel' }); setTimeout(() => worker.terminate(), 1000); } }
   await send(null);
@@ -485,7 +490,9 @@ export function openExport(app) {
           let r = null;
           try {
             const running = app.api.coreVideoExport(h.id, app.token, { w, h: hh, fps: fps0, codec: s.codec === 'hevc' ? 'hevc' : 'h264', vbr: Math.round(videoBitrate(s, w, hh, fps0, to - from)),
-              abr: s.abr ? s.abr * 1000 : Number(pref('audioBitrate')) || 192000, sound, sources: job.sources.map(x => ({ file: x.file, from: x.from, to: x.to, w: x.w, h: x.h })), body: job.body, ink: job.ink, overlay: job.overlays.length > 0, core: job.core });
+              abr: s.abr ? s.abr * 1000 : Number(pref('audioBitrate')) || 192000, sound, sources: job.sources.map(x => ({ file: x.file, from: x.from, to: x.to, w: x.w, h: x.h })), body: job.body, ink: job.ink, overlay: job.overlays.length > 0, core: job.core,
+              // a long edit in parts (1.15)
+              ...(job.parts.length > 1 ? { parts: job.parts.map(pt => ({ frames: pt.frames, body: pt.body, overlay: pt.overlays.length > 0, sources: pt.sources.map(x => ({ file: x.file, from: x.from, to: x.to, w: x.w, h: x.h })) })) } : {}) });
             // titles, call-outs, graphics…: drawn here as the core goes, and handed to it frame by frame
             const drawing = job.overlays.length ? sendOverlays(app, doc, job, w, hh, cursor, data => app.api.coreOverlay(h.id, data)).catch(e => e) : null;
             r = await running;
