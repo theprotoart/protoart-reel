@@ -131,7 +131,7 @@ or between markers (ripple) · ✅ clip markers · ✅ colour labels · ✅ cust
 ✅ callouts, zoom & pan, motion (keyframes) · ✅ captions: edit, timing, SRT / VTT in and out ·
 🔜 nested clips · 🔜 canvas crop (export only part of the canvas) · ✅ caption language (the speech's language) ·
 ✅ automatic captions from speech (on-device, Apple Speech) · ✅ narration: record a voice-over
-while the timeline plays · 🔜 detachable timeline window · 🔜 customizable toolbar
+while the timeline plays · 🔜 detachable timeline window · ✅ customizable toolbar (1.15: right-click it)
 
 **Media library**
 ✅ add, delete, delete unused · ✅ search and filter by kind / unused · ✅ rename · ✅ replace file

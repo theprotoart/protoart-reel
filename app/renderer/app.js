@@ -66,7 +66,7 @@ import { ProxyQueue, proxyPrefs, setProxyPrefs, setProxyRam, previewFile } from 
 import { fitHeader } from './headerfit.js';
 import { openAutoEdit, openClipAutoEdit } from './autoedit.js';
 import { openClapFinder, clapsOnTimeline, addClapMarkers } from './clapscan.js';
-import { initToolbarGroups } from './toolbar.js';
+import { initToolbarGroups, initToolbarCustomize } from './toolbar.js';
 import { calloutsMenu, openCalloutPlanner } from './callouts.js';
 import { openTakes, initTakesButton, closeTakes } from './takes.js';
 import { cleanCopy, videoToFix } from './picturefix.js';
@@ -2255,6 +2255,7 @@ class App {
     this._wirePreviewZoom();
     for (const b of document.querySelectorAll('#toolstrip [data-cmd]')) b.addEventListener('click', () => this.cmd(b.dataset.cmd));
     initToolbarGroups(this);
+    initToolbarCustomize();
     initTakesButton(this);
     { // 💬 UMS key: how many ums are marked CUT
       const b = document.getElementById('btn-ums'), badge = b?.querySelector('.n');

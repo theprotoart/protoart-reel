@@ -92,7 +92,12 @@ export const TOPICS = [
     '**SPECTRAL** (`⌥⌘S`) repairs sound: de-noise, de-click, de-ess, de-bark. Music marked to dip under the voice gets quieter while you talk.'], 'how'],
   ['De-click (mouth clicks and pops)', 'declick de-click click clicks mouth lip smack pop pops crackle', [
     'On a track: **ƒx rack › + add effect › De-click**. Presets: *Mouth clicks (voice)*, *Pops & crackle*, *Gentle*. **Sensitivity** finds more clicks when higher; **Longest click** is how long a click can be.',
-    'It also comes in the **Tutorial voice**, **Podcast voice** and **Clean dialogue** presets, in AUTO MIX (Clean the dialogue) and in Auto Edit (Voice). The track plays about 1 ms late, far less than a video frame.'], 'how'],
+    'It also comes in the **Tutorial voice**, **Podcast voice** and **Clean dialogue** presets, in AUTO MIX (Clean the dialogue) and in Auto Edit (Voice). The track plays about 1 ms late, far less than a video frame.',
+    'On the **whole mix**: **MASTER… › De-click** runs first in the master at export (on in every master), before the level comes up; raise its Sensitivity if you still hear a pop.'], 'how'],
+  ['Customize the tool bar (your own buttons)', 'customize toolbar tool bar buttons pin favourite favorite shortcut button menu', [
+    '**Right-click the tool bar › Customize Tool Bar…** and tick any tool from the EFFECTS, AUDIO, TEXT, PARTS and ⚙ menus to put it on the bar itself as a button of its own. Untick it to take it off; **TAKE ALL OFF** puts the bar back as it was.'], 'how'],
+  ['Chapters and captions inside the movie', 'chapters chapter markers captions subtitles inside movie mp4 m4v mov quicktime tv iphone vlc embed embedded soft subtitles', [
+    'Your markers become **chapters** and your captions **subtitles you can turn on**, inside the exported movie (QuickTime, the TV app, iPhone, VLC). Export › **Chapters & captions inside** (on). Save as **.m4v** or **.mov** too: pick it in the save dialog.'], 'how'],
   ['Effects presets (save a chain of plug-ins)', 'preset presets chain save rack configuration plug-in plugin settings voice tutorial podcast noisy room reuse', [
     'Each track’s ƒx rack has **PRESETS ▾**. Built in: **Tutorial voice** (De-click → De-ess → Auto Level), **Clean dialogue (light)**, **Podcast voice** (De-click → EQ → Compressor → De-ess → Auto Level) and **Noisy room**.',
     '**Save this rack as a preset…** keeps everything on the track, including your own plug-ins with their settings (set CEDAR up once, save it). Your presets are on every track’s PRESETS ▾ (★) and in **Auto Edit › Voice**. *Delete a preset…* removes one.'], 'how'],

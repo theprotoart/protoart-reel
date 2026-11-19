@@ -2,6 +2,8 @@
 
 ## 1.11.0 — 2026-11-16
 
+- Tool bar: right-click it › Customize Tool Bar… to put any tool from its menus (EFFECTS, AUDIO, TEXT, PARTS, ⚙) on the bar as a button of its own. Help has it, and the master’s De-click and the chapters and captions inside the movie.
+
 - Recording: the floating panel has a microphone meter (green, amber, red) while you record, and MIC? blinks when nothing has been heard for 10 seconds, so an unplugged or muted mic is caught early instead of after the take.
 
 - Rust core export: a device frame (phone, laptop, browser, window) on a clip with a drop shadow is drawn by the core too, the shadow under the frame as in the editor.
