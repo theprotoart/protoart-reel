@@ -54,6 +54,12 @@ impl Lut {
     }
 }
 
+/// x^y, kept out of line (1.15): left inline, the compiler worked out every pixel's powers even with no gamma set
+/// (they're 5 of the costliest sums in the grade) and then threw them away
+#[inline(never)]
+fn pw(x: f64, y: f64) -> f64 { x.powf(y) }
+/// smoothstep with t already worked out
+fn smooth2(t: f64) -> f64 { let t = t.clamp(0.0, 1.0); t * t * (3.0 - 2.0 * t) }
 fn smoothstep(e0: f64, e1: f64, x: f64) -> f64 { let t = ((x - e0) / (e1 - e0)).clamp(0.0, 1.0); t * t * (3.0 - 2.0 * t) }
 
 /// texture(img, uv): RGBA 0..1 (not premultiplied, as the editor uploads it), bilinear, edges held.
@@ -87,6 +93,9 @@ pub fn grade(p: &Picture, g: &Grade, mask: Option<&Picture>) -> Picture {
     let lum = |c: [f64; 3]| c[0] * 0.2126 + c[1] * 0.7152 + c[2] * 0.0722;
     // worked out once, not per pixel (the same numbers: x^1 is x, and 2^exposure doesn't change)
     let (expo, inv_g) = (g.exposure.exp2(), 1.0 / g.gamma_v.max(0.05));
+    // (1.15) the levels' span (x / 1 is x), and the shadows' and highlights' smoothsteps over half a unit (x / 0.5 is
+    // exactly x × 2): the same numbers without the divisions
+    let lv_span = (g.in_white - g.in_black).max(0.01);
     let inv_gam = [1.0 / g.gam[0].max(0.05), 1.0 / g.gam[1].max(0.05), 1.0 / g.gam[2].max(0.05)];
     // each pixel on its own, as the GPU does it: the rows shared out over the cores (1.9)
     // where each column and row samples the picture: the same all the way down and across, so worked out once (1.15)
@@ -117,20 +126,20 @@ pub fn grade(p: &Picture, g: &Grade, mask: Option<&Picture>) -> Picture {
             }
             for i in 0..3 {
                 c[i] = c[i] * g.m_mul[i] + g.m_add[i];
-                c[i] = ((c[i] - g.in_black) / (g.in_white - g.in_black).max(0.01)).clamp(0.0, 1.0);
-                if inv_g != 1.0 { c[i] = c[i].powf(inv_g); }
+                c[i] = (if lv_span == 1.0 { c[i] - g.in_black } else { (c[i] - g.in_black) / lv_span }).clamp(0.0, 1.0);
+                if inv_g != 1.0 { c[i] = pw(c[i], inv_g); }
                 c[i] = g.out_black + c[i] * (g.out_white - g.out_black) + g.brightness;
                 c[i] *= expo;
             }
             let l = lum(c);
-            let (sh, hi) = (g.shadows * 0.5 * (1.0 - smoothstep(0.0, 0.5, l)) * (1.0 - l), g.highlights * 0.5 * smoothstep(0.5, 1.0, l) * l);
+            let (sh, hi) = (g.shadows * 0.5 * (1.0 - smooth2(l * 2.0)) * (1.0 - l), g.highlights * 0.5 * smooth2((l - 0.5) * 2.0) * l);
             for i in 0..3 { c[i] += sh + hi; c[i] = (c[i] - 0.5) * (1.0 + g.contrast) + 0.5; }
             c[0] += g.temperature * 0.12 + g.tint * 0.06;
             c[1] += -g.tint * 0.06;
             c[2] += -g.temperature * 0.12 + g.tint * 0.06;
             for i in 0..3 {
                 c[i] = g.gain[i] * (c[i] + g.lift[i] * (1.0 - c[i]));
-                c[i] = if inv_gam[i] != 1.0 { c[i].max(0.0).powf(inv_gam[i]) } else { c[i].max(0.0) };
+                c[i] = if inv_gam[i] != 1.0 { pw(c[i].max(0.0), inv_gam[i]) } else { c[i].max(0.0) };
             }
             let gr = lum(c);
             let sat = c[0].max(c[1]).max(c[2]) - c[0].min(c[1]).min(c[2]);
@@ -215,9 +224,9 @@ mod bench {
     use super::*;
     #[test] #[ignore]
     fn grade_speed() {
-        let (w, h) = (2880usize, 1800usize);
+        let (w, h) = if std::env::var_os("SMALL").is_some() { (480usize, 300usize) } else { (2880usize, 1800usize) };
         let p = Picture { w, h, rgba: (0..w * h * 4).map(|i| (i * 7 % 251) as u8).collect() };
-        let g = Grade { gw: 1920, gh: 1200, exposure: 0.2, contrast: 0.2, saturation: 0.0, vibrance: 0.0, temperature: 0.0, tint: 0.0, highlights: 0.0, shadows: 0.0,
+        let g = Grade { gw: w * 2 / 3, gh: h * 2 / 3, exposure: 0.2, contrast: 0.2, saturation: 0.0, vibrance: 0.0, temperature: 0.0, tint: 0.0, highlights: 0.0, shadows: 0.0,
             in_black: 0.0, in_white: 1.0, gamma_v: 1.0, out_black: 0.0, out_white: 1.0, brightness: 0.0, sharpen: 0.0, vignette: 0.0, bw: 0.0, aberr: 0.0,
             key: None, m_mul: [1.0; 3], m_add: [0.0; 3], lift: [0.0; 3], gam: [1.0; 3], gain: [1.0; 3], lut: None, matte: None };
         let t = std::time::Instant::now();
