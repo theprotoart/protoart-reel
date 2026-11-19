@@ -63,7 +63,7 @@ export function videoJob(doc, from, to, W, H, fps, { maxSources = 48, cursor = n
   // each part's clips are read by their own decoders (no more than maxSources at once), and a new part starts where
   // the next frame would need more, or where a clip plays backwards or repeats (a decoder reads forwards only). The
   // core runs the parts one after another into the same encoder, so it's still one export.
-  let bg = null, ink = false, blur = false, fx14 = false;
+  let bg = null, ink = false, blur = false, fx14 = false, fx15 = false;
   const parts = [];
   let part = null;
   const u32to = (pt, v) => { const b = new Uint8Array(4); new DataView(b.buffer).setUint32(0, v >>> 0, true); pt.chunks.push(b); pt.total += 4; };
@@ -110,6 +110,7 @@ export function videoJob(doc, from, to, W, H, fps, { maxSources = 48, cursor = n
       ink ||= p.layers.some(l => l.ink);
       blur ||= !!p.needs13;
       fx14 ||= !!p.needs14;
+      fx15 ||= !!p.needs15;
       const uses = new Map();
       const src = (key, file, st, w, h) => {
         let s = part.srcOf.get(key);
@@ -159,6 +160,6 @@ export function videoJob(doc, from, to, W, H, fps, { maxSources = 48, cursor = n
   const sources = parts[0].sources, out = parts[0].body, overlays = parts.flatMap(pt => pt.overlays);
   // core: the oldest core that can draw it (a blurring call-out or a transition's shape: 1.13)
   const editor = [...whole.keys()].sort((a, b) => a - b);
-  return { frames, sources, body: out, parts: parts.map(pt => ({ frames: pt.frames, sources: pt.sources, body: pt.body, overlays: pt.overlays })), ink, overlays, times: plans, from: start, fps, luts, core: fx14 ? 14 : blur || samples > 1 ? 13 : 12,
+  return { frames, sources, body: out, parts: parts.map(pt => ({ frames: pt.frames, sources: pt.sources, body: pt.body, overlays: pt.overlays })), ink, overlays, times: plans, from: start, fps, luts, core: fx15 ? 15 : fx14 ? 14 : blur || samples > 1 ? 13 : 12,
     whole: editor, wholeWhy: editor.length ? [...new Set(whole.values())] : [] };
 }

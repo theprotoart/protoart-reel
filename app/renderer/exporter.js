@@ -133,7 +133,7 @@ export async function sendOverlays(app, doc, job, W, H, cursor, send) {
     };
     // background graphics (1.13): each into its slot, numbered as lib/frameplan.js numbers them
     // (and device frames: 'frame:' + the clip's id) — numbered as the frame's plan numbers its slots
-    const keys = framePlan(doc, t, W, H, undefined, cursor, { luts: job.luts }).layers?.filter(l => l.slot != null).map(l => l.key) || [];
+    const keys = framePlan(doc, t, W, H, undefined, cursor, { luts: job.luts }).slotKeys || [];
     const slot = id => { flush(); const k = id == null ? -1 : keys.indexOf(id); parts.push({ mark: id == null ? 0xffffffff : k < 0 ? 63 : k }); size += 5; }; // (63: a slot no frame has, so drawing the plan doesn't expect is never shown)
     drawFrame(ctx, doc, t, sources, { overlayOnly: true, slot, lens: L => { flush(); if (L.blurOut) { parts.push({ blur: L }); size += 1 + 16 + 4 + L.pts.length * 16; } else { parts.push({ lens: L }); size += 1 + 40 + 4 + L.pts.length * 16; } } });
     flush();

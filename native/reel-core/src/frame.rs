@@ -12,18 +12,26 @@ pub struct Layer { pub src: usize, pub alpha: f64, pub m: [f64; 6], pub rect: [f
 
 /// A transition's shape that a layer is seen through (compositor.js maskPath), canvas px: outlines (as many as a
 /// blinds wipe has) and circles (the iris). Inside any of them, the layer shows.
-pub enum MaskShape { Poly(Vec<(f64, f64)>), Circle { x: f64, y: f64, r: f64 } }
+/// (1.15) Slot(k): the editor's drawing in slot k, white where the layer's kept (the text reveal's words), laid over
+/// black: its brightness is the mask.
+pub enum MaskShape { Poly(Vec<(f64, f64)>), Circle { x: f64, y: f64, r: f64 }, Slot(usize) }
 
-/// Keeps what a layer drew only inside its mask: everything else back as it was before it (smooth edges).
-fn apply_mask(acc: &mut [[f64; 3]], before: &[[f64; 3]], w: usize, mask: &[MaskShape]) {
+/// Keeps what a layer drew only inside its mask: everything else back as it was before it (smooth edges). `slots`:
+/// the slot masks' drawings, over black, in mask order.
+fn apply_mask(acc: &mut [[f64; 3]], before: &[[f64; 3]], w: usize, mask: &[MaskShape], slots: &[Vec<[f64; 3]>]) {
     par_rows(acc, w, |y, row| {
         let cy = y as f64 + 0.5;
         for (x, px) in row.iter_mut().enumerate() {
             let cx = x as f64 + 0.5;
             let mut cov: f64 = 0.0;
+            let mut si = 0;
             for s in mask {
-                let d = match s { MaskShape::Poly(p) => crate::ink::poly_dist(p, cx, cy), MaskShape::Circle { x, y, r } => (cx - x).hypot(cy - y) - r };
-                cov = cov.max((0.5 - d).clamp(0.0, 1.0));
+                let c = match s {
+                    MaskShape::Poly(p) => (0.5 - crate::ink::poly_dist(p, cx, cy)).clamp(0.0, 1.0),
+                    MaskShape::Circle { x, y, r } => (0.5 - ((cx - x).hypot(cy - y) - r)).clamp(0.0, 1.0),
+                    MaskShape::Slot(_) => { let v = slots.get(si).map_or(0.0, |b| b[y * w + x][0] / 255.0); si += 1; v.clamp(0.0, 1.0) }
+                };
+                cov = cov.max(c);
                 if cov >= 1.0 { break; }
             }
             if cov >= 1.0 { continue; }
@@ -382,7 +390,11 @@ pub fn draw_then(w: usize, h: usize, bg: [u8; 3], pictures: &[Picture], layers: 
             }
         }
         }
-        if let (Some(mask), Some(before)) = (&l.mask, before) { apply_mask(&mut acc, &before, w, mask); }
+        if let (Some(mask), Some(before)) = (&l.mask, before) {
+            // slot masks (1.15): the editor's drawing for each, over black
+            let slots: Vec<Vec<[f64; 3]>> = mask.iter().filter_map(|s| if let MaskShape::Slot(k) = s { let mut b = vec![[0.0f64; 3]; w * h]; at(Some(*k), &mut b); Some(b) } else { None }).collect();
+            apply_mask(&mut acc, &before, w, mask, &slots);
+        }
     }
     at(None, &mut acc);
     let mut out = vec![255u8; w * h * 4];
@@ -392,6 +404,17 @@ pub fn draw_then(w: usize, h: usize, bg: [u8; 3], pictures: &[Picture], layers: 
 
 #[cfg(test)]
 mod tests {
+    #[test]
+    fn slot_mask_cuts_by_the_editors_drawing() {
+        // a red fill seen through slot 3: white, half grey and nothing over three pixels; the slot itself never drawn
+        let mut l = fill_layer([255, 0, 0], 1.0);
+        l.mask = Some(vec![MaskShape::Slot(3)]);
+        let px = draw_then(3, 1, [0, 0, 255], &[], &[l], |k, acc| if k == Some(3) { acc[0] = [255.0; 3]; acc[1] = [127.5; 3]; });
+        assert_eq!(&px[0..3], &[255, 0, 0], "all red where white");
+        assert_eq!(&px[4..7], &[128, 0, 128], "half where grey");
+        assert_eq!(&px[8..11], &[0, 0, 255], "the blue under it where nothing");
+    }
+
     use super::*;
     fn solid(w: usize, h: usize, c: [u8; 4]) -> Picture { Picture { w, h, rgba: (0..w * h).flat_map(|_| c).collect() } }
     #[test]

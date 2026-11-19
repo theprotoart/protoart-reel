@@ -146,10 +146,9 @@ export function blockShapes(amt, W, H, t) {
 
 /**
  * Everything compositor.js drawFrame paints over the frame after drawing clip c (its props p at time t), in its
- * order, as one list of shapes; or { why } for what still reads the picture (the text reveal, vertigo, glitch blocks).
+ * order, as one list of shapes; (the text reveal is the core's too since 1.15: a slot the editor draws its words into, see frameplan.js).
  */
 export function effectShapes(c, p, t, W, H) {
-  if (p.textMask) return { why: 'a text reveal' };
   const out = [];
   if (p.shutter != null && p.shutter < 1) out.push(...shutterShapes(p.shutter, W, H));
   if (p.vertigo && p.vertigo.amt > 0.01) out.push(...vertigoShapes(p.vertigo, W, H));

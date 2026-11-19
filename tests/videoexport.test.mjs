@@ -73,6 +73,17 @@ test('a video export plan: each clip read once at the size it needs, or why not'
     assert.ok(!j.why && !j.whole.length, `${type}: ${j.why || j.whole}`);
     assert.equal(j.core, 14, `${type} needs the 1.14 core`);
   }
+  // a text reveal (1.15): the core's too, the clip cut by words the editor draws into a slot, over their shadow's slot
+  {
+    const j = videoJob(docOf([{ ...clip('c1', 'a', 't1', 0, 2), transIn: { type: 'text-reveal', dur: 0.5, text: 'Hello' } }]), 0, 2, 320, 180, 10);
+    assert.ok(!j.why && !j.whole.length, j.why || String(j.whole));
+    assert.equal(j.core, 15, 'a text reveal needs the 1.15 core');
+    const p = framePlan(docOf([{ ...clip('c1', 'a', 't1', 0, 2), transIn: { type: 'text-reveal', dur: 0.5, text: 'Hello' } }]), 0.2, 320, 180);
+    assert.deepEqual(p.slotKeys, ['reveal-shadow:c1', 'reveal-mask:c1']);
+    assert.deepEqual(p.layers.map(l => l.slot ?? l.media), [0, 'a'], 'the shadow under the clip; the cut is not a layer');
+    assert.deepEqual(p.layers[1].mask, [{ slot: 1 }]);
+    assert.ok(!framePlan(docOf([clip('c1', 'a', 't1', 0, 2)]), 1, 320, 180).needs15, 'none afterwards');
+  }
   // a long edit of many clips (1.15): cut into parts of no more than 48 decoders each, one after another
   {
     const many = docOf(Array.from({ length: 130 }, (_, i) => clip('k' + i, 'a', 't1', i * 0.5, 0.5)));

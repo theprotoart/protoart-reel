@@ -313,6 +313,8 @@ fn read_layer(inp: &mut Input, npics: usize) -> Result<frame::Layer, String> {
                     frame::MaskShape::Poly(pts)
                 }
                 1 => { let (x, y, r) = (inp.f64()?, inp.f64()?, inp.f64()?); if ![x, y, r].iter().all(|v| v.is_finite() && v.abs() <= BIG) || r < 0.0 { return Err("bad mask".into()); } frame::MaskShape::Circle { x, y, r } }
+                // 1.15: the editor's drawing in slot k (white where kept: the text reveal's words)
+                2 => { let k = inp.u32()?; if k >= 64 { return Err("bad mask".into()); } frame::MaskShape::Slot(k) }
                 _ => return Err("bad mask".into()),
             });
         }

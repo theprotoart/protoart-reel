@@ -40,7 +40,8 @@ export function framePlan(doc, t, W, H, size = m => ({ w: m.width || 0, h: m.hei
   // the core draws (as drawFrame puts them over the pictures), and they come to the core as pictures
   let overlay = !!(cs.burn && (doc.captions || []).some(c => t >= c.t && t < c.end)), blur = false;
   const layers = [];
-  let slots = 0;
+  let slots = 0, needs15 = false;
+  const keys = []; // slot number → the key the editor draws it under (the slots that aren't layers: a text reveal's cut)
   for (const k of activeClips(doc, t)) {
     if (k.type !== 'media') {
       const q = propsAt(animated(k, t - k.start), t - k.start);
@@ -69,6 +70,11 @@ export function framePlan(doc, t, W, H, size = m => ({ w: m.width || 0, h: m.hei
     if (fx.why) return { why: fx.why };
     const shut = p.shutter != null && p.shutter < 1;
     if (shut && p.mask && p.mask.k < 1) return { why: 'a radial shutter with a wipe' };
+    // a text reveal (1.15): the clip seen through words the editor draws (white, into a slot of their own that the
+    // core reads as the cut), over their soft shadow (into a slot under the clip)
+    const tm = p.textMask;
+    if (tm && (shut || (p.mask && p.mask.k < 1))) return { why: 'a text reveal with a wipe' };
+    if (tm && slots >= 62) return { why: 'too many text reveals' };
     const fxInk = fx.shapes.length ? { ink: { m: [1, 0, 0, 1, 0, 0], clip: null, cut: null, shapes: fx.shapes }, alpha: 1 } : null;
     // a dip to black or white: a colour over everything drawn so far (after this clip, as drawFrame does)
     const dip = p.dip && p.dip.amount > 0 ? { fill: hexRGB(p.dip.color) || [0, 0, 0], alpha: clamp(p.dip.amount, 0, 1) } : null;
@@ -157,7 +163,12 @@ export function framePlan(doc, t, W, H, size = m => ({ w: m.width || 0, h: m.hei
     const st = sourceTime(c, t);
     // a wipe, iris, clock, barn doors, blinds… (1.13): the clip seen through the transition's shape
     // a radial shutter (1.14): the clip seen through the iris's opening, the blades over it (fxInk)
-    const mask = shut ? [{ poly: shutterGeom(p.shutter, W, H).v }] : p.mask && p.mask.k < 1 ? maskShapes(p.mask, W, H) : null;
+    let mask = shut ? [{ poly: shutterGeom(p.shutter, W, H).v }] : p.mask && p.mask.k < 1 ? maskShapes(p.mask, W, H) : null;
+    if (tm) {
+      layers.push({ slot: slots++, key: 'reveal-shadow:' + c.id });
+      keys[slots] = 'reveal-mask:' + c.id; mask = [{ slot: slots++ }];
+      overlay = true; blur = true; needs15 = true;
+    }
     const n0 = layers.length;
     if (framed) {
       if (slots >= 63) return { why: 'too many device frames' };
@@ -174,7 +185,8 @@ export function framePlan(doc, t, W, H, size = m => ({ w: m.width || 0, h: m.hei
   }
   // needs13: drawn with what the 1.13 core added (a blurring call-out, a transition's shape)
   const needs14 = layers.some(l => l.ink && l.ink.shapes.some(sh => !['grad', 'disc', 'ring', 'poly'].includes(sh.kind)));
-  return { bg, layers, overlay, ...(blur || layers.some(l => l.mask) ? { needs13: true } : {}), ...(needs14 ? { needs14: true } : {}) };
+  for (const l of layers) if (l.slot != null) keys[l.slot] = l.key;
+  return { bg, layers, overlay, slotKeys: keys, ...(blur || layers.some(l => l.mask) ? { needs13: true } : {}), ...(needs14 ? { needs14: true } : {}), ...(needs15 ? { needs15: true } : {}) };
 }
 
 /**
@@ -322,6 +334,7 @@ export function encodeLayers(layers, srcOf, push, { luts = null, sent = new Map(
       u32(0xfffffffd); f64(1); u32(l.mask.length);
       for (const s of l.mask) {
         if (s.circle) { u8(1); s.circle.forEach(f64); }
+        else if (s.slot != null) { u8(2); u32(s.slot); } // 1.15: a slot's brightness is the cut
         else { u8(0); u32(s.poly.length); for (const [x, y] of s.poly) { f64(x); f64(y); } }
       }
     }

@@ -64,8 +64,11 @@ JavaScript runs, as before). When little JavaScript is left, the window itself c
      and SVG and GIF pictures (a PNG of what the editor shows, made for the export and removed after).
    - **Done (1.15): long edits.** More than 48 clips: the export is cut into parts of up to 48 clip decoders each,
      run one after another into one encoder (the same output, byte for byte, as in one go).
-   - Still the editor's (drawn whole and handed to the core): the text reveal (the picture cut to the shape of
-     words), transition effects on a title or graphic, filters or pointer effects on a turned phone video.
+   - **Done (1.15): the text reveal.** The editor draws only the words (white, into a slot the core reads as the
+     cut) and their shadow (a slot under the clip); the core draws the clip through them (checked against the editor's
+     drawing: PSNR 51–53 dB, worst 6/255).
+   - Still the editor's (drawn whole and handed to the core): transition effects on a title or graphic, filters or
+     pointer effects on a turned phone video.
    - Next: those, then the setting comes on by default.
 6. **Recording:** screen, window and camera through ScreenCaptureKit.
 7. **The window:** a plain Rust interface (egui or Slint), once the pieces above no longer need the browser.

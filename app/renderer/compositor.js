@@ -2,7 +2,7 @@
 // and <img> elements) and for export (sources are WebCodecs VideoFrames and ImageBitmaps), so
 // what you see is what you export.
 import { unzoomed } from './lib/dynzoom.js';
-import { revealLayer, finishReveal } from './lib/textreveal.js';
+import { revealLayer, finishReveal, revealMask, revealShadow } from './lib/textreveal.js';
 import { activeClips, propsAt, sourceTime, mediaById, clamp, TEXT_DEFAULTS, animated, captionAt, CAPTION_STYLE } from './model.js';
 import { keysAt } from './cursor.js';
 import { filterParams, needsGl } from './lib/glfx.js';
@@ -52,6 +52,16 @@ export function drawFrame(ctx, doc, t, sources, opts = {}) {
     for (const k of here.filter(k => k.type === 'media' && k.frame && k.frame.type && k.frame.type !== 'none')) {
       opts.slot('frame:' + k.id); inSlot = true;
       try { drawFrameOnly(ctx, doc, k, t, W, H, sx); } catch (e) { if (opts.onError) opts.onError(k, e); }
+    }
+    // a text reveal on a picture (1.15): its words' shadow (into the slot under the clip) and the words themselves
+    // in white (into the slot the core cuts the clip by), as lib/frameplan.js numbers them
+    for (const k of here.filter(k => k.type === 'media')) {
+      const p = propsAt(animated(k, t - k.start), t - k.start);
+      if (!p.textMask || p.opacity <= 0.001) continue;
+      try {
+        opts.slot('reveal-shadow:' + k.id); inSlot = true; revealShadow(ctx, p.textMask, W, H);
+        opts.slot('reveal-mask:' + k.id); revealMask(ctx, p.textMask, W, H);
+      } catch (e) { if (opts.onError) opts.onError(k, e); }
     }
   }
   for (const k of opts.overlayOnly ? [...bgs, ...here.filter(overlay)] : [...here.filter(k => !overlay(k)), ...here.filter(overlay)]) {

@@ -82,24 +82,33 @@ export function revealLayer(W, H) {
 
 /** Cuts the layer to the words and puts it on the frame (with a soft shadow under the words). */
 export function finishReveal(ctx, lctx, tm, W, H) {
-  const text = (String(tm.text || '').trim() || 'NEXT').toUpperCase().slice(0, 40);
-  const st = revealState(text, tm.font, tm.k, W, H);
   mask = sized(mask, W, H);
   const m = mask.getContext('2d');
   m.setTransform(1, 0, 0, 1, 0, 0); m.globalAlpha = 1; m.globalCompositeOperation = 'source-over'; m.clearRect(0, 0, W, H);
-  const words = (c, style) => {
-    c.save(); c.setTransform(st.f, 0, 0, st.f, st.tx, st.ty);
-    c.font = revealFont(st.L.S, tm.font); c.textAlign = 'center'; c.textBaseline = 'middle'; c.fillStyle = style;
-    c.fillText(text, 0, 0); c.restore();
-  };
-  m.globalAlpha = st.alpha; words(m, '#fff');
-  if (st.full > 0) { m.globalAlpha = st.full; m.fillStyle = '#fff'; m.fillRect(0, 0, W, H); }
-  // a shadow under the words, so they stand off the outgoing picture
-  if (st.full < 1) {
-    ctx.save(); ctx.globalAlpha = 0.45 * st.alpha * (1 - st.full);
-    ctx.shadowColor = 'rgba(0,0,0,1)'; ctx.shadowBlur = 28; ctx.shadowOffsetY = 6;
-    words(ctx, 'rgba(0,0,0,0.6)'); ctx.restore();
-  }
+  revealMask(m, tm, W, H);
+  revealShadow(ctx, tm, W, H);
   lctx.save(); lctx.setTransform(1, 0, 0, 1, 0, 0); lctx.globalCompositeOperation = 'destination-in'; lctx.drawImage(mask, 0, 0); lctx.restore();
   ctx.save(); ctx.setTransform(1, 0, 0, 1, 0, 0); ctx.globalAlpha = 1; ctx.drawImage(lctx.canvas, 0, 0); ctx.restore();
+}
+const revealText = tm => (String(tm.text || '').trim() || 'NEXT').toUpperCase().slice(0, 40);
+const revealWords = (c, st, text, font, style) => {
+  c.save(); c.setTransform(st.f, 0, 0, st.f, st.tx, st.ty);
+  c.font = revealFont(st.L.S, font); c.textAlign = 'center'; c.textBaseline = 'middle'; c.fillStyle = style;
+  c.fillText(text, 0, 0); c.restore();
+};
+/** The shape the clip is cut to, in white (its alpha is the cut), drawn on c (1.15: also the Rust core's mask). */
+export function revealMask(c, tm, W, H) {
+  const text = revealText(tm), st = revealState(text, tm.font, tm.k, W, H);
+  c.save();
+  c.globalAlpha = st.alpha; revealWords(c, st, text, tm.font, '#fff');
+  if (st.full > 0) { c.globalAlpha = st.full; c.fillStyle = '#fff'; c.fillRect(0, 0, W, H); }
+  c.restore();
+}
+/** A soft shadow of the words, under the clip, so they stand off the outgoing picture. */
+export function revealShadow(ctx, tm, W, H) {
+  const text = revealText(tm), st = revealState(text, tm.font, tm.k, W, H);
+  if (st.full >= 1) return;
+  ctx.save(); ctx.globalAlpha = 0.45 * st.alpha * (1 - st.full);
+  ctx.shadowColor = 'rgba(0,0,0,1)'; ctx.shadowBlur = 28; ctx.shadowOffsetY = 6;
+  revealWords(ctx, st, text, tm.font, 'rgba(0,0,0,0.6)'); ctx.restore();
 }
