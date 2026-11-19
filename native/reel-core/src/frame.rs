@@ -186,6 +186,16 @@ fn shadow(acc: &mut [[f64; 3]], w: usize, h: usize, lk: &Look, alpha: f64) {
 }
 
 
+/// A new Vec of n values, each row of `width` written by f(row index, row) over the cores (1.15): written once, not
+/// zeroed first. f must write every value of its row.
+pub fn par_new<T: Send>(n: usize, width: usize, f: impl Fn(usize, &mut [std::mem::MaybeUninit<T>]) + Sync) -> Vec<T> {
+    let mut v: Vec<T> = Vec::with_capacity(n);
+    par_rows(&mut v.spare_capacity_mut()[..n], width, f);
+    // every row was written by f (par_rows covers them all)
+    unsafe { v.set_len(n); }
+    v
+}
+
 /// Runs f(row index, row) over the rows of `data` (rows of `width`), shared out over the cores. Each row is only
 /// ever touched by one thread, so the result is the same as going row by row.
 pub fn par_rows<T: Send>(data: &mut [T], width: usize, f: impl Fn(usize, &mut [T]) + Sync) {
@@ -238,9 +248,8 @@ pub fn slot_layer(k: usize) -> Layer { Layer { src: SLOT + k, alpha: 1.0, m: [1.
 /// `at(Some(k), acc)` where slot layer k is (the editor's drawing in the stack), `at(None, acc)` over everything at the end.
 pub fn draw_then(w: usize, h: usize, bg: [u8; 3], pictures: &[Picture], layers: &[Layer], mut at: impl FnMut(Option<usize>, &mut [[f64; 3]])) -> Vec<u8> {
     // (1.15: filled and read out over the cores)
-    let mut acc: Vec<[f64; 3]> = vec![[0.0; 3]; w * h];
     let bgf = [bg[0] as f64, bg[1] as f64, bg[2] as f64];
-    par_rows(&mut acc, w, |_, row| row.fill(bgf));
+    let mut acc: Vec<[f64; 3]> = par_new(w * h, w, |_, row| for o in row { o.write(bgf); });
     for l in layers {
         // a transition's shape (1.13): what the layer draws is kept only inside it, as the canvas's clip
         let before = l.mask.as_ref().map(|_| acc.clone());
@@ -425,14 +434,12 @@ pub fn draw_then(w: usize, h: usize, bg: [u8; 3], pictures: &[Picture], layers: 
         }
     }
     at(None, &mut acc);
-    let mut out = vec![0u8; w * h * 4];
     let acc = &acc;
-    par_rows(&mut out, w * 4, |y, row| for (x, o) in row.chunks_exact_mut(4).enumerate() {
+    par_new(w * h * 4, w * 4, |y, row| for (x, o) in row.chunks_exact_mut(4).enumerate() {
         let c = acc[y * w + x];
-        for ch in 0..3 { o[ch] = c[ch].round().clamp(0.0, 255.0) as u8; }
-        o[3] = 255;
-    });
-    out
+        for ch in 0..3 { o[ch].write(c[ch].round().clamp(0.0, 255.0) as u8); }
+        o[3].write(255);
+    })
 }
 
 #[cfg(test)]
@@ -553,7 +560,7 @@ mod bench {
     #[test]
     #[ignore]
     fn bench_draw() {
-        let (sw, sh) = (2880usize, 1800usize);
+        let (sw, sh) = if std::env::var_os("SMALL").is_some() { (720usize, 450usize) } else { (2880usize, 1800usize) };
         let pic = Picture { w: sw, h: sh, rgba: (0..sw * sh).flat_map(|i| [(i * 7) as u8, (i >> 9) as u8, 128, 255]).collect() };
         let k = 1080.0 / sh as f64 * 1.4;
         let l = Layer { src: 0, alpha: 1.0, m: [k, 0.0, 0.0, k, 960.0 - sw as f64 * k / 2.0, 540.0 - sh as f64 * k / 2.0], rect: [0.0, 0.0, sw as f64, sh as f64], look: None, fill: None, filter: None, grade: None, ink: None, mask: None };
