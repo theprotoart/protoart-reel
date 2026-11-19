@@ -36,12 +36,14 @@ pub fn blocking(fd: i32) {
 /// One clip's decoder. Its frames are read on a thread of their own (a few kept ready), so the decoder runs while the
 /// frames before are drawn.
 pub struct Source {
-    rx: std::sync::mpsc::Receiver<Result<Option<(f64, Vec<u8>)>, String>>,
+    rx: std::sync::mpsc::Receiver<Result<Option<(f64, Vec<u8>, bool)>, String>>,
     w: usize,
     h: usize,
     have: bool,
-    next: Option<(f64, Vec<u8>)>,
+    next: Option<(f64, Vec<u8>, bool)>,
     ended: bool,
+    /// (1.15) goes up each time the picture shown changes (a frame the same as the one before it doesn't count)
+    pub gen: u64,
 }
 
 impl Source {
@@ -49,23 +51,27 @@ impl Source {
         let (tx, rx) = std::sync::mpsc::sync_channel(3);
         std::thread::spawn(move || {
             let mut r = BufReader::with_capacity(1 << 20, r);
+            // each frame marked when it's the same as the one before (a still screen): checked here, while the
+            // frames before are drawn
+            let mut last: Vec<u8> = Vec::new();
             loop {
-                let f = read_frame(&mut r, w, h);
+                let f = read_frame(&mut r, w, h).map(|o| o.map(|(t, px)| { let same = px == last; last.clear(); last.extend_from_slice(&px); (t, px, same) }));
                 let end = !matches!(f, Ok(Some(_)));
                 if tx.send(f).is_err() || end { break; }
             }
         });
-        Source { rx, w, h, have: false, next: None, ended: false }
+        Source { rx, w, h, have: false, next: None, ended: false, gen: 0 }
     }
-    fn read(&mut self) -> Result<Option<(f64, Vec<u8>)>, String> {
+    fn read(&mut self) -> Result<Option<(f64, Vec<u8>, bool)>, String> {
         self.rx.recv().unwrap_or(Ok(None))
     }
     /// Puts the frame shown at moment `st` into `pic` (as RGBA). False when the decoder had no frames at all.
     pub fn frame_at(&mut self, st: f64, pic: &mut Picture) -> Result<bool, String> {
         if !self.have {
-            let Some((_, px)) = self.read()? else { return Ok(false) };
+            let Some((_, px, _)) = self.read()? else { return Ok(false) };
             *pic = Picture { w: self.w, h: self.h, rgba: px };
             self.have = true;
+            self.gen += 1;
         }
         loop {
             if self.next.is_none() && !self.ended {
@@ -73,9 +79,9 @@ impl Source {
                 if self.next.is_none() { self.ended = true; }
             }
             match &self.next {
-                Some((t, _)) if *t <= st + EPS => {
-                    let (_, px) = self.next.take().unwrap();
-                    *pic = Picture { w: self.w, h: self.h, rgba: px };
+                Some((t, _, _)) if *t <= st + EPS => {
+                    let (_, px, same) = self.next.take().unwrap();
+                    if !same { *pic = Picture { w: self.w, h: self.h, rgba: px }; self.gen += 1; }
                 }
                 _ => break,
             }
@@ -108,7 +114,8 @@ fn read_frame<R: Read>(r: &mut R, w: usize, h: usize) -> Result<Option<(f64, Vec
 
 /// One frame of the job: the (source, moment) pairs it shows, and its layers.
 /// overlay (1.12): the editor's drawing over this frame comes next on the overlay stream.
-pub struct FramePlan { pub uses: Vec<(usize, f64)>, pub layers: Vec<frame::Layer>, pub overlay: bool }
+/// key (1.15): the frame's layers as they came (their bytes), so a frame the same as the one before is known
+pub struct FramePlan { pub uses: Vec<(usize, f64)>, pub layers: Vec<frame::Layer>, pub overlay: bool, pub key: Vec<u8> }
 
 /// Draws every frame, pulling each source's frame from its decoder, and writes them (BGRA) to `out` on a thread of
 /// its own (so the encoder takes one frame while the next is drawn). progress(done, total) now and then. Returns how
@@ -131,6 +138,7 @@ pub fn run<W: Write + Send>(w: usize, h: usize, bg: [u8; 3], sources: &mut [Sour
             let (mut n, mut sub) = (0, 0usize);
             let mut avg: Vec<u8> = Vec::new();
             let mut prev = std::sync::Arc::new(Vec::new());
+            let mut drawn_last: Option<(Vec<u8>, Vec<u64>, Option<std::sync::Arc<Vec<crate::overlay::Step>>>, Vec<u8>)> = None;
             let mut last = std::time::Instant::now();
             for plan in plans {
                 let plan = plan?;
@@ -143,7 +151,18 @@ pub fn run<W: Write + Send>(w: usize, h: usize, bg: [u8; 3], sources: &mut [Sour
                     prev = crate::overlay::read(r, w, h, &prev)?;
                     Some(prev.clone())
                 } else { None };
-                let px = frame::draw_then(w, h, bg, &pics, &plan.layers, |g, acc| { if let Some(s) = &steps { crate::overlay::apply_group(acc, w, h, s, g); } });
+                // (1.15) the same layers over the same pictures and the same drawing from the editor as the frame before
+                // (a still screen, a pause): that frame again, not drawn
+                let gens: Vec<u64> = plan.uses.iter().map(|&(s, _)| sources[s].gen).collect();
+                let again = match (&drawn_last, &steps) {
+                    (Some((k, g, o, _)), st) if *k == plan.key && *g == gens && match (o, st) { (None, None) => true, (Some(a), Some(b)) => std::sync::Arc::ptr_eq(a, b), _ => false } => true,
+                    _ => false,
+                };
+                let px = if again { drawn_last.as_ref().unwrap().3.clone() } else {
+                    let px = frame::draw_then(w, h, bg, &pics, &plan.layers, |g, acc| { if let Some(s) = &steps { crate::overlay::apply_group(acc, w, h, s, g); } });
+                    drawn_last = Some((plan.key, gens, steps.clone(), px.clone()));
+                    px
+                };
                 if samples > 1 {
                     if sub == 0 { avg = px; } else { blend_into(&mut avg, &px, 1.0 / (sub + 1) as f64); }
                     sub += 1;
@@ -190,7 +209,7 @@ mod tests {
         let data = stream(&[(0.0, [0, 0, 255, 255])], 4, 4); // red
         let mut srcs = vec![Source::new(std::io::Cursor::new(data), 4, 4)];
         let layer = frame::Layer { src: 0, alpha: 1.0, m: [1.0, 0.0, 0.0, 1.0, 0.0, 0.0], rect: [0.0, 0.0, 4.0, 4.0], look: None, fill: None, filter: None, grade: None, ink: None, mask: None };
-        let plans = vec![Ok(FramePlan { uses: vec![(0, 0.0)], layers: vec![layer], overlay: false })];
+        let plans = vec![Ok(FramePlan { uses: vec![(0, 0.0)], layers: vec![layer], overlay: false, key: vec![] })];
         let mut out = vec![];
         let n = run(4, 4, [0, 0, 0], &mut srcs, plans.into_iter(), 1, 1, &mut out, None, |_, _| {}).unwrap();
         assert_eq!(n, 1);
@@ -200,12 +219,25 @@ mod tests {
     fn motion_blur_averages_the_moments() {
         // four moments a frame: black, white, white, white (fills), averaged as the canvas lays them one on another
         let fill = |v: u8| frame::fill_layer([v, v, v], 1.0);
-        let plans: Vec<Result<FramePlan, String>> = [0u8, 255, 255, 255, 255, 255, 255, 255].iter().map(|&v| Ok(FramePlan { uses: vec![], layers: vec![fill(v)], overlay: false })).collect();
+        let plans: Vec<Result<FramePlan, String>> = [0u8, 255, 255, 255, 255, 255, 255, 255].iter().map(|&v| Ok(FramePlan { uses: vec![], layers: vec![fill(v)], overlay: false, key: vec![v] })).collect();
         let mut out = vec![];
         let n = run(2, 2, [0, 0, 0], &mut [], plans.into_iter(), 2, 4, &mut out, None, |_, _| {}).unwrap();
         assert_eq!(n, 2, "two frames written");
         // 0, then 255 at ½ → 128, at ⅓ → 170, at ¼ → 191
         assert_eq!(out[0], 191);
         assert_eq!(out[2 * 2 * 4], 255, "the second frame: all white");
+    }
+    #[test]
+    fn a_still_frame_is_written_again_and_a_change_is_drawn() {
+        // red, red again (a still screen), then blue: the same layer each frame
+        let data = stream(&[(0.0, [0, 0, 255, 255]), (0.1, [0, 0, 255, 255]), (0.2, [255, 0, 0, 255])], 2, 2);
+        let mut srcs = vec![Source::new(std::io::Cursor::new(data), 2, 2)];
+        let layer = || frame::Layer { src: 0, alpha: 1.0, m: [1.0, 0.0, 0.0, 1.0, 0.0, 0.0], rect: [0.0, 0.0, 2.0, 2.0], look: None, fill: None, filter: None, grade: None, ink: None, mask: None };
+        let plans: Vec<Result<FramePlan, String>> = [0.0, 0.1, 0.2, 0.2].iter().enumerate().map(|(i, &t)| Ok(FramePlan { uses: vec![(0, t)], layers: if i < 3 { vec![layer()] } else { vec![layer(), frame::fill_layer([0, 255, 0], 1.0)] }, overlay: false, key: vec![(i == 3) as u8] })).collect();
+        let mut out = vec![];
+        run(2, 2, [0, 0, 0], &mut srcs, plans.into_iter(), 4, 1, &mut out, None, |_, _| {}).unwrap();
+        assert_eq!(srcs[0].gen, 2, "the repeated frame didn't count as a change");
+        let f = |i: usize| &out[i * 16..i * 16 + 4];
+        assert_eq!((f(0), f(1), f(2), f(3)), (&[0u8, 0, 255, 255][..], &[0u8, 0, 255, 255][..], &[255u8, 0, 0, 255][..], &[0u8, 255, 0, 255][..]), "red, red, blue, then the green over it (other layers)");
     }
 }

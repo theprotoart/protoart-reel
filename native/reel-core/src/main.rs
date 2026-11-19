@@ -629,13 +629,15 @@ fn vexport_job(b: &[u8]) -> Result<String, String> {
             if nu > ns { return Err("bad frame".into()); }
             let mut uses = Vec::with_capacity(nu);
             for _ in 0..nu { let s = inp.u32()?; let st = inp.f64()?; if s >= ns || !st.is_finite() { return Err("bad frame".into()); } uses.push((s, st)); }
+            let from = inp.at;
             let nl = inp.count(4 + 8 + 3)?;
             if nl > 64 { return Err("too many layers".into()); }
             let mut layers = Vec::with_capacity(nl);
             for _ in 0..nl { layers.push(read_layer(&mut inp, ns)?); }
             let overlay = inp.u8()? == 1;
             if overlay && ofd == 0 { return Err("bad frame".into()); }
-            Ok(vexport::FramePlan { uses, layers, overlay })
+            let key = inp.b[from..inp.at].to_vec();
+            Ok(vexport::FramePlan { uses, layers, overlay, key })
         })())
     });
     vexport::blocking(1); // stdout: the encoder's input
