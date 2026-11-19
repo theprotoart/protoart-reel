@@ -77,3 +77,24 @@ test('a finished movie gets them added at its end, and plays at every step', { s
     assert.deepEqual(fs.readFileSync(f), before);
   } finally { fs.rmSync(dir, { recursive: true, force: true }); }
 });
+
+test('a movie saved as .mov or .m4v says so in its file type, nothing else moving', { skip: !ffprobe && 'ffprobe for the full check' }, async () => {
+  const { setBrand } = require('../app/engine/mp4text.js');
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'reel-brand-'));
+  try {
+    for (const kind of ['mov', 'm4v']) {
+      const f = path.join(dir, 'x.' + kind);
+      fs.writeFileSync(f, build(TEXT));
+      const before = fs.readFileSync(f);
+      assert.equal(setBrand(f, kind), true);
+      const after = fs.readFileSync(f);
+      assert.equal(after.length, before.length);
+      assert.deepEqual(after.subarray(32), before.subarray(32), 'only the first box changed');
+      assert.equal(after.toString('latin1', 8, 12), kind === 'mov' ? 'qt  ' : 'M4V ');
+      assert.deepEqual((await samples(after)).slice(0, 2), await samples(build(null)));
+      const fmt = JSON.parse(execFileSync('ffprobe', ['-v', 'quiet', '-show_format', '-show_chapters', '-of', 'json', f]).toString());
+      assert.equal(fmt.format.tags.major_brand.trim(), kind === 'mov' ? 'qt' : 'M4V');
+      assert.equal(fmt.chapters.length, 3, kind + ': the chapters still read');
+    }
+  } finally { fs.rmSync(dir, { recursive: true, force: true }); }
+});

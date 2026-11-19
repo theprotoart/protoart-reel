@@ -143,7 +143,7 @@ Global Library, and AI Image makes backgrounds and stills
 ✅ H.264 / HEVC MP4, sound-only M4A · ✅ built-in presets incl. iPhone / iPad and App Store preview ·
 ✅ save your own presets · ✅ animated GIF and animated PNG of a range · ✅ batch export to a folder ·
 ✅ frame-rate choice · ✅ size and time estimate · ✅ .srt beside the movie · ✅ chapters from markers ·
-🔜 MOV / M4V containers · ✅ captions and chapters inside the MP4 (1.15) ·
+✅ MOV / M4V (1.15: choose it in the save dialog) · ✅ captions and chapters inside the MP4 (1.15) ·
 ✖ Publish to YouTube / Vimeo / Wistia / Box / Dropbox / Google Drive / Imgur for now: each needs
 an app registered with that service and your sign-in; export + upload in the browser meanwhile
 

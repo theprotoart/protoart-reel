@@ -1462,13 +1462,21 @@ handle('media:delete', async (token, name) => {
   return true;
 });
 
+/** A movie saved as .mov or .m4v (1.15): its file-type box says so (the same movie inside, an MP4's boxes). */
+function movieBrand(dst) {
+  const ext = path.extname(dst).toLowerCase();
+  if (ext !== '.mov' && ext !== '.m4v') return;
+  try { require('./engine/mp4text').setBrand(dst, ext.slice(1)); } catch (e) { console.warn('file type', e.message); }
+}
+
 handle('export:begin', async (token, suggested, kind) => {
   ai.release(); // free AI memory for the encoder on 8–16 GB Macs
   const p = projectOf(token);
   const ext = kind === 'm4a' ? 'm4a' : kind === 'wav' ? 'wav' : kind === 'gif' ? 'gif' : kind === 'apng' ? 'png' : 'mp4';
+  // a movie can be saved as .mp4, .m4v (Apple's) or .mov (QuickTime) (1.15): the same movie, its file type set to match
   const r = await dialog.showSaveDialog(win, {
     title: 'Export', defaultPath: path.join(app.getPath('videos'), `${validate.fileStem(suggested) || p.name}.${ext}`),
-    filters: [{ name: ext.toUpperCase(), extensions: [ext] }],
+    filters: ext === 'mp4' ? [{ name: 'MPEG-4 movie', extensions: ['mp4'] }, { name: 'Apple video (M4V)', extensions: ['m4v'] }, { name: 'QuickTime movie', extensions: ['mov'] }] : [{ name: ext.toUpperCase(), extensions: [ext] }],
   });
   if (r.canceled || !r.filePath) return null;
   const dst = r.filePath;
@@ -1529,12 +1537,12 @@ handle('export:finish', async (id, head) => {
       // the drive filled up while copying (something else wrote to it): finish where it is instead
       await prependInPlace(h.file, head);
       await fs.promises.rename(h.file, h.dst);
-      exportedFiles.add(h.dst);
+      exportedFiles.add(h.dst); movieBrand(h.dst);
       return { name: path.basename(h.dst) };
     }
     await fs.promises.rename(tmp, h.dst);
   }
-  exportedFiles.add(h.dst);
+  exportedFiles.add(h.dst); movieBrand(h.dst);
   return { name: path.basename(h.dst) };
 });
 // A sound-only export mixed and written by the Rust core (the editor sends the clip plans, see lib/mixplan.js):
@@ -1625,7 +1633,7 @@ handle('core:mixExport', async (id, token, job) => {
     await closeHandle(id);
     await fs.promises.rm(h.file, { force: true }); // the JavaScript export's part file, unused
     await fs.promises.rename(tmp, h.dst);
-    exportedFiles.add(h.dst);
+    exportedFiles.add(h.dst); movieBrand(h.dst);
     return { name: path.basename(h.dst), loudness: Number.isFinite(res?.loudness) ? res.loudness : null };
   } catch (e) {
     await fs.promises.rm(tmp, { force: true }).catch(() => {});
@@ -1698,7 +1706,7 @@ handle('core:videoExport', async (id, token, job) => {
     await closeHandle(id);
     await fs.promises.rm(h.file, { force: true }); // the JavaScript export's part file, unused
     await fs.promises.rename(tmp, h.dst);
-    exportedFiles.add(h.dst);
+    exportedFiles.add(h.dst); movieBrand(h.dst);
     return { name: path.basename(h.dst), frames: r.frames };
   } catch (e) {
     await fs.promises.rm(tmp, { force: true }).catch(() => {});

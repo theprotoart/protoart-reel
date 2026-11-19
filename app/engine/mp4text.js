@@ -50,4 +50,33 @@ function addTextTracks(file, text, mp4) {
   } finally { fs.closeSync(fd); }
 }
 
-module.exports = { addTextTracks, topBoxes };
+/**
+ * Sets a finished movie's file type (its first box, ftyp) for a .mov ('qt  ') or .m4v ('M4V ') in place: the new box
+ * takes the old one's room exactly, with as many compatible brands as fit and any room left as a free box, so
+ * nothing else in the file moves.
+ */
+function setBrand(file, kind) {
+  const major = kind === 'mov' ? 'qt  ' : 'M4V ';
+  const compat = kind === 'mov' ? ['qt  '] : ['M4V ', 'M4A ', 'mp42', 'isom'];
+  const fd = fs.openSync(file, 'r+');
+  try {
+    const h = Buffer.alloc(8);
+    fs.readSync(fd, h, 0, 8, 0);
+    if (h.toString('latin1', 4, 8) !== 'ftyp') return false;
+    const room = h.readUInt32BE(0);
+    if (room < 16 || room > 4096) return false;
+    for (let n = compat.length; n >= 1; n--) {
+      const size = 16 + 4 * n, rest = room - size;
+      if (rest !== 0 && rest < 8) continue;
+      const b = Buffer.alloc(room);
+      b.writeUInt32BE(size, 0); b.write('ftyp', 4, 'latin1'); b.write(major, 8, 'latin1'); b.writeUInt32BE(kind === 'mov' ? 0x200 : 1, 12);
+      compat.slice(0, n).forEach((c, i) => b.write(c, 16 + 4 * i, 'latin1'));
+      if (rest) { b.writeUInt32BE(rest, size); b.write('free', size + 4, 'latin1'); }
+      fs.writeSync(fd, b, 0, room, 0);
+      return true;
+    }
+    return false;
+  } finally { fs.closeSync(fd); }
+}
+
+module.exports = { addTextTracks, topBoxes, setBrand };
