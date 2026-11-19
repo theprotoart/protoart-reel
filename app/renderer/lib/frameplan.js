@@ -99,10 +99,10 @@ export function framePlan(doc, t, W, H, size = m => ({ w: m.width || 0, h: m.hei
       // a LUT file (1.13): its table, read before the export (luts: file → parseCube's), goes to the core with it
       else if (u.lut && !luts?.get(u.lut)) return { why: 'a LUT file that couldn’t be read' };
     }
-    // blur, exposure and colour moves (1.6): drawn as the canvas filter; with a rounded or shadowed box the filter
-    // softens those too, which isn't done here yet
+    // blur, exposure and colour moves (1.6): drawn as the canvas filter; with a rounded, bordered or shadowed box the
+    // filter goes over the box's shadow and border too, and the picture is cut to the box after it (1.15, frame.rs)
     const filtered = !!(p.blur || fblur) || (p.bright != null && Math.abs(p.bright - 1) > 0.005) || (p.sat != null && Math.abs(p.sat - 1) > 0.005);
-    if (filtered && (p.radius || p.shadow > 0 || p.border > 0 || (c.stab && m.kind === 'video'))) return { why: 'blur and exposure moves on a rounded, bordered or stabilized picture' };
+    if (filtered && (p.radius || p.shadow > 0 || p.border > 0 || (c.stab && m.kind === 'video'))) needs15 = true;
     // a device frame (a phone, laptop, browser or window round the picture, 1.13): the editor draws it, into a slot just
     // under the picture; with a shadow or a blur on the clip too it's still the editor's whole
     const framed = !!(c.frame && c.frame.type && c.frame.type !== 'none');

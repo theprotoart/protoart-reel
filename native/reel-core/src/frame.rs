@@ -141,18 +141,20 @@ fn box_bounds(lk: &Look, pad: f64, w: usize, h: usize) -> (usize, usize, usize, 
 
 /// The shadow under a box: its rounded shape, softened (a Gaussian, sigma = blur / 2, as the canvas's shadowBlur),
 /// moved down dy, black at 55% of the layer's alpha, laid over acc.
-fn shadow(acc: &mut [[f64; 3]], w: usize, h: usize, lk: &Look, alpha: f64) {
+fn shadow(acc: &mut [[f64; 3]], w: usize, h: usize, lk: &Look, alpha: f64) { soft_box(acc, w, h, lk, (lk.shadow / 2.0).max(0.01), lk.dy, 0.55 * alpha); }
+/// The box's shape blurred (a Gaussian, sigma px), moved down dy, darkening what's under it by strength (1.15: also
+/// the black box and its shadow under a blurred picture, which the canvas blurs before casting the shadow).
+fn soft_box(acc: &mut [[f64; 3]], w: usize, h: usize, lk: &Look, sigma: f64, dy: f64, strength: f64) {
     let Some(ib) = invert(&lk.b) else { return };
-    let sigma = (lk.shadow / 2.0).max(0.01);
     let pad = (sigma * 3.0).ceil() + 2.0;
-    let (x0, x1, y0, y1) = box_bounds(lk, pad, w, h + lk.dy.abs().ceil() as usize + pad as usize);
-    let (y0, y1) = ((y0 as f64 + lk.dy).max(0.0) as usize, ((y1 as f64 + lk.dy).min(h as f64)).max(0.0) as usize);
+    let (x0, x1, y0, y1) = box_bounds(lk, pad, w, h + dy.abs().ceil() as usize + pad as usize);
+    let (y0, y1) = ((y0 as f64 + dy).max(0.0) as usize, ((y1 as f64 + dy).min(h as f64)).max(0.0) as usize);
     if x1 <= x0 || y1 <= y0 { return; }
     let (bw, bh) = (x1 - x0, y1 - y0);
     // the shape (smooth edges), at its place before it moves down
     let mut m = vec![0f64; bw * bh];
     par_rows(&mut m, bw, |y, row| { for (x, o) in row.iter_mut().enumerate() {
-        let (cx, cy) = ((x0 + x) as f64 + 0.5, (y0 + y) as f64 + 0.5 - lk.dy);
+        let (cx, cy) = ((x0 + x) as f64 + 0.5, (y0 + y) as f64 + 0.5 - dy);
         let (bx, by) = box_at(lk, &ib, cx, cy);
         *o = (0.5 - rr_dist(bx, by, lk.w, lk.h, lk.radius)).clamp(0.0, 1.0);
     } });
@@ -177,7 +179,7 @@ fn shadow(acc: &mut [[f64; 3]], w: usize, h: usize, lk: &Look, alpha: f64) {
         for x in 0..bw { t[y * bw + x] = conv(&rs, x); }
     }
     let cols: Vec<Vec<(usize, usize, f64)>> = (0..bw).map(|x| runs(bh, &|y| t[y * bw + x])).collect();
-    let k055 = 0.55 * alpha;
+    let k055 = strength;
     par_rows(&mut acc[y0 * w..y1 * w], w, |y, row| {
         for x in 0..bw {
             let a = conv(&cols[x], y) * k055;
@@ -202,6 +204,30 @@ fn draw_border(acc: &mut [[f64; 3]], w: usize, h: usize, lk: &Look, ib: &[f64; 6
         if cov <= 0.0 { continue; }
         let o = &mut acc[y * w + x];
         for ch in 0..3 { o[ch] = lk.border_rgb[ch] as f64 * cov + o[ch] * (1.0 - cov); }
+    } }
+}
+
+/// A box's border through the picture's filter (1.15: the canvas filters the stroke too): drawn on a layer of its own,
+/// filtered, then laid down at the opacity.
+fn filtered_border(acc: &mut [[f64; 3]], w: usize, h: usize, lk: &Look, ib: &[f64; 6], alpha: f64, fl: &Filter) {
+    let half = lk.border / 2.0;
+    let pad = if fl.blur > 0.05 { (fl.blur * 3.0).ceil() + 1.0 } else { 0.0 };
+    let (x0, x1, y0, y1) = box_bounds(lk, half + 2.0 + pad, w, h);
+    if x1 <= x0 || y1 <= y0 { return; }
+    let (bw, bh) = (x1 - x0, y1 - y0);
+    let mut buf = vec![[0.0f64; 4]; bw * bh];
+    for y in 0..bh { for x in 0..bw {
+        let (bx, by) = box_at(lk, ib, (x0 + x) as f64 + 0.5, (y0 + y) as f64 + 0.5);
+        let d = if lk.radius > 0.0 { rr_dist(bx, by, lk.w, lk.h, lk.radius) } else { (bx.abs() - lk.w / 2.0).max(by.abs() - lk.h / 2.0) }.abs();
+        let cov = (half - d + 0.5).clamp(0.0, 1.0).min(lk.border);
+        if cov > 0.0 { buf[y * bw + x] = [lk.border_rgb[0] as f64 * cov, lk.border_rgb[1] as f64 * cov, lk.border_rgb[2] as f64 * cov, cov]; }
+    } }
+    apply_filter(&mut buf, bw, bh, fl);
+    for y in 0..bh { for x in 0..bw {
+        let q = buf[y * bw + x];
+        if q[3] <= 0.0 { continue; }
+        let o = &mut acc[(y0 + y) * w + x0 + x];
+        for ch in 0..3 { o[ch] = q[ch] * alpha + o[ch] * (1.0 - q[3] * alpha); }
     } }
 }
 
@@ -298,8 +324,15 @@ pub fn draw_then(w: usize, h: usize, bg: [u8; 3], pictures: &[Picture], layers: 
         // the box: its shadow and the black under it first (as the canvas fills the shape with the shadow on)
         let look = l.look.as_ref().and_then(|lk| invert(&lk.b).map(|ib| (lk, ib)));
         if let Some((lk, ib)) = &look { if lk.only_border { draw_border(&mut acc, w, h, lk, ib, l.alpha); break 'one; } }
+        // a filtered picture is drawn on a layer of its own first (with room round it for the blur to spread into)
+        let filt = l.filter.as_ref().filter(|f| f.blur > 0.05 || (f.bright - 1.0).abs() > 1e-9 || (f.sat - 1.0).abs() > 1e-9);
+        let fblur = filt.map(|f| if f.blur > 0.05 { f.blur } else { 0.0 }).unwrap_or(0.0);
         if let Some((lk, ib)) = &look {
-            if lk.shadow > 0.0 {
+            if lk.shadow > 0.0 && fblur > 0.0 {
+                // (1.15) blurred, as the canvas draws it: the black box blurred, its shadow cast from that
+                soft_box(&mut acc, w, h, lk, ((lk.shadow / 2.0).powi(2) + fblur * fblur).sqrt(), lk.dy, 0.55 * l.alpha);
+                soft_box(&mut acc, w, h, lk, fblur, 0.0, l.alpha);
+            } else if lk.shadow > 0.0 {
                 shadow(&mut acc, w, h, lk, l.alpha);
                 let (x0, x1, y0, y1) = box_bounds(lk, 1.0, w, h);
                 for y in y0..y1 { for x in x0..x1 {
@@ -326,8 +359,6 @@ pub fn draw_then(w: usize, h: usize, bg: [u8; 3], pictures: &[Picture], layers: 
         let spread = |s: f64| { let w = (1.0 / s - 1.0).max(0.0); if w < 1e-3 { (1usize, 0.0) } else { ((w.ceil() as usize + 1).min(9), w) } };
         let ((nu, wu), (nv, wv)) = (spread(su), spread(sv));
         let at = |i: usize, n: usize, w: f64| if n == 1 { 0.0 } else { -w / 2.0 + w * i as f64 / (n - 1) as f64 };
-        // a filtered picture is drawn on a layer of its own first (with room round it for the blur to spread into)
-        let filt = l.filter.as_ref().filter(|f| f.blur > 0.05 || (f.bright - 1.0).abs() > 1e-9 || (f.sat - 1.0).abs() > 1e-9);
         let pad = filt.map(|f| (f.blur * 3.0).ceil() as usize + 1).unwrap_or(0);
         let (bx0, bx1, by0, by1) = (px0.saturating_sub(pad), (px1 + pad).min(w), py0.saturating_sub(pad), (py1 + pad).min(h));
         let bw = bx1.saturating_sub(bx0);
@@ -357,12 +388,14 @@ pub fn draw_then(w: usize, h: usize, bg: [u8; 3], pictures: &[Picture], layers: 
             let a = p.rgba[o + 3] as f64 / 255.0;
             [p.rgba[o] as f64 * a, p.rgba[o + 1] as f64 * a, p.rgba[o + 2] as f64 * a, a]
         };
+        // (1.15) filtered: cut to the box after the filter, as the canvas clips what its filter made
+        let pclip = if filt.is_some() { None } else { clip };
         let pixel = |x: usize, y: usize| -> Option<([f64; 4], f64)> {
                 let (cx, cy) = (x as f64 + 0.5, y as f64 + 0.5);
                 if sep {
                     let (u, v) = (ucol[x - px0], vrow[y - py0]);
                     if !(u >= r[0] && u < r[2] && v >= r[1] && v < r[3]) { return None; }
-                    let cov = match &clip { Some((lk, ib)) => { let (bx, by) = box_at(lk, ib, cx, cy); (0.5 - rr_dist(bx, by, lk.w, lk.h, lk.radius)).clamp(0.0, 1.0) } None => 1.0 };
+                    let cov = match &pclip { Some((lk, ib)) => { let (bx, by) = box_at(lk, ib, cx, cy); (0.5 - rr_dist(bx, by, lk.w, lk.h, lk.radius)).clamp(0.0, 1.0) } None => 1.0 };
                     if cov <= 0.0 { return None; }
                     let mut s = [0.0; 4];
                     for j in 0..nv {
@@ -386,7 +419,7 @@ pub fn draw_then(w: usize, h: usize, bg: [u8; 3], pictures: &[Picture], layers: 
                         * (0.5 + (v - r[1]) * sv).clamp(0.0, 1.0) * (0.5 + (r[3] - v) * sv).clamp(0.0, 1.0)
                 };
                 // rounded corners (or a border): the picture is cut to the box with smooth edges
-                let cov = match &clip { Some((lk, ib)) => { let (bx, by) = box_at(lk, ib, cx, cy); cov * (0.5 - rr_dist(bx, by, lk.w, lk.h, lk.radius)).clamp(0.0, 1.0) } None => cov };
+                let cov = match &pclip { Some((lk, ib)) => { let (bx, by) = box_at(lk, ib, cx, cy); cov * (0.5 - rr_dist(bx, by, lk.w, lk.h, lk.radius)).clamp(0.0, 1.0) } None => cov };
                 if cov <= 0.0 { return None; }
                 let mut s = [0.0; 4];
                 if nu == 1 && nv == 1 { s = sample(p, &r, u, v); } else {
@@ -426,14 +459,22 @@ pub fn draw_then(w: usize, h: usize, bg: [u8; 3], pictures: &[Picture], layers: 
             let bh = by1.saturating_sub(by0);
             apply_filter(&mut buf, bw, bh, fl);
             for y in 0..bh { for x in 0..bw {
-                let q = buf[y * bw + x];
+                let mut q = buf[y * bw + x];
                 if q[3] <= 0.0 { continue; }
+                if let Some((lk, ib)) = &clip {
+                    let (bx, by) = box_at(lk, ib, (bx0 + x) as f64 + 0.5, (by0 + y) as f64 + 0.5);
+                    let k = (0.5 - rr_dist(bx, by, lk.w, lk.h, lk.radius)).clamp(0.0, 1.0);
+                    if k <= 0.0 { continue; }
+                    for v in q.iter_mut() { *v *= k; }
+                }
                 let o = &mut acc[(by0 + y) * w + bx0 + x];
                 for ch in 0..3 { o[ch] = q[ch] * l.alpha + o[ch] * (1.0 - q[3] * l.alpha); }
             } }
         }
         // the border: a line border px wide along the box's edge, half in, half out
-        if let Some((lk, ib)) = &look { draw_border(&mut acc, w, h, lk, ib, l.alpha); }
+        if let Some((lk, ib)) = &look {
+            match filt { Some(fl) if lk.border > 0.0 => filtered_border(&mut acc, w, h, lk, ib, l.alpha, fl), _ => draw_border(&mut acc, w, h, lk, ib, l.alpha) }
+        }
         }
         if let (Some(mask), Some(before)) = (&l.mask, before) {
             // slot masks (1.15): the editor's drawing for each, over black
@@ -452,6 +493,18 @@ pub fn draw_then(w: usize, h: usize, bg: [u8; 3], pictures: &[Picture], layers: 
 
 #[cfg(test)]
 mod tests {
+    #[test]
+    fn a_blurred_picture_in_a_rounded_box_is_cut_to_it_after_the_blur() {
+        // white 20 × 20 in a box at (10, 10) on black, corners 4, blurred 3 px: nothing spills outside the box (as the
+        // canvas clips what its filter made), and inside, near the edge, the blur has pulled in the black round it
+        let pic = Picture { w: 20, h: 20, rgba: vec![255; 20 * 20 * 4] };
+        let lk = Look { b: [20.0, 0.0, 0.0, 20.0, 20.0, 20.0], w: 20.0, h: 20.0, radius: 4.0, border: 0.0, border_rgb: [0, 0, 0], shadow: 0.0, dy: 0.0, cut: false, only_border: false, only_shadow: false };
+        let out = draw(40, 40, [0, 0, 0], &[pic], &[Layer { src: 0, alpha: 1.0, m: [1.0, 0.0, 0.0, 1.0, 10.0, 10.0], rect: [0.0, 0.0, 20.0, 20.0], look: Some(lk), fill: None, filter: Some(Filter { blur: 3.0, bright: 1.0, sat: 1.0 }), grade: None, ink: None, mask: None }]);
+        let px = |x: usize, y: usize| out[(y * 40 + x) * 4];
+        assert_eq!((px(8, 20), px(20, 8)), (0, 0), "nothing outside");
+        assert!(px(20, 20) > 250 && px(10, 20) < 200 && px(10, 20) > 60, "soft inside the edge: {} {}", px(20, 20), px(10, 20));
+    }
+
     #[test]
     fn slot_mask_cuts_by_the_editors_drawing() {
         // a red fill seen through slot 3: white, half grey and nothing over three pixels; the slot itself never drawn

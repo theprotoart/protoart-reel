@@ -779,7 +779,7 @@ test('reel-core draws blur, exposure and colour moves as the canvas filter does'
   const q = at(8, 6);
   assert.ok(q.every(v => Math.abs(v - 54) <= 3), 'red, brightened and greyed: ' + q);
   const r = framePlan({ ...d, clips: [{ ...d.clips[0], props: { ...d.clips[0].props, radius: 20 } }] }, 1, 64, 36);
-  assert.match(r.why, /rounded/, 'a filter on a rounded picture is left to the JavaScript');
+  assert.ok(!r.why && r.needs15 && r.layers[0].look && r.layers[0].filter, 'a filter on a rounded picture: the core’s since 1.15 (cut to the box after the filter)');
 });
 
 test('a transition through a shape (barn doors, iris…) is drawn by the core (1.13)', async () => {

@@ -74,6 +74,8 @@ JavaScript runs, as before). When little JavaScript is left, the window itself c
      with a wipe at the same time (the editor cuts the words to the wipe).
    - Still the editor's (drawn whole and handed to the core): pointer effects on a turned phone video, a text
      reveal with a radial shutter at the same time — both rare.
+   - **Done (1.15):** blur and exposure moves on a rounded, bordered, shadowed or stabilized picture (cut to the box after
+     the filter; the box's shadow cast from the blurred box; the border filtered too).
    - **Done (1.15):** pointer effects on a bordered picture (the border drawn on its own, over them), and a device
      frame on a shadowed clip (the shadow on its own, under the frame).
    - **Done (1.15): on by default.**

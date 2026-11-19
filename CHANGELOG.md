@@ -3,6 +3,7 @@
 ## 1.11.0 — 2026-11-16
 
 - Rust core export: a device frame (phone, laptop, browser, window) on a clip with a drop shadow is drawn by the core too, the shadow under the frame as in the editor.
+- Rust core export: blur, exposure and colour moves (the blur, whip, zoom-through, dreamy, lens defocus, exposure burn, cine fade transitions, and a clip’s own blur) on a rounded, bordered, shadowed or stabilized picture are drawn by the core: the picture cut to its box after the blur, the shadow and border through the filter too, as the editor draws them. The usual screen-recording look with a blur transition no longer hands those frames to the editor.
 - Rust core export: the pointer magnifier on a rounded or bordered picture is drawn by the core, cut to the box’s outline as in the editor.
 - Rust core export: pointer effects (spotlight, highlight, click rings, the pointer itself) on a picture with a border are drawn by the core, the border over them as in the editor; and a square-cornered border now has square outer corners, as the editor draws it (they were slightly rounded).
 
