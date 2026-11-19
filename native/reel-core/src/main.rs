@@ -336,7 +336,7 @@ fn read_layer(inp: &mut Input, npics: usize) -> Result<frame::Layer, String> {
         let (bw, bh, radius, border) = (inp.f64()?, inp.f64()?, inp.f64()?, inp.f64()?);
         let border_rgb = [inp.u8()?, inp.u8()?, inp.u8()?];
         let (shadow, dy) = (inp.f64()?, inp.f64()?);
-        // 1: cut to the box; 2 (1.15): only the border; 3 (1.15): only the shadow
+        // 1: cut to the box; 2 (1.16): only the border; 3 (1.16): only the shadow
         let kind = inp.u8()?;
         let (cut, only_border, only_shadow) = (kind == 1, kind == 2, kind == 3);
         let ok = b.iter().chain([bw, bh, radius, border, shadow, dy].iter()).all(|v| v.is_finite()) && bw > 0.0 && bh > 0.0 && (0.0..=4096.0).contains(&radius) && (0.0..=512.0).contains(&border) && (0.0..=1024.0).contains(&shadow) && dy.abs() <= 1024.0;

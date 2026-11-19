@@ -40,7 +40,7 @@ export function framePlan(doc, t, W, H, size = m => ({ w: m.width || 0, h: m.hei
   // the core draws (as drawFrame puts them over the pictures), and they come to the core as pictures
   let overlay = !!(cs.burn && (doc.captions || []).some(c => t >= c.t && t < c.end)), blur = false;
   const layers = [];
-  let slots = 0, needs15 = false;
+  let slots = 0, needs15 = false, needs16 = false; // (16: a look drawn in parts, or filtered: the 1.16 core)
   const overFx = []; // titles and graphics with transition effects, in order
   const keys = []; // slot number → the key the editor draws it under (the slots that aren't layers: a text reveal's cut)
   for (const k of activeClips(doc, t)) {
@@ -102,7 +102,7 @@ export function framePlan(doc, t, W, H, size = m => ({ w: m.width || 0, h: m.hei
     // blur, exposure and colour moves (1.6): drawn as the canvas filter; with a rounded, bordered or shadowed box the
     // filter goes over the box's shadow and border too, and the picture is cut to the box after it (1.15, frame.rs)
     const filtered = !!(p.blur || fblur) || (p.bright != null && Math.abs(p.bright - 1) > 0.005) || (p.sat != null && Math.abs(p.sat - 1) > 0.005);
-    if (filtered && (p.radius || p.shadow > 0 || p.border > 0 || (c.stab && m.kind === 'video'))) needs15 = true;
+    if (filtered && (p.radius || p.shadow > 0 || p.border > 0 || (c.stab && m.kind === 'video'))) needs16 = true;
     // a device frame (a phone, laptop, browser or window round the picture, 1.13): the editor draws it, into a slot just
     // under the picture; with a shadow or a blur on the clip too it's still the editor's whole
     const framed = !!(c.frame && c.frame.type && c.frame.type !== 'none');
@@ -177,7 +177,7 @@ export function framePlan(doc, t, W, H, size = m => ({ w: m.width || 0, h: m.hei
     if (framed) {
       if (slots >= 63) return { why: 'too many device frames' };
       // the editor's order: the shadow, the frame, the picture (1.15: the shadow a layer of its own under the frame)
-      if (look && look.shadow > 0) { layers.push({ media: m.id, clip: c.id, st, alpha: clamp(p.opacity, 0, 1), m: M, rect, look: { ...look, border: 0, onlyShadow: true }, filter: null, grade: null }); look = { ...look, shadow: 0, dy: 0 }; needs15 = true; }
+      if (look && look.shadow > 0) { layers.push({ media: m.id, clip: c.id, st, alpha: clamp(p.opacity, 0, 1), m: M, rect, look: { ...look, border: 0, onlyShadow: true }, filter: null, grade: null }); look = { ...look, shadow: 0, dy: 0 }; needs16 = true; }
       layers.push({ slot: slots++, key: 'frame:' + c.id }); overlay = true; blur = true;
     }
     // pointer effects on a bordered picture (1.15): the editor draws the border last, over them, so the picture's layer
@@ -187,7 +187,7 @@ export function framePlan(doc, t, W, H, size = m => ({ w: m.width || 0, h: m.hei
     layers.push({ media: m.id, clip: c.id, st, alpha: clamp(p.opacity, 0, 1), m: M, rect, look: borderAfter ? { ...look, border: 0, cut: true } : look, filter, grade });
     if (cur) {
       layers.push(...pointerInk(c, m, cur, { r, rot: p.rotation || 0, box, radius: look && (look.radius > 0 || look.border > 0) ? look : null, crop: [p.crop[0], p.crop[1], 1 - p.crop[0] - p.crop[2], 1 - p.crop[1] - p.crop[3]], disp: [dispW, dispH], sx, alpha: clamp(p.opacity, 0, 1), st }));
-      if (borderAfter) { layers.push({ media: m.id, clip: c.id, st, alpha: clamp(p.opacity, 0, 1), m: M, rect, look: borderAfter, filter: null, grade: null }); needs15 = true; }
+      if (borderAfter) { layers.push({ media: m.id, clip: c.id, st, alpha: clamp(p.opacity, 0, 1), m: M, rect, look: borderAfter, filter: null, grade: null }); needs16 = true; }
     }
     if (mask) for (let i = n0; i < layers.length; i++) layers[i].mask = mask; // (the magnifier's own cut can't be with one: see above)
     if (fxInk) layers.push(fxInk);
@@ -201,7 +201,7 @@ export function framePlan(doc, t, W, H, size = m => ({ w: m.width || 0, h: m.hei
     if (o.dip) layers.push(o.dip);
   }
   for (const l of layers) if (l.slot != null) keys[l.slot] = l.key;
-  return { bg, layers, overlay, slotKeys: keys, ...(blur || layers.some(l => l.mask) ? { needs13: true } : {}), ...(needs14 ? { needs14: true } : {}), ...(needs15 ? { needs15: true } : {}) };
+  return { bg, layers, overlay, slotKeys: keys, ...(blur || layers.some(l => l.mask) ? { needs13: true } : {}), ...(needs14 ? { needs14: true } : {}), ...(needs15 ? { needs15: true } : {}), ...(needs16 ? { needs16: true } : {}) };
 }
 
 /**
@@ -394,7 +394,7 @@ export function encodeLayers(layers, srcOf, push, { luts = null, sent = new Map(
     }
     u32(srcOf(l)); f64(l.alpha); l.m.forEach(f64); l.rect.forEach(f64);
     const k = l.look;
-    if (!k) u8(0); else { u8(1); k.b.forEach(f64); [k.w, k.h, k.radius, k.border].forEach(f64); push(Uint8Array.from(k.borderColor)); [k.shadow, k.dy].forEach(f64); u8(k.onlyBorder ? 2 : k.onlyShadow ? 3 : k.cut ? 1 : 0); } // (1.15: 2 only the border, 3 only the shadow)
+    if (!k) u8(0); else { u8(1); k.b.forEach(f64); [k.w, k.h, k.radius, k.border].forEach(f64); push(Uint8Array.from(k.borderColor)); [k.shadow, k.dy].forEach(f64); u8(k.onlyBorder ? 2 : k.onlyShadow ? 3 : k.cut ? 1 : 0); } // (1.16: 2 only the border, 3 only the shadow)
     const f = l.filter;
     if (!f) u8(0); else { u8(1); [f.blur, f.bright, f.sat].forEach(f64); }
     const g = l.grade;

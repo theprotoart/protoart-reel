@@ -147,7 +147,7 @@ test('pointer effects go to the core as ink layers (and a magnifier picture), gi
   // (1.15) the rest on a bordered picture: the picture without its border, the effects cut to the box, then the border
   doc.clips[0].cursor.magnify = false;
   const b = framePlan(doc, 1, 320, 180, undefined, () => cur);
-  assert.ok(!b.why && b.needs15, b.why);
+  assert.ok(!b.why && b.needs16, b.why);
   assert.deepEqual(b.layers.map(l => l.ink ? 'ink' : l.look?.onlyBorder ? 'border' : 'picture'), ['picture', 'ink', 'ink', 'border']);
   assert.equal(b.layers[0].look.border, 0); assert.ok(b.layers[0].look.cut && b.layers[1].ink.cut, 'cut to the box');
   assert.equal(b.layers[3].look.border, 4);
@@ -393,7 +393,7 @@ f.on('close', c => process.exit(c));
 test('a device frame on a shadowed clip (1.15): the shadow under the frame, the picture over it', () => {
   const doc = docOf([{ ...clip('c1', 'a', 't1', 0, 2, { scale: 0.5, shadow: 30 }), frame: { type: 'phone' } }]);
   const p = framePlan(doc, 1, 320, 180);
-  assert.ok(!p.why && p.needs15, p.why);
+  assert.ok(!p.why && p.needs16, p.why);
   assert.deepEqual(p.layers.map(l => l.slot != null ? 'frame' : l.look?.onlyShadow ? 'shadow' : 'picture'), ['shadow', 'frame', 'picture']);
   assert.equal(p.layers[2].look.shadow, 0);
   assert.equal(p.layers[0].look.shadow, 30);

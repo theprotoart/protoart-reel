@@ -74,10 +74,10 @@ JavaScript runs, as before). When little JavaScript is left, the window itself c
      with a wipe at the same time (the editor cuts the words to the wipe).
    - Still the editor's (drawn whole and handed to the core): pointer effects on a turned phone video, a text
      reveal with a radial shutter at the same time — both rare.
-   - **Done (1.15):** blur and exposure moves on a rounded, bordered, shadowed or stabilized picture (cut to the box after
+   - **Done (1.16):** blur and exposure moves on a rounded, bordered, shadowed or stabilized picture (cut to the box after
      the filter; the box's shadow cast from the blurred box; the border filtered too).
-   - **Done (1.15):** pointer effects on a bordered picture (the border drawn on its own, over them), and a device
-     frame on a shadowed clip (the shadow on its own, under the frame).
+   - **Done (1.16):** pointer effects on a bordered picture (the border drawn on its own, over them), and a device
+     frame on a shadowed clip (the shadow on its own, under the frame); an older core leaves those to the editor.
    - **Done (1.15): on by default.**
 6. **Recording:** screen, window and camera through ScreenCaptureKit.
 7. **The window:** a plain Rust interface (egui or Slint), once the pieces above no longer need the browser.
@@ -149,7 +149,7 @@ an app registered with that service and your sign-in; export + upload in the bro
 
 **Projects and settings**
 ✅ templates (save as / new from) · ✅ archive project (only used media) · ✅ Explain mode ·
-✅ keyboard shortcut editor · ✅ proxy media for 4K / Retina recordings · 🔜 default document
+✅ keyboard shortcut editor · ✅ proxy media for 4K / Retina recordings · ✅ default document
 settings (canvas, frame rate) in a Settings window
 
 ## CapCut-style ideas (adapted to the gear look)
