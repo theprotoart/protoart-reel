@@ -2,6 +2,8 @@
 
 ## 1.11.0 — 2026-11-16
 
+- Rust core export is faster on the usual screen-recording look: a rounded picture with a drop shadow takes about a quarter of the time it did per frame (the shadow’s blur is worked out a stretch at a time instead of pixel by pixel), and colour filters about a fifth less. The frames come out exactly the same, to the byte.
+
 - Rust core export: colour, looks, vignette, sharpen and the other filters on a turned phone video are drawn by the core (the same as the editor to within 1/255), instead of those frames being drawn whole by the editor.
 
 - Rust core export: glitch, light leak, film burn, lens flare, radial shutter, letterbox and the other transition effects on a title or graphic are painted by the core too (the editor draws the titles, the core the effects over them), instead of those frames being drawn whole by the editor.

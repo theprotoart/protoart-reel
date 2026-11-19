@@ -57,16 +57,18 @@ impl Lut {
 fn smoothstep(e0: f64, e1: f64, x: f64) -> f64 { let t = ((x - e0) / (e1 - e0)).clamp(0.0, 1.0); t * t * (3.0 - 2.0 * t) }
 
 /// texture(img, uv): RGBA 0..1 (not premultiplied, as the editor uploads it), bilinear, edges held.
-fn tex(p: &Picture, u: f64, v: f64) -> [f64; 4] {
-    let (x, y) = (u * p.w as f64 - 0.5, v * p.h as f64 - 0.5);
-    let (x0, y0) = (x.floor(), y.floor());
-    let (fx, fy) = (x - x0, y - y0);
-    let at = |xi: f64, yi: f64| -> [f64; 4] {
-        let (xi, yi) = ((xi as i64).clamp(0, p.w as i64 - 1) as usize, (yi as i64).clamp(0, p.h as i64 - 1) as usize);
-        let o = (yi * p.w + xi) * 4;
-        [p.rgba[o] as f64 / 255.0, p.rgba[o + 1] as f64 / 255.0, p.rgba[o + 2] as f64 / 255.0, p.rgba[o + 3] as f64 / 255.0]
-    };
-    let (a, b, c, d) = (at(x0, y0), at(x0 + 1.0, y0), at(x0, y0 + 1.0), at(x0 + 1.0, y0 + 1.0));
+fn tex(p: &Picture, u: f64, v: f64) -> [f64; 4] { let (cx, cy) = (tap(u, p.w), tap(v, p.h)); tex_at(p, cx, cy) }
+/// Where texture() samples along one axis at u (0..1 of n pixels): the two pixels and the weight of the second.
+fn tap(u: f64, n: usize) -> (usize, usize, f64) {
+    let x = u * n as f64 - 0.5;
+    let x0 = x.floor();
+    ((x0 as i64).clamp(0, n as i64 - 1) as usize, ((x0 + 1.0) as i64).clamp(0, n as i64 - 1) as usize, x - x0)
+}
+/// byte / 255, looked up (the very same values, without a division each)
+static BYTE: [f64; 256] = { let mut t = [0.0; 256]; let mut i = 0; while i < 256 { t[i] = i as f64 / 255.0; i += 1; } t };
+fn tex_at(p: &Picture, (xa, xb, fx): (usize, usize, f64), (ya, yb, fy): (usize, usize, f64)) -> [f64; 4] {
+    let at = |xi: usize, yi: usize| -> [f64; 4] { let o = (yi * p.w + xi) * 4; [BYTE[p.rgba[o] as usize], BYTE[p.rgba[o + 1] as usize], BYTE[p.rgba[o + 2] as usize], BYTE[p.rgba[o + 3] as usize]] };
+    let (a, b, c, d) = (at(xa, ya), at(xb, ya), at(xa, yb), at(xb, yb));
     let mut o = [0.0; 4];
     for k in 0..4 { o[k] = (a[k] * (1.0 - fx) + b[k] * fx) * (1.0 - fy) + (c[k] * (1.0 - fx) + d[k] * fx) * fy; }
     o
@@ -87,10 +89,13 @@ pub fn grade(p: &Picture, g: &Grade, mask: Option<&Picture>) -> Picture {
     let (expo, inv_g) = (g.exposure.exp2(), 1.0 / g.gamma_v.max(0.05));
     let inv_gam = [1.0 / g.gam[0].max(0.05), 1.0 / g.gam[1].max(0.05), 1.0 / g.gam[2].max(0.05)];
     // each pixel on its own, as the GPU does it: the rows shared out over the cores (1.9)
+    // where each column and row samples the picture: the same all the way down and across, so worked out once (1.15)
+    let cols: Vec<_> = (0..w).map(|x| tap((x as f64 + 0.5) / w as f64, p.w)).collect();
     crate::frame::par_rows(&mut out, w * 4, |y, row| {
+        let ry = tap((y as f64 + 0.5) / h as f64, p.h);
         for x in 0..w {
             let (u, v) = ((x as f64 + 0.5) / w as f64, (y as f64 + 0.5) / h as f64);
-            let src = tex(p, u, v);
+            let src = tex_at(p, cols[x], ry);
             let mut c = [src[0], src[1], src[2]];
             let mut a = src[3];
             if g.aberr > 0.0 {
@@ -203,5 +208,20 @@ mod tests {
         let p = solid([200, 100, 50, 255]);
         assert_eq!(grade(&p, &g, Some(&solid([255, 255, 255, 255]))).rgba[3], 255, "white: kept");
         assert_eq!(grade(&p, &g, Some(&solid([0, 0, 0, 255]))).rgba[3], 0, "black: gone");
+    }
+}
+#[cfg(test)]
+mod bench {
+    use super::*;
+    #[test] #[ignore]
+    fn grade_speed() {
+        let (w, h) = (2880usize, 1800usize);
+        let p = Picture { w, h, rgba: (0..w * h * 4).map(|i| (i * 7 % 251) as u8).collect() };
+        let g = Grade { gw: 1920, gh: 1200, exposure: 0.2, contrast: 0.2, saturation: 0.0, vibrance: 0.0, temperature: 0.0, tint: 0.0, highlights: 0.0, shadows: 0.0,
+            in_black: 0.0, in_white: 1.0, gamma_v: 1.0, out_black: 0.0, out_white: 1.0, brightness: 0.0, sharpen: 0.0, vignette: 0.0, bw: 0.0, aberr: 0.0,
+            key: None, m_mul: [1.0; 3], m_add: [0.0; 3], lift: [0.0; 3], gam: [1.0; 3], gain: [1.0; 3], lut: None, matte: None };
+        let t = std::time::Instant::now();
+        for _ in 0..3 { std::hint::black_box(grade(&p, &g, None)); }
+        eprintln!("grade: {:?} per frame", t.elapsed() / 3);
     }
 }
