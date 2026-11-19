@@ -349,7 +349,7 @@ const HUD_URL = `${APP_ORIGIN}/renderer/hud.html`;
 function showHud() {
   if (hud && !hud.isDestroyed()) return;
   const wa = screen.getPrimaryDisplay().workArea;
-  const w = 640, h = 48;
+  const w = 740, h = 48; // (1.15: room for the mic meter)
   hud = new BrowserWindow({
     width: w, height: h, x: Math.round(wa.x + (wa.width - w) / 2), y: Math.round(wa.y + wa.height - h - 18),
     frame: false, transparent: true, resizable: false, minimizable: false, maximizable: false, fullscreenable: false,
@@ -386,6 +386,7 @@ ipcMain.on('hud:stop', event => { if (fromHud(event)) sendMenu('stop-recording')
 ipcMain.on('hud:pause', event => { if (fromHud(event)) sendMenu('pause-recording'); });
 ipcMain.on('hud:discard', event => { if (fromHud(event)) sendMenu('discard-recording'); });
 ipcMain.on('hud:mark', event => { if (fromHud(event)) dropMark(); });
+// the microphone's level while recording (1.15), from the editor's recorder to the panel's meter
 /** A marker at this moment of the recording (recorded time, so pauses don't push it later). */
 function dropMark() {
   if (!recording.active || recording.marks.length > 5000) return;
@@ -637,6 +638,7 @@ const handle = (channel, fn) => ipcMain.handle(channel, async (event, ...args) =
   return fn(...args);
 });
 const on = (channel, fn) => ipcMain.on(channel, (event, ...args) => { if (fromEditor(event)) fn(...args); });
+on('rec:level', peak => { const v = Number(peak); if (hud && !hud.isDestroyed() && Number.isFinite(v)) hud.webContents.send('hud:level', Math.max(0, Math.min(1, v))); });
 
 // ------------------------------------------------------------------ library: reveal, replace, Global Library
 // ------------------------------------------------------------------ formats

@@ -53,3 +53,17 @@ window.hud.onRetake(n => {
   };
   tick();
 });
+
+// the mic meter (1.15): peak level ~10 times a second, the LEDs falling back slowly; MIC? when the mic has been
+// near-silent for 10 s of recording (unplugged, muted, the wrong input), so a dead mic is caught early
+const leds = [...document.querySelectorAll('.leds i')];
+let shown = 0, heard = Date.now();
+window.hud.onLevel(v => {
+  document.body.classList.add('mic');
+  const db = 20 * Math.log10(Math.max(v, 1e-6));
+  const n = Math.max(0, Math.min(10, Math.round((db + 54) / 5.4))); // −54 … 0 dBFS
+  shown = Math.max(n, shown - 1);
+  leds.forEach((l, i) => l.classList.toggle('on', i < shown));
+  if (db > -50 || paused) heard = Date.now();
+  document.body.classList.toggle('quiet', Date.now() - heard > 10000);
+});

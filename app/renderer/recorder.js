@@ -375,7 +375,7 @@ async function record(app, st, part = 1) {
       if (cam) addVideo('camera', cam, 8e6);
 
       // ---- audio capture
-      const workers = [];
+      const workers = [], levelTimers = [];
       const addAudio = (role, track, ch, pick) => {
         let src = ctx.createMediaStreamSource(new MediaStream([track]));
         nodes.push(src);
@@ -400,6 +400,13 @@ async function record(app, st, part = 1) {
           if (m.stopped) stopped();
         };
         workers.push(node);
+        // the mic's level on the floating panel (1.15): its peak every 100 ms
+        if (role === 'mic' && api.recLevel) {
+          const an = ctx.createAnalyser(); an.fftSize = 2048; src.connect(an); nodes.push(an);
+          const buf = new Float32Array(an.fftSize);
+          const iv = setInterval(() => { if (ctx.state === 'closed') { clearInterval(iv); return; } an.getFloatTimeDomainData(buf); let pk = 0; for (const x of buf) pk = Math.max(pk, Math.abs(x)); api.recLevel(pk); }, 100);
+          levelTimers.push(iv);
+        }
       };
       if (mic) addAudio('mic', mic.getAudioTracks()[0], micCh, micCh === 1 && devCh === 2 ? (micIn === '2' ? '2' : micIn === 'mix' ? 'mix' : '1') : null);
       if (sysTrack) addAudio('system', sysTrack, 2);
@@ -449,6 +456,7 @@ async function record(app, st, part = 1) {
       app.onPauseRecording = null;
       app.onDiscardRecording = null;
       for (const r of recorders) if (r.state !== 'inactive') r.stop();
+      for (const iv of levelTimers) clearInterval(iv);
       for (const n of workers) n.port.postMessage('stop');
       await Promise.race([Promise.all(done), new Promise(r => setTimeout(r, 5000))]);
       for (const n of nodes) { try { n.disconnect(); } catch { /* already */ } }

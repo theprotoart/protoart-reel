@@ -115,8 +115,8 @@ Still open: letterbox / fill choice when the export shape differs from the canva
 **Recording**
 ✅ screen / window / part of the screen, camera, mic, computer audio, per-app audio · ✅ countdown ·
 ✅ stop-after timer · ✅ clicks and keystrokes · ✅ add a recording to an open project ·
-✅ pause / resume while recording · ✅ add markers while recording (⌥⇧⌘M) · 🔜 recording monitor
-(levels while recording) · 🔜 iPhone / iPad screen recording over USB, with touch callouts ·
+✅ pause / resume while recording · ✅ add markers while recording (⌥⇧⌘M) · ✅ recording monitor
+(the mic's level on the floating panel, 1.15) · 🔜 iPhone / iPad screen recording over USB, with touch callouts ·
 🔜 up to 16 audio inputs (multi-channel interfaces) · ✖ Telestream Audio driver (Reel uses Apple's
 own system-audio capture and the reel-audio helper instead)
 
@@ -129,8 +129,8 @@ or between markers (ripple) · ✅ clip markers · ✅ colour labels · ✅ cust
 ✅ video filters, LUTs, chroma key, background removal · ✅ audio filters, ducking, plug-ins ·
 ✅ text, titles, lower thirds, text animation, style presets · ✅ annotations, freehand callouts ·
 ✅ callouts, zoom & pan, motion (keyframes) · ✅ captions: edit, timing, SRT / VTT in and out ·
-🔜 nested clips · 🔜 canvas crop (export only part of the canvas) · 🔜 caption language ·
-🔜 automatic captions from speech (on-device, Apple Speech) · 🔜 narration: record a voice-over
+🔜 nested clips · 🔜 canvas crop (export only part of the canvas) · ✅ caption language (the speech's language) ·
+✅ automatic captions from speech (on-device, Apple Speech) · ✅ narration: record a voice-over
 while the timeline plays · 🔜 detachable timeline window · 🔜 customizable toolbar
 
 **Media library**
@@ -149,7 +149,7 @@ an app registered with that service and your sign-in; export + upload in the bro
 
 **Projects and settings**
 ✅ templates (save as / new from) · ✅ archive project (only used media) · ✅ Explain mode ·
-🔜 keyboard shortcut editor · ✅ proxy media for 4K / Retina recordings · 🔜 default document
+✅ keyboard shortcut editor · ✅ proxy media for 4K / Retina recordings · 🔜 default document
 settings (canvas, frame rate) in a Settings window
 
 ## CapCut-style ideas (adapted to the gear look)

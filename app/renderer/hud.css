@@ -80,3 +80,16 @@ body.paused .time { animation: hud-blink 1s steps(2, start) infinite; }
 /* between takes: the counter counts down to the new take */
 body.between .time { color: #fff3c8; }
 body.between .reels .rot { animation-play-state: paused; }
+
+/* the mic meter (1.15): ten LEDs under a small engraved label, only while a microphone is being recorded */
+.vu { display: none; flex: none; flex-direction: column; align-items: center; gap: 3px; }
+body.mic .vu { display: inline-flex; }
+.leds { display: flex; gap: 2px; padding: 3px; border-radius: 2px; background: #070605; box-shadow: inset 0 1px 2px rgba(0,0,0,.9), 0 0 0 1px #000, 0 1px 0 rgba(255,255,255,.07); }
+.leds i { width: 4px; height: 9px; border-radius: 1px; background: #1b2a17; }
+.leds i:nth-child(n+7) { background: #2f2810; }
+.leds i:nth-child(n+9) { background: #2f1210; }
+.leds i.on { background: #59e24a; box-shadow: 0 0 4px rgba(89,226,74,.8); }
+.leds i:nth-child(n+7).on { background: #ffb02a; box-shadow: 0 0 4px rgba(255,176,42,.8); }
+.leds i:nth-child(n+9).on { background: #ff3b2f; box-shadow: 0 0 5px rgba(255,59,47,.9); }
+.vlbl { font: 700 8px/1 "Avenir Next Condensed", "Helvetica Neue", Arial, sans-serif; letter-spacing: .22em; color: #9b9284; }
+body.quiet .vlbl { color: #ff3b2f; text-shadow: 0 0 5px rgba(255,59,47,.8); animation: blink 1s steps(2, start) infinite; }
