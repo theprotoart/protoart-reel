@@ -2,6 +2,10 @@
 
 ## 1.11.0 — 2026-11-16
 
+- Master: a De-click stage runs first on the whole mix (on in every master, old projects included), taking out clicks and pops (an edit without a fade, a plug-pop, a mouth click) before the master and the loudness target bring the level up and make them stand out. Gentle by default so drum hits are left alone; Sensitivity in Master settings if you still hear some. The Rust core does the same, sample for sample.
+- Click sounds on a clip with a time map (Elastic Wave, a retime curve) now sound with their picture: each press is placed where the map plays it, in the preview and the export, instead of as if the clip played at its average speed. The Rust core adds them too now.
+- Rust core export is on by default (Settings › Processing). Anything it can’t draw still exports the usual way by itself.
+
 - Rust core export skips drawing a frame that would come out the same as the one before (a still screen, a paused moment: the same pictures, the same layout and the same titles), and writes that frame again, so the quiet stretches of a screen recording export much faster.
 
 - Rust core export is faster on the usual screen-recording look: a rounded picture with a drop shadow takes about a quarter of the time it did per frame (the shadow’s blur is worked out a stretch at a time instead of pixel by pixel), and colour filters and looks about half (the core was working out five powers per pixel for gamma even when there was no gamma to apply, then throwing them away). The frames come out exactly the same, to the byte.

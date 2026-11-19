@@ -2,7 +2,7 @@
 // with the shared compositor, and plays sound through the elements (volume follows fades).
 import { drawFrame } from './compositor.js';
 import { pictureTrouble } from './picturefix.js';
-import { slopeAt } from './lib/retime.js';
+import { slopeAt, invertAt } from './lib/retime.js';
 import { activeClips, sourceTime, mediaById, duration, gainAt, panAt, panGains, clipEnd, spanStart, spanEnd } from './model.js';
 import { cursorAt, clicksBetween } from './cursor.js';
 import { clickSample } from './lib/click.js';
@@ -564,7 +564,9 @@ export class Player {
         const src = this.actx.createBufferSource(), g = this.actx.createGain();
         src.buffer = this._clickBuf; g.gain.value = vol;
         src.connect(g).connect(this.actx.destination);
-        src.start(this.actx.currentTime + Math.max(0, (st - s0) / (c.speed || 1)));
+        // (a time-mapped clip: when its map plays that press, 1.15)
+        const wait = c.retime ? invertAt(c.retime, st - (c.in || 0)) - (Math.max(t0, c.start) - c.start) : (st - s0) / (c.speed || 1);
+        src.start(this.actx.currentTime + Math.max(0, wait));
       }
     }
   }

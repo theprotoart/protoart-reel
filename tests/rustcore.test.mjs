@@ -520,10 +520,11 @@ for (const target of [-14, null]) test(`reel-core masters a sound-only export (b
   const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'reel-master-'));
   try {
     let s2 = 21; const r = () => ((s2 = (s2 * 16807) % 2147483647) / 2147483647);
-    writeWav(path.join(dir, 'voice.wav'), { rate: 48000, channels: 2, bits: 16, frames: 48000 * 8, sample: (i, c) => 0.3 * Math.sin(i * (c ? 0.031 : 0.027)) * (0.5 + 0.5 * Math.sin(i * 0.00007)) + 0.1 * (r() - 0.5) });
+    writeWav(path.join(dir, 'voice.wav'), { rate: 48000, channels: 2, bits: 16, frames: 48000 * 8, sample: (i, c) => 0.3 * Math.sin(i * (c ? 0.031 : 0.027)) * (0.5 + 0.5 * Math.sin(i * 0.00007)) + 0.1 * (r() - 0.5) + (i % 19997 < 2 ? 0.7 : 0) }); // (with pops for the de-click, 1.15)
     writeWav(path.join(dir, 'music.wav'), { rate: 44100, channels: 1, bits: 24, frames: 44100 * 9, sample: i => 0.35 * Math.sin(i * 0.011) * Math.sin(i * 0.0002) });
     const doc = mixDoc();
     const m = defaultMaster();
+    assert.ok(m.declick.on, 'the de-click is on in a new master');
     m.on = true; m.input.gain = 1.5; m.input.balance = 0.6; m.input.tape = 'nab-iec-15';
     m.tone.on = true; m.tone.bands[0].gain = 1.5; m.tone.bands[1] = { on: true, f: 1, shape: 'blunt', gain: -1.5 }; m.tone.bands[3] = { on: true, f: 2, shape: 'high', gain: 2 };
     m.filter.on = true; m.filter.hp = 2; m.filter.lp = 2; m.filter.presenceF = 4; m.filter.presence = 2;
@@ -574,7 +575,14 @@ test('what the core can\'t mix yet goes to the JavaScript export, with the reaso
   const mj = exportMixJob(pitched, 0, 7, { codec: 'wav' }).job;
   assert.ok(mj.maps && mj.maps[0].pts.length === 2 && mj.maps[0].tape === true && mj.fx, 'time maps go to the core now (1.1), with an empty effects section before them');
   const mapClick = mixDoc(); mapClick.clips[1].retime = [{ t: 0, s: 0 }, { t: 2.5, s: 3 }]; mapClick.clips[1].cursor = { clickSound: 0.5 };
-  assert.equal(exportMixJob(mapClick, 0, 7, { codec: 'wav', cursors: new Map([['m1', { clicks: [[100, 'd']] }]]) }).why, 'click sounds on a clip with a time map');
+  // (1.15) a time-mapped clip's clicks go to the core too, each where the map plays it: 1.5 s into the source plays
+  // 0.75 s into the clip here (the map's first second runs at double speed), not at its average speed
+  mapClick.clips[1].retime = [{ t: 0, s: 0 }, { t: 1, s: 2 }, { t: 2.5, s: 3 }];
+  const mc = exportMixJob(mapClick, 0, 7, { codec: 'wav', cursors: new Map([['m1', { clicks: [[3500, 'd'], [3560, 'u']] }]]) });
+  assert.ok(mc.job, mc.why);
+  const cc = mc.job.clicks.clips[0];
+  assert.equal(cc.ms.length, 1);
+  assert.ok(Math.abs(cc.start + (cc.ms[0] / 1000 - cc.offset - cc.in) / cc.speed - 4.95) < 1e-9, 'sounds at 4.95 s');
   const clicks = mixDoc(); clicks.clips[0].cursor = { clickSound: 0.5 };
   assert.equal(exportMixJob(clicks, 0, 5, { codec: 'wav' }).why, 'click sounds');
   // a bypassed limiter is simply not there

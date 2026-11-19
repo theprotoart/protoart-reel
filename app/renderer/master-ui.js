@@ -39,6 +39,10 @@ export function openMaster(app) {
         selectRow('Loudness', m.loudness, LOUDNESS, v => change(() => { m.loudness = v; })),
         num('Ceiling', () => m.ceiling, v => { m.ceiling = v; }, { min: -3, max: -0.1, step: 0.1, fmt: v => v.toFixed(1) + ' dBTP' })),
       el('div', { class: 'modules' },
+        module('De-click', m.declick, [
+          num('Sensitivity', () => m.declick.sensitivity, v => { m.declick.sensitivity = v; }, { min: 1, max: 10, step: 1, fmt: v => String(v) }),
+          el('p', { class: 'note', text: 'Takes clicks and pops out of the whole mix first, before the level comes up. Raise it if you still hear some; lower it if drum hits sound softened.' }),
+        ]),
         module('Input', null, [
           num('Gain', () => m.input.gain, v => { m.input.gain = v; }, { min: -24, max: 24, step: 0.1, fmt: db }),
           selectRow('Tape EQ', m.input.tape, [['flat', 'Flat'], ['nab-iec-75', 'NAB→IEC 7.5'], ['nab-iec-15', 'NAB→IEC 15'], ['iec-nab-15', 'IEC→NAB 15'], ['iec-nab-75', 'IEC→NAB 7.5']], v => change(() => { m.input.tape = v; })),

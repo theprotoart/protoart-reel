@@ -222,7 +222,7 @@ class Gain {
  * far above its recent average, and draws the sound smoothly across them. It listens about 1.3 ms ahead, so the
  * track is that much late: far less than a video frame.
  */
-class DeClick {
+export class DeClick {
   constructor(rate) {
     this.rate = rate; this.D = 64; this.N = 4096;
     this.bL = new Float32Array(this.N); this.bR = new Float32Array(this.N);

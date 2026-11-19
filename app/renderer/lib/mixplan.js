@@ -5,7 +5,7 @@
 // the two give the same sound. Pure functions.
 import { sourceTime, gainAt, panAt, panGains, spanStart, spanEnd, mediaById, duration as docDuration } from '../model.js';
 import { FX_TYPES, FxChain } from './trackfx.js';
-import { clickSample } from './click.js';
+import { clickSample, clickTimes } from './click.js';
 import { MasterChain } from './master.js';
 
 export const SEG = 256;
@@ -71,6 +71,8 @@ export function masterNumbers(settings, rate) {
     mc.atk, mc.rel, c.type === 'limit' ? 2 : c.type === 'original' ? 1 : 0, Math.max(1, Math.min(100, c.ratio)) / 100,
     g(mc.curve(-14) * 0.6 + (c.makeup || 0)), Math.max(0, Math.min(1, c.mix ?? 1)), c.type === 'original' ? 1.25 : c.type === 'limit' ? 1.4 : 1,
     g(s.output.spread), g(s.output.gain),
+    // the de-click (1.15): on, then its threshold and longest click (as fxUnitNumbers sends a track's)
+    ...(mc.dc ? [1, mc.dc.thr, mc.dc.len] : [0]),
   ];
 }
 
@@ -153,7 +155,7 @@ export const pcm24 = v => Math.max(-8388608, Math.min(8388607, Math.round(Math.m
 /**
  * A sound-only export for the Rust core: { job } with { rate, total, mixGain, soft, codec, bitrate, sources (media
  * file names), plans }, or { why } when the project uses something only the JavaScript export does so far (click
- * sounds not yet loaded, or click sounds on a clip with a time map).
+ * sounds not yet loaded).
  */
 export function exportMixJob(doc, from, to, { codec, bitrate, rate = 48000, loudness = null, ceiling = -1, cursors = null, stretchMax = 600, master = null }) {
   const start = Math.max(0, from || 0), end = Math.min(docDuration(doc), to || Infinity);
@@ -173,7 +175,6 @@ export function exportMixJob(doc, from, to, { codec, bitrate, rate = 48000, loud
   const keepsPitch = c => ((c.speed || 1) !== 1 && c.audio?.keepPitch !== false || !!c.retime) && c.duration <= stretchMax;
   // click sounds: the presses recorded with the screen (cursors: media id → its cursor file, loaded by the caller)
   const clickers = used.filter(c => c.cursor?.clickSound > 0 && !c.audio?.mute);
-  if (clickers.some(c => c.retime)) return { why: 'click sounds on a clip with a time map' };
   if (clickers.some(c => !cursors?.get(c.media)?.clicks)) return { why: 'click sounds' };
   const total = Math.floor((end - start) * rate), sources = [], index = new Map(), plans = [], stretched = [], order = [], plannedClips = [], stretchedClips = [];
   const block = loudness == null && !(master && master.on) ? 1024 : 8192; // export-worker.js's block (its mix pass for mastering: 8192)
@@ -200,7 +201,7 @@ export function exportMixJob(doc, from, to, { codec, bitrate, rate = 48000, loud
   const clicks = clickers.length ? { start, block: loud ? 8192 : 1024, wave: clickSample(rate), clips: clickers.map(c => {
     const m = mediaById(doc, c.media), data = cursors.get(c.media);
     return { start: c.start, in: c.in || 0, speed: c.speed || 1, end: c.start + c.duration, offset: m?.cursorOffset || 0, gain: c.cursor.clickSound,
-      ms: Float64Array.from(data.clicks.filter(k => k[1] !== 'u').map(k => k[0])) };
+      ms: Float64Array.from(clickTimes(c, data, m?.cursorOffset || 0)) };
   }) } : null;
   // time maps (reel-core 1.1) come after the effects section: a job with maps but no effects gets an empty one
   const mapped = stretched.some(x => x.map);

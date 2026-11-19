@@ -6,8 +6,8 @@ import { openVideo, openAudio, forgetVideos } from './lib/sources.js';
 import { drawFrame } from './compositor.js';
 import { FxChain } from './lib/trackfx.js';
 import { mediaById, sourceTime, duration as docDuration, gainAt, panAt, panGains, clipEnd, activeClips, spanStart, spanEnd } from './model.js';
-import { cursorAt, clicksBetween } from './cursor.js';
-import { clickSample } from './lib/click.js';
+import { cursorAt } from './cursor.js';
+import { clickSample, clickTimes } from './lib/click.js';
 import { GlFx, parseCube } from './lib/glfx.js';
 import { MasterChain, LoudnessMeter, TruePeakLimiter } from './lib/master.js';
 import { HttpReader, WavAudio } from './lib/sources.js';
@@ -166,6 +166,7 @@ async function run({ doc, token, opts }) {
   // ---------------- audio: mix the clips (or read the mastered mix)
   const audioClips = used.filter(c => audio.has(c.id));
   const CLICK = clickSample(RATE);
+  const clickMs = new Map();
   const clickClips = used.filter(c => c.cursor?.clickSound > 0 && !c.audio?.mute && cursors.has(mediaById(doc, c.media)?.id));
   /** Mixes clip audio for [t0, t0 + n/RATE) into stereo buffers. */
   // sped-up / slowed clips that keep their pitch: the clip's sound stretched once (WSOLA), at the output rate
@@ -237,10 +238,16 @@ async function run({ doc, token, opts }) {
     // click sounds from the recorded clicks
     for (const c of clickClips) {
       if (clipEnd(c) <= t0 || c.start >= t1) continue;
-      const m = mediaById(doc, c.media), data = cursors.get(m.id);
-      const s0 = sourceTime(c, Math.max(t0 - 0.05, c.start)), s1 = sourceTime(c, Math.min(t1, clipEnd(c)));
-      for (const st of clicksBetween(data, m.cursorOffset || 0, s0, s1)) {
-        const at = Math.round((c.start + (st - (c.in || 0)) / (c.speed || 1) - t0) * RATE), g = c.cursor.clickSound;
+      const m = mediaById(doc, c.media), off = m.cursorOffset || 0, sp = c.speed || 1, inn = c.in || 0;
+      // (lib/click.js clickTimes: a time-mapped clip's presses where its map plays them; reel-core mix.rs does the same)
+      const times = clickMs.get(c) || clickMs.set(c, clickTimes(c, cursors.get(m.id), off)).get(c);
+      const s0 = inn + (Math.max(t0 - 0.05, c.start) - c.start) * sp, s1 = inn + (Math.min(t1, clipEnd(c)) - c.start) * sp;
+      const lo = (s0 + off) * 1000, hi = (s1 + off) * 1000;
+      for (const ms of times) {
+        if (ms >= hi) break;
+        if (ms < lo) continue;
+        const st = ms / 1000 - off;
+        const at = Math.round((c.start + (st - inn) / sp - t0) * RATE), g = c.cursor.clickSound;
         for (let i = Math.max(0, -at); i < CLICK.length && at + i < n; i++) { L[at + i] += CLICK[i] * g; R[at + i] += CLICK[i] * g; }
       }
     }

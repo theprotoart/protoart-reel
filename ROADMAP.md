@@ -34,8 +34,8 @@ JavaScript runs, as before). When little JavaScript is left, the window itself c
    gated), turns it to the target and runs the true-peak limiter; identical to the JavaScript master path, sample
    for sample, with no temporary mix file. **Click sounds too** (0.7), **sped-up clips that keep their pitch** (0.8), **track and mix-bus effects** (0.9), and **the built-in master** (1.0), and **time maps** (1.1: Elastic Wave and retime curves, pitch kept or like
    tape). Still in JavaScript, and used automatically when a project needs them: master plug-ins (Audio Units,
-   which only macOS can run, so they stay with the Mac's own audio helper) and click sounds on a clip with a time
-   map. Next: picture export (step 5), starting with the frame drawing.
+   which only macOS can run, so they stay with the Mac's own audio helper). Click sounds on a clip with a time map
+   and the master's De-click joined in 1.15. Next: picture export (step 5), starting with the frame drawing.
 4. **Decoding:** read sound and video straight from the files through Apple's frameworks.
 5. **Picture export:** drawing every frame and encoding H.264 / HEVC (VideoToolbox) in Rust.
    - **Done (1.2): the container.** The core reads MP4 and MOV files itself (every track, codec and decoder

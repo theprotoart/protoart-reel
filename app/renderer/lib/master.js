@@ -3,6 +3,7 @@
 // measurement (ITU-R BS.1770 / EBU R128) and a true-peak limiter for streaming targets.
 // Original DSP written for Reel; control ranges follow the console conventions it imitates.
 import { pref } from '../prefs.js';
+import { DeClick } from './trackfx.js';
 
 const TAU = Math.PI * 2;
 const dbToGain = db => Math.pow(10, db / 20);
@@ -50,6 +51,9 @@ export const LOUDNESS_TARGETS = { off: null, youtube: -14, spotify: -14, apple: 
 export function defaultMaster() {
   return {
     on: false, order: ['tone', 'comp', 'filter'],
+    // clicks and pops in the whole mix (an edit with no fade, a plug-pop, a mouth click) taken out before the master
+    // brings the level up and makes them stand out (1.15; lib/trackfx.js DeClick, gentle so music's hits are left)
+    declick: { on: true, sensitivity: 3 },
     input: { gain: 0, tape: 'flat', polarityL: false, polarityR: false, swap: false, balance: 0 },
     tone: { on: true, bands: [{ on: true, f: 1, shape: 'low', gain: 0 }, { on: true, f: 2, shape: 'medium', gain: 0 }, { on: true, f: 2, shape: 'medium', gain: 0 }, { on: true, f: 2, shape: 'high', gain: 0 }] },
     comp: { on: true, type: 'modern', recovery: 3, ratio: 35, makeup: 0, mix: 0.45, scHp: 150 },
@@ -99,6 +103,10 @@ export class MasterChain {
     const [atk, rel] = (RECOVERY[s.comp.type] || RECOVERY.modern)[Math.max(0, Math.min(5, (s.comp.recovery || 3) - 1))];
     this.atk = Math.exp(-1 / (atk * 0.001 * r)); this.rel = Math.exp(-1 / (rel * 0.001 * r));
     this.gr = 0; this.lastGr = 0;
+    // (a master saved before 1.15 has none: on, as new ones)
+    const dc = s.declick || { on: true, sensitivity: 3 };
+    this.dc = dc.on ? new DeClick(r) : null;
+    this.dc?.update({ sensitivity: dc.sensitivity ?? 3, length: 0.6 });
   }
 
   /** Gain reduction curve in dB for a detector level (dBFS). */
@@ -116,6 +124,8 @@ export class MasterChain {
   /** Processes one stereo block in place (Float32Arrays of equal length). */
   process(L, R) {
     const s = this.s, n = L.length;
+    // ---- de-click (first, on the mix as it comes)
+    if (this.dc) this.dc.process(L, R);
     // ---- input
     const ig = dbToGain(s.input.gain), bal = s.input.balance;
     const gl = ig * dbToGain(-bal / 2) * (s.input.polarityL ? -1 : 1), gr = ig * dbToGain(bal / 2) * (s.input.polarityR ? -1 : 1);

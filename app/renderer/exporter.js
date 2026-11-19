@@ -427,7 +427,7 @@ export function openExport(app) {
         temps.push(masterFile);
       } catch (err) { cleanup(); app.api.exportCancel(h.id); reject(new Error(`Mastering failed: ${err.message}`)); return; }
     }
-    // an MP4 the Rust core can draw (Settings › Processing, while it's tested): the Mac's decoder, the core and the
+    // an MP4 the Rust core can draw (Settings › Processing, on by default since 1.15): the Mac's decoder, the core and the
     // Mac's encoder make it, with the sound mixed here first; anything it can't do exports the usual way below
     const fps0 = s.fps || 30;
     if (!SOUND.has(s.codec) && !anim && pref('rustVideo') && app.api.coreVideoExport && (loud == null || vidMix)) {

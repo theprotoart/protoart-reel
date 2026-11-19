@@ -23,6 +23,8 @@ pub struct Master {
     tone_on: bool, tone: Vec<Bq>, filter_on: bool, hp: Vec<Bq>, pres: Option<Bq>, lp: Vec<Bq>,
     comp_on: bool, sc_hp: Vec<Bq>, atk: f64, rel: f64, ctype: u8, k: f64, make: f64, mix: f64, drive: f64,
     sg: f64, og: f64, env: f64, sc: Vec<f32>,
+    /// the de-click first (1.15: MasterChain's dc, a track's De-click with the master's settings)
+    dc: Option<crate::fx::Unit>,
 }
 
 /// Reads numbers in order (the layout lib/mixplan.js masterNumbers writes).
@@ -50,8 +52,10 @@ impl Master {
         let comp_on = t.n()? != 0.0;
         let sc_hp = t.bqs()?;
         let (atk, rel, ctype, k, make, mix, drive, sg, og) = (t.n()?, t.n()?, t.n()? as u8, t.n()?, t.n()?, t.n()?, t.n()?, t.n()?, t.n()?);
+        // (older Reel sends none)
+        let dc = if t.at < v.len() && t.n()? != 0.0 { Some(crate::fx::Unit::new(9, &[t.n()?, t.n()?])?) } else { None };
         if t.at != v.len() || v.iter().any(|x| !x.is_finite()) || ctype > 2 { return Err("bad master settings".into()); }
-        Ok(Master { gl, gr, swap, tape, order, tone_on, tone, filter_on, hp, pres, lp, comp_on, sc_hp, atk, rel, ctype, k, make, mix, drive, sg, og, env: 0.0, sc: Vec::new() })
+        Ok(Master { dc, gl, gr, swap, tape, order, tone_on, tone, filter_on, hp, pres, lp, comp_on, sc_hp, atk, rel, ctype, k, make, mix, drive, sg, og, env: 0.0, sc: Vec::new() })
     }
 
     fn curve(&self, lv: f64) -> f64 {
@@ -66,6 +70,7 @@ impl Master {
 
     pub fn process(&mut self, l: &mut [f32], r: &mut [f32]) {
         let n = l.len();
+        if let Some(d) = self.dc.as_mut() { d.process(l, r); }
         if self.swap { for i in 0..n { std::mem::swap(&mut l[i], &mut r[i]); } }
         for i in 0..n { l[i] = (l[i] as f64 * self.gl) as f32; r[i] = (r[i] as f64 * self.gr) as f32; }
         if let Some((lo, hi)) = self.tape.as_mut() { lo.run(l, 0); lo.run(r, 1); hi.run(l, 0); hi.run(r, 1); }
