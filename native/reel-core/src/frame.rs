@@ -106,8 +106,9 @@ pub fn fill_layer(rgb: [u8; 3], alpha: f64) -> Layer { Layer { src: usize::MAX, 
 /// px as the canvas's shadowBlur, moved down dy px), as compositor.js drawMedia draws them; cut (1.5): the picture is
 /// cut to the box even with square corners (a stabilized picture moves inside its box).
 /// only_border (1.15): just the border, nothing else of the layer (drawn over the pointer effects on the picture, as
-/// the editor draws the border last)
-pub struct Look { pub b: [f64; 6], pub w: f64, pub h: f64, pub radius: f64, pub border: f64, pub border_rgb: [u8; 3], pub shadow: f64, pub dy: f64, pub cut: bool, pub only_border: bool }
+/// the editor draws the border last); only_shadow (1.15): just the shadow and the black under the box (under a
+/// device frame, which goes between it and the picture)
+pub struct Look { pub b: [f64; 6], pub w: f64, pub h: f64, pub radius: f64, pub border: f64, pub border_rgb: [u8; 3], pub shadow: f64, pub dy: f64, pub cut: bool, pub only_border: bool, pub only_shadow: bool }
 
 /// Signed distance (canvas px) from a point of the box (px from its middle) to its rounded edge: < 0 inside.
 fn rr_dist(x: f64, y: f64, w: f64, h: f64, r: f64) -> f64 {
@@ -309,6 +310,7 @@ pub fn draw_then(w: usize, h: usize, bg: [u8; 3], pictures: &[Picture], layers: 
                 } }
             }
         }
+        if look.as_ref().is_some_and(|(lk, _)| lk.only_shadow) { break 'one; }
         let clip = look.as_ref().filter(|(lk, _)| lk.radius > 0.0 || lk.border > 0.0 || lk.cut);
         let square = (b.abs() < 1e-9 && c.abs() < 1e-9) || (a.abs() < 1e-9 && d.abs() < 1e-9);
         let corners = [(r[0], r[1]), (r[2], r[1]), (r[0], r[3]), (r[2], r[3])];
@@ -493,14 +495,14 @@ mod tests {
     fn rounded_corners_cut_the_picture_and_a_border_goes_round_it() {
         // a 20 × 20 white picture filling a 20 × 20 box at (10, 10) on a black 40 × 40 canvas, corners 6 px, a red 2 px border
         let pic = solid(20, 20, [255, 255, 255, 255]);
-        let lk = Look { b: [20.0, 0.0, 0.0, 20.0, 20.0, 20.0], w: 20.0, h: 20.0, radius: 6.0, border: 0.0, border_rgb: [255, 0, 0], shadow: 0.0, dy: 0.0, cut: false, only_border: false };
+        let lk = Look { b: [20.0, 0.0, 0.0, 20.0, 20.0, 20.0], w: 20.0, h: 20.0, radius: 6.0, border: 0.0, border_rgb: [255, 0, 0], shadow: 0.0, dy: 0.0, cut: false, only_border: false, only_shadow: false };
         let out = draw(40, 40, [0, 0, 0], &[pic], &[Layer { src: 0, alpha: 1.0, m: [1.0, 0.0, 0.0, 1.0, 10.0, 10.0], rect: [0.0, 0.0, 20.0, 20.0], look: Some(lk), fill: None, filter: None, grade: None, ink: None, mask: None }]);
         let at = |x: usize, y: usize| out[(y * 40 + x) * 4];
         assert_eq!(at(20, 20), 255);
         assert_eq!(at(10, 10), 0, "the corner is cut off");
         assert_eq!(at(20, 10), 255, "the straight edge isn't");
         let pic = solid(20, 20, [255, 255, 255, 255]);
-        let lk = Look { b: [20.0, 0.0, 0.0, 20.0, 20.0, 20.0], w: 20.0, h: 20.0, radius: 0.0, border: 2.0, border_rgb: [255, 0, 0], shadow: 0.0, dy: 0.0, cut: false, only_border: false };
+        let lk = Look { b: [20.0, 0.0, 0.0, 20.0, 20.0, 20.0], w: 20.0, h: 20.0, radius: 0.0, border: 2.0, border_rgb: [255, 0, 0], shadow: 0.0, dy: 0.0, cut: false, only_border: false, only_shadow: false };
         let out = draw(40, 40, [0, 0, 0], &[pic], &[Layer { src: 0, alpha: 1.0, m: [1.0, 0.0, 0.0, 1.0, 10.0, 10.0], rect: [0.0, 0.0, 20.0, 20.0], look: Some(lk), fill: None, filter: None, grade: None, ink: None, mask: None }]);
         let px = |x: usize, y: usize| [out[(y * 40 + x) * 4], out[(y * 40 + x) * 4 + 1]];
         assert_eq!(px(9, 20), [255, 0], "the border outside the edge");
@@ -510,7 +512,7 @@ mod tests {
     #[test]
     fn a_shadow_falls_below() {
         let pic = solid(10, 10, [255, 255, 255, 255]);
-        let lk = Look { b: [10.0, 0.0, 0.0, 10.0, 20.0, 15.0], w: 10.0, h: 10.0, radius: 0.0, border: 0.0, border_rgb: [0, 0, 0], shadow: 8.0, dy: 2.0, cut: false, only_border: false };
+        let lk = Look { b: [10.0, 0.0, 0.0, 10.0, 20.0, 15.0], w: 10.0, h: 10.0, radius: 0.0, border: 0.0, border_rgb: [0, 0, 0], shadow: 8.0, dy: 2.0, cut: false, only_border: false, only_shadow: false };
         let out = draw(40, 40, [200, 200, 200], &[pic], &[Layer { src: 0, alpha: 1.0, m: [1.0, 0.0, 0.0, 1.0, 15.0, 10.0], rect: [0.0, 0.0, 10.0, 10.0], look: Some(lk), fill: None, filter: None, grade: None, ink: None, mask: None }]);
         let at = |x: usize, y: usize| out[(y * 40 + x) * 4];
         assert!(at(20, 22) < 170, "darker just under it: {}", at(20, 22));
@@ -527,7 +529,7 @@ mod tests {
     fn a_stabilized_picture_is_cut_to_its_box() {
         // the picture drawn twice its size around the box's middle, but cut to the 10 × 10 box at (5, 5)
         let pic = solid(10, 10, [255, 255, 255, 255]);
-        let lk = Look { b: [10.0, 0.0, 0.0, 10.0, 10.0, 10.0], w: 10.0, h: 10.0, radius: 0.0, border: 0.0, border_rgb: [0, 0, 0], shadow: 0.0, dy: 0.0, cut: true, only_border: false };
+        let lk = Look { b: [10.0, 0.0, 0.0, 10.0, 10.0, 10.0], w: 10.0, h: 10.0, radius: 0.0, border: 0.0, border_rgb: [0, 0, 0], shadow: 0.0, dy: 0.0, cut: true, only_border: false, only_shadow: false };
         let out = draw(20, 20, [0, 0, 0], &[pic], &[Layer { src: 0, alpha: 1.0, m: [2.0, 0.0, 0.0, 2.0, 0.0, 0.0], rect: [0.0, 0.0, 10.0, 10.0], look: Some(lk), fill: None, filter: None, grade: None, ink: None, mask: None }]);
         let at = |x: usize, y: usize| out[(y * 20 + x) * 4];
         assert_eq!(at(10, 10), 255);

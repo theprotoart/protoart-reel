@@ -106,7 +106,7 @@ export function framePlan(doc, t, W, H, size = m => ({ w: m.width || 0, h: m.hei
     // a device frame (a phone, laptop, browser or window round the picture, 1.13): the editor draws it, into a slot just
     // under the picture; with a shadow or a blur on the clip too it's still the editor's whole
     const framed = !!(c.frame && c.frame.type && c.frame.type !== 'none');
-    if (framed && (p.shadow > 0 || filtered)) return { why: 'device frames on a shadowed or blurred clip' };
+    if (framed && filtered) return { why: 'device frames on a blurred clip' }; // (a shadow: its own layer under the frame, 1.15)
     // the keys pressed (1.12): words the editor draws over the frame, from the recording's pointer file
     if (c.keystrokes && c.keystrokes.show) { if (!cursor) return { why: 'keystroke display' }; overlay = true; }
     // pointer effects (1.11): drawn by the core as ink layers, from the recorded pointer (cursor(c, st), as the
@@ -176,6 +176,8 @@ export function framePlan(doc, t, W, H, size = m => ({ w: m.width || 0, h: m.hei
     const n0 = layers.length;
     if (framed) {
       if (slots >= 63) return { why: 'too many device frames' };
+      // the editor's order: the shadow, the frame, the picture (1.15: the shadow a layer of its own under the frame)
+      if (look && look.shadow > 0) { layers.push({ media: m.id, clip: c.id, st, alpha: clamp(p.opacity, 0, 1), m: M, rect, look: { ...look, border: 0, onlyShadow: true }, filter: null, grade: null }); look = { ...look, shadow: 0, dy: 0 }; needs15 = true; }
       layers.push({ slot: slots++, key: 'frame:' + c.id }); overlay = true; blur = true;
     }
     // pointer effects on a bordered picture (1.15): the editor draws the border last, over them, so the picture's layer
@@ -382,7 +384,7 @@ export function encodeLayers(layers, srcOf, push, { luts = null, sent = new Map(
     }
     u32(srcOf(l)); f64(l.alpha); l.m.forEach(f64); l.rect.forEach(f64);
     const k = l.look;
-    if (!k) u8(0); else { u8(1); k.b.forEach(f64); [k.w, k.h, k.radius, k.border].forEach(f64); push(Uint8Array.from(k.borderColor)); [k.shadow, k.dy].forEach(f64); u8(k.onlyBorder ? 2 : k.cut ? 1 : 0); } // (2, 1.15: only the border)
+    if (!k) u8(0); else { u8(1); k.b.forEach(f64); [k.w, k.h, k.radius, k.border].forEach(f64); push(Uint8Array.from(k.borderColor)); [k.shadow, k.dy].forEach(f64); u8(k.onlyBorder ? 2 : k.onlyShadow ? 3 : k.cut ? 1 : 0); } // (1.15: 2 only the border, 3 only the shadow)
     const f = l.filter;
     if (!f) u8(0); else { u8(1); [f.blur, f.bright, f.sat].forEach(f64); }
     const g = l.grade;

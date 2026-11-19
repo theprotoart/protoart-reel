@@ -810,7 +810,9 @@ test('a frame that needs more than pictures says why, for the JavaScript to draw
   const fp = framePlan(fr, 1, 64, 36);
   assert.ok(!fp.why && fp.overlay && fp.layers[0].slot === 0 && fp.layers[0].key === 'frame:' + fr.clips[0].id, 'a device frame: a slot under the picture (1.13)');
   fr.clips[0].props.shadow = 20;
-  assert.match(framePlan(fr, 1, 64, 36).why, /device frames/);
+  assert.ok(!framePlan(fr, 1, 64, 36).why, 'with a shadow too: the core’s since 1.15');
+  fr.clips[0].props.blur = 3;
+  assert.match(framePlan(fr, 1, 64, 36).why, /blur/);
   const d = frameDoc([{ media: 'scr' }], media); d.clips[0].filters = [{ type: 'lut', file: 'look.cube' }];
   assert.match(framePlan(d, 1, 64, 36).why, /LUT/);
   const lp = framePlan(d, 1, 64, 36, undefined, null, { luts: new Map([['look.cube', { size: 2, data2d: new Uint8Array(24) }]]) });

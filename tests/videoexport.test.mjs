@@ -387,3 +387,14 @@ f.on('close', c => process.exit(c));
     assert.ok(split.raw.equals(whole.raw), 'the same frames, byte for byte, as in one go');
   } finally { fs.rmSync(dir, { recursive: true, force: true }); }
 });
+
+test('a device frame on a shadowed clip (1.15): the shadow under the frame, the picture over it', () => {
+  const doc = docOf([{ ...clip('c1', 'a', 't1', 0, 2, { scale: 0.5, shadow: 30 }), frame: { type: 'phone' } }]);
+  const p = framePlan(doc, 1, 320, 180);
+  assert.ok(!p.why && p.needs15, p.why);
+  assert.deepEqual(p.layers.map(l => l.slot != null ? 'frame' : l.look?.onlyShadow ? 'shadow' : 'picture'), ['shadow', 'frame', 'picture']);
+  assert.equal(p.layers[2].look.shadow, 0);
+  assert.equal(p.layers[0].look.shadow, 30);
+  doc.clips[0].props.blur = 4;
+  assert.match(framePlan(doc, 1, 320, 180).why, /blur/);
+});
