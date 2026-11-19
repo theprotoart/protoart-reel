@@ -120,7 +120,6 @@ export function framePlan(doc, t, W, H, size = m => ({ w: m.width || 0, h: m.hei
     // filtered: graded at the size it's shown (as the editor), and laid out from that picture's size
     let srcW = srcW0, srcH = srcH0, grade = null, gk = 1;
     if (u) {
-      if ((((m.rotation || 0) % 360) + 360) % 360) return { why: 'filters on a turned phone video' };
       const show = Math.min(1, ((W * Math.max(0.05, p.scale)) / Math.max(1, srcW0)) * 1.25);
       const gw = Math.max(1, Math.round(srcW0 * show)), gh = Math.max(1, Math.round(srcH0 * show));
       grade = { ...u, gw, gh };
@@ -147,6 +146,7 @@ export function framePlan(doc, t, W, H, size = m => ({ w: m.width || 0, h: m.hei
       // the whole source drawn turned (as the JavaScript: its crop moves it, nothing clips it)
       M = mul(M, scale(r.w / cw, r.h / chh)); M = mul(M, translate(-cl - cw / 2, -ct - chh / 2)); M = mul(M, translate(dispW / 2, dispH / 2)); M = mul(M, rotate(rot)); M = mul(M, translate(-srcW / 2, -srcH / 2));
       rect = [0, 0, srcW, srcH];
+      if (gk !== 1) { M = mul(M, scale(1 / gk, 1 / gk)); rect = rect.map(v => v * gk); } // (graded: as below)
     } else {
       // drawImage(img, cl, ct, cw, chh, −w/2, −h/2, w, h): the source rectangle onto the clip's rectangle
       M = mul(M, translate(-r.w / 2, -r.h / 2)); M = mul(M, scale(r.w / cw, r.h / chh)); M = mul(M, translate(-cl, -ct));

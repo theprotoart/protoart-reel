@@ -66,6 +66,14 @@ test('a video export plan: each clip read once at the size it needs, or why not'
   const ph = videoJob({ ...docOf([clip('p', 'ph', 't1', 0, 2)]), media: [{ id: 'ph', kind: 'video', file: 'phone.mov', width: 360, height: 640, rotation: 90 }] }, 0, 2, 320, 180, 10);
   assert.ok(!ph.why && !ph.whole.length, ph.why || String(ph.whole));
   assert.equal(ph.sources[0].file, 'phone.mov');
+  // with filters (1.15): graded as stored, then turned (a small one too: the graded picture's own size)
+  for (const scale of [1, 0.4]) {
+    const d = { ...docOf([{ ...clip('p', 'ph', 't1', 0, 2, { scale }), filters: [{ type: 'vignette', amount: 0.6 }] }]), media: [{ id: 'ph', kind: 'video', file: 'phone.mov', width: 360, height: 640, rotation: 90 }] };
+    const pf = framePlan(d, 1, 320, 180);
+    assert.ok(!pf.why && pf.layers[0].grade, pf.why);
+    const [x0, y0, x1, y1] = pf.layers[0].rect, g = pf.layers[0].grade;
+    assert.deepEqual([x0, y0, x1, y1], [0, 0, g.gw, g.gh], 'the whole graded picture');
+  }
   // a glitch, a light leak, a radial shutter (1.14): drawn by the core itself, as ink after the clip
   for (const type of ['glitch', 'glitch-blocks', 'vertigo', 'light-leak', 'film-burn', 'shutter', 'flare-sweep', 'letterbox', 'fast-wipe', 'film-burn-vintage']) {
     // (a fast wipe rides on a crossfade between two clips)

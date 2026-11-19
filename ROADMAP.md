@@ -69,8 +69,9 @@ JavaScript runs, as before). When little JavaScript is left, the window itself c
      drawing: PSNR 51–53 dB, worst 6/255).
    - **Done (1.15): transition effects on titles and graphics.** The titles up to one with a glitch, light leak,
      shutter… go into a slot, and the core paints the effects over it (same accuracy as on a clip).
-   - Still the editor's (drawn whole and handed to the core): filters or pointer effects on a turned phone video, a
-     dip and transition effects at once on a title, a text reveal with a wipe.
+   - **Done (1.15): filters on a turned phone video** (graded as stored, then turned, as the editor: the same to 1/255).
+   - Still the editor's (drawn whole and handed to the core): pointer effects on a turned phone video, a dip and
+     transition effects at once on a title, a text reveal with a wipe — all rare.
    - Next: those, then the setting comes on by default.
 6. **Recording:** screen, window and camera through ScreenCaptureKit.
 7. **The window:** a plain Rust interface (egui or Slint), once the pieces above no longer need the browser.

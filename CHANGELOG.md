@@ -2,6 +2,8 @@
 
 ## 1.11.0 — 2026-11-16
 
+- Rust core export: colour, looks, vignette, sharpen and the other filters on a turned phone video are drawn by the core (the same as the editor to within 1/255), instead of those frames being drawn whole by the editor.
+
 - Rust core export: glitch, light leak, film burn, lens flare, radial shutter, letterbox and the other transition effects on a title or graphic are painted by the core too (the editor draws the titles, the core the effects over them), instead of those frames being drawn whole by the editor.
 
 - Rust core 1.15: the text reveal transition is drawn by the core too. The editor draws just the words (and their soft shadow) and the core cuts the clip to them, so those frames no longer have to be drawn whole by the editor (checked against the editor’s drawing: the same to within a shade).
